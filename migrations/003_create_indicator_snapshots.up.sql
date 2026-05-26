@@ -3,21 +3,30 @@ CREATE TABLE IF NOT EXISTS indicator_snapshots (
     trade_id         UUID NOT NULL REFERENCES trades(id) ON DELETE CASCADE,
     symbol           VARCHAR(32) NOT NULL,
 
-    rsi_14_1h        NUMERIC(6,2),
+    -- RSI: 15m for setup context, 5m for entry timing
+    rsi_14_15m       NUMERIC(6,2),
+    rsi_7_5m         NUMERIC(6,2),
+
+    -- OI delta: 1h for setup confirmation, 15m for recent leverage buildup
     oi_delta_1h      NUMERIC(8,4),
-    oi_delta_4h      NUMERIC(8,4),
+    oi_delta_15m     NUMERIC(8,4),
+
+    -- ATR on 1h: pre-trade volatility filter only
     atr_14_1h        NUMERIC(20,8),
     atr_ratio        NUMERIC(6,4),
-    vol_change_1h    NUMERIC(8,4),
+
+    -- Volume anomaly on 5m: surge at entry time
+    vol_change_5m    NUMERIC(8,4),
     volume_spike     BOOLEAN NOT NULL DEFAULT false,
 
     candle_patterns  JSONB,
 
+    -- BTC context: trend on 1h, breakout detection on 15m
     btc_trend        VARCHAR(16),
     btc_momentum     INT,
     btc_rsi          NUMERIC(6,2),
     btc_change_1h    NUMERIC(8,4),
-    btc_change_4h    NUMERIC(8,4),
+    btc_change_15m   NUMERIC(8,4),
     btc_breakout     BOOLEAN NOT NULL DEFAULT false,
 
     composite_score  NUMERIC(6,2) NOT NULL,

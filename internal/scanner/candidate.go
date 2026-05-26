@@ -57,12 +57,7 @@ func calc24hVolume(cp CandleProvider, symbol string) float64 {
 	return sum
 }
 
-func buildCandidate(symbol string, rate, price float64, intervalHours int, cp CandleProvider) domain.Candidate {
-	if intervalHours <= 0 {
-		intervalHours = 8
-	}
-	paymentsPerDay := 24.0 / float64(intervalHours)
-	dailyROI := -rate * paymentsPerDay * 100
+func buildCandidate(symbol string, rate, price float64, cp CandleProvider) domain.Candidate {
 
 	var roi1d, roi4h, roi1h float64
 	var volume24h float64
@@ -77,7 +72,7 @@ func buildCandidate(symbol string, rate, price float64, intervalHours int, cp Ca
 		Symbol:      symbol,
 		FundingRate: rate,
 		MarkPrice:   price,
-		DailyROI:    dailyROI,
+		DailyROI:    roi1d,
 		ROI1D:       roi1d,
 		ROI4H:       roi4h,
 		ROI1H:       roi1h,

@@ -84,3 +84,13 @@ func (e *MarketEngine) TickerCache() *TickerCache {
 func (e *MarketEngine) OIHistory() *indicator.OIHistory {
 	return e.oi.History()
 }
+
+// PurgeSymbol removes candle and OI data for a symbol that has left the active watchlist.
+// FundingCache and TickerCache are intentionally excluded — they are driven by the
+// mark price stream which covers all symbols, and purging them would break rate lookups
+// for symbols that briefly fall out of the top-N but are still live on the exchange.
+func (e *MarketEngine) PurgeSymbol(symbol string) {
+	e.candles.Purge(symbol)
+	e.oi.Purge(symbol)
+	slog.Debug("purged stale market data", "symbol", symbol)
+}

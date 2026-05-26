@@ -10,8 +10,8 @@ app:
 
 binance:
   # Required for live mode; leave empty for paper
-  api_key: "${BINANCE_API_KEY}"
-  api_secret: "${BINANCE_API_SECRET}"
+  api_key: "${BINANCE.API_KEY}"
+  api_secret: "${BINANCE.API_SECRET}"
   base_url: "https://fapi.binance.com"
   ws_url: "wss://fstream.binance.com"
   testnet: false
@@ -19,7 +19,7 @@ binance:
 trading:
   max_positions: 2
   leverage: 20
-  position_size_pct: 3.0
+  position_size_pct: 5.0
   cooldown_minutes: 15
 
 funding:
@@ -29,8 +29,8 @@ funding:
 
 execution:
   sl_pct: 5.0
-  tp_pct: 2.0
-  trailing_enabled: false
+  tp_pct: 2.2
+  trailing_enabled: true
   trailing_activation_pct: 1.5
   breakeven_activation_pct: 1.0
   slippage_bps: 1
@@ -38,7 +38,7 @@ execution:
 scheduler:
   scan_interval_early: "5m"
   scan_interval_late: "1m"
-  window_start_minutes: 30
+  window_start_minutes: 15
 
 websocket:
   ping_interval: "2m"
@@ -49,14 +49,14 @@ websocket:
 
 database:
   postgres:
-    host: "localhost"
+    host: "${POSTGRES.HOST}"
     port: 5432
-    user: "futures"
-    password: "${POSTGRES_PASSWORD}"
-    dbname: "futures_bot"
+    user: "${POSTGRES.USERNAME}"
+    password: "${POSTGRES.PASSWORD}"
+    dbname: "${POSTGRES.DATABASE}"
     sslmode: "disable"
     max_conns: 10
   redis:
-    addr: "localhost:6379"
-    password: ""
-    db: 0
+    addr: "${REDIS.HOST}:${REDIS.PORT}"
+    password: "${REDIS.PASSWORD}"
+    db: "${REDOS.DATABASE}"

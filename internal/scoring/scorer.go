@@ -60,9 +60,9 @@ func (s *Scorer) Score(c domain.Candidate, ind *domain.IndicatorSnapshot, btc *d
 	// 4. Candle (max 20)
 	bd.CandleScore = scoreCandlePatterns(ind.Patterns, s.weights.Candle)
 
-	// 5. Volume (max 10): spike + overbought RSI = exhaustion signal
+	// 5. Volume (max 10): spike on 5m + overbought RSI on 5m = exhaustion right now
 	switch {
-	case ind.VolumeSpike && ind.RSI14_1h > 60:
+	case ind.VolumeSpike && ind.RSI7_5m > 65:
 		bd.VolumeScore = s.weights.Volume
 	case ind.VolumeSpike:
 		bd.VolumeScore = s.weights.Volume * 0.5
@@ -138,8 +138,8 @@ func scoreCandlePatterns(signals []domain.CandleSignal, maxScore float64) float6
 	}
 	strWeight := map[domain.PatternStrength]float64{
 		domain.StrengthStrong: 1.0,
-		domain.StrengthMedium: 0.6,
-		domain.StrengthWeak:   0.3,
+		domain.StrengthMedium: 0.7,
+		domain.StrengthWeak:   0.35,
 	}
 
 	var rawScore float64

@@ -41,6 +41,14 @@ func (c *OICache) Delta(symbol string, window time.Duration) (float64, error) {
 	return c.history.Delta(symbol, window)
 }
 
+// Purge removes OI data for a symbol (called when it leaves the top-N watchlist).
+func (c *OICache) Purge(symbol string) {
+	c.mu.Lock()
+	delete(c.current, symbol)
+	c.mu.Unlock()
+	c.history.Purge(symbol)
+}
+
 // History returns the underlying OIHistory for use by the indicator engine.
 func (c *OICache) History() *indicator.OIHistory {
 	return c.history
