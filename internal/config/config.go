@@ -1,0 +1,340 @@
+package config
+
+import (
+	"fmt"
+	"os"
+	"time"
+
+	"gopkg.in/yaml.v3"
+)
+
+type Config struct {
+	App        AppConfig        `yaml:"app"`
+	Binance    BinanceConfig    `yaml:"binance"`
+	Trading    TradingConfig    `yaml:"trading"`
+	Funding    FundingConfig    `yaml:"funding"`
+	Execution  ExecutionConfig  `yaml:"execution"`
+	Scheduler  SchedulerConfig  `yaml:"scheduler"`
+	WebSocket  WebSocketConfig  `yaml:"websocket"`
+	Database   DatabaseConfig   `yaml:"database"`
+	Filtering  FilteringConfig  `yaml:"filtering"`
+	Scoring    ScoringConfig    `yaml:"scoring"`
+	Indicators IndicatorConfig  `yaml:"indicators"`
+	Risk       RiskConfig       `yaml:"risk"`
+	Backtest   BacktestConfig   `yaml:"backtest"`
+}
+
+type AppConfig struct {
+	Mode         string  `yaml:"mode"`
+	LogLevel     string  `yaml:"log_level"`
+	PaperBalance float64 `yaml:"paper_balance"`
+}
+
+type BinanceConfig struct {
+	APIKey    string `yaml:"api_key"`
+	APISecret string `yaml:"api_secret"`
+	BaseURL   string `yaml:"base_url"`
+	WsURL     string `yaml:"ws_url"`
+	Testnet   bool   `yaml:"testnet"`
+}
+
+type TradingConfig struct {
+	MaxPositions    int     `yaml:"max_positions"`
+	Leverage        int     `yaml:"leverage"`
+	PositionSizePct float64 `yaml:"position_size_pct"`
+	CooldownMinutes int     `yaml:"cooldown_minutes"`
+}
+
+type FundingConfig struct {
+	MinRate       float64 `yaml:"min_rate"`
+	MaxRate       float64 `yaml:"max_rate"`
+	TopCandidates int     `yaml:"top_candidates"`
+}
+
+type ExecutionConfig struct {
+	SlPct                  float64 `yaml:"sl_pct"`
+	TpPct                  float64 `yaml:"tp_pct"`
+	TrailingEnabled        bool    `yaml:"trailing_enabled"`
+	TrailingActivationPct  float64 `yaml:"trailing_activation_pct"`
+	BreakevenActivationPct float64 `yaml:"breakeven_activation_pct"`
+	SlippageBps            int     `yaml:"slippage_bps"`
+}
+
+type SchedulerConfig struct {
+	ScanIntervalEarly  string `yaml:"scan_interval_early"`
+	ScanIntervalLate   string `yaml:"scan_interval_late"`
+	WindowStartMinutes int    `yaml:"window_start_minutes"`
+}
+
+type WebSocketConfig struct {
+	PingInterval         string `yaml:"ping_interval"`
+	StaleTimeout         string `yaml:"stale_timeout"`
+	MaxReconnectFailures int    `yaml:"max_reconnect_failures"`
+	ReconnectBaseBackoff string `yaml:"reconnect_base_backoff"`
+	ReconnectMaxBackoff  string `yaml:"reconnect_max_backoff"`
+}
+
+type DatabaseConfig struct {
+	Postgres PostgresConfig `yaml:"postgres"`
+	Redis    RedisConfig    `yaml:"redis"`
+}
+
+type FilteringConfig struct {
+	MinDailyROIPct  float64 `yaml:"min_daily_roi_pct"`
+	MinVolume24hM   float64 `yaml:"min_volume_24h_m"`
+}
+
+type ScoringWeightsConfig struct {
+	Funding    float64 `yaml:"funding"`
+	OI         float64 `yaml:"oi"`
+	BTC        float64 `yaml:"btc"`
+	Candle     float64 `yaml:"candle"`
+	Volume     float64 `yaml:"volume"`
+	ROI        float64 `yaml:"roi"`
+	Volatility float64 `yaml:"volatility"`
+}
+
+type ScoringConfig struct {
+	Weights  ScoringWeightsConfig `yaml:"weights"`
+	MinScore float64              `yaml:"min_score"`
+}
+
+type IndicatorConfig struct {
+	RSIPeriod            int     `yaml:"rsi_period"`
+	ATRPeriod            int     `yaml:"atr_period"`
+	OIWindow             string  `yaml:"oi_window"`
+	VolumeAvgWindow      int     `yaml:"volume_avg_window"`
+	VolumeSpikeThreshold float64 `yaml:"volume_spike_threshold"`
+}
+
+type RiskConfig struct {
+	MaxDailyLosses    int     `yaml:"max_daily_losses"`
+	MaxDrawdownPct    float64 `yaml:"max_drawdown_pct"`
+	MaxATRRatio       float64 `yaml:"max_atr_ratio"`
+	BTCBreakoutReject bool    `yaml:"btc_breakout_reject"`
+}
+
+type BacktestConfig struct {
+	DataDir string `yaml:"data_dir"`
+}
+
+type PostgresConfig struct {
+	Host     string `yaml:"host"`
+	Port     int    `yaml:"port"`
+	User     string `yaml:"user"`
+	Password string `yaml:"password"`
+	DBName   string `yaml:"dbname"`
+	SSLMode  string `yaml:"sslmode"`
+	MaxConns int    `yaml:"max_conns"`
+}
+
+type RedisConfig struct {
+	Addr     string `yaml:"addr"`
+	Password string `yaml:"password"`
+	DB       int    `yaml:"db"`
+}
+
+func Load(path string) (*Config, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("read config: %w", err)
+	}
+
+	expanded := os.ExpandEnv(string(data))
+
+	var cfg Config
+	if err := yaml.Unmarshal([]byte(expanded), &cfg); err != nil {
+		return nil, fmt.Errorf("parse config: %w", err)
+	}
+
+	setDefaults(&cfg)
+	return &cfg, nil
+}
+
+func setDefaults(cfg *Config) {
+	if cfg.App.Mode == "" {
+		cfg.App.Mode = "paper"
+	}
+	if cfg.App.LogLevel == "" {
+		cfg.App.LogLevel = "info"
+	}
+	if cfg.App.PaperBalance == 0 {
+		cfg.App.PaperBalance = 1000.0
+	}
+	if cfg.Binance.BaseURL == "" {
+		cfg.Binance.BaseURL = "https://fapi.binance.com"
+	}
+	if cfg.Binance.WsURL == "" {
+		cfg.Binance.WsURL = "wss://fstream.binance.com"
+	}
+	if cfg.Trading.MaxPositions == 0 {
+		cfg.Trading.MaxPositions = 2
+	}
+	if cfg.Trading.Leverage == 0 {
+		cfg.Trading.Leverage = 20
+	}
+	if cfg.Trading.PositionSizePct == 0 {
+		cfg.Trading.PositionSizePct = 3.0
+	}
+	if cfg.Trading.CooldownMinutes == 0 {
+		cfg.Trading.CooldownMinutes = 15
+	}
+	if cfg.Funding.MinRate == 0 {
+		cfg.Funding.MinRate = -0.02
+	}
+	if cfg.Funding.MaxRate == 0 {
+		cfg.Funding.MaxRate = -0.002
+	}
+	if cfg.Funding.TopCandidates == 0 {
+		cfg.Funding.TopCandidates = 10
+	}
+	if cfg.Execution.SlPct == 0 {
+		cfg.Execution.SlPct = 5.0
+	}
+	if cfg.Execution.TpPct == 0 {
+		cfg.Execution.TpPct = 2.0
+	}
+	if cfg.Execution.BreakevenActivationPct == 0 {
+		cfg.Execution.BreakevenActivationPct = 1.0
+	}
+	if cfg.Execution.SlippageBps == 0 {
+		cfg.Execution.SlippageBps = 1
+	}
+	if cfg.Scheduler.ScanIntervalEarly == "" {
+		cfg.Scheduler.ScanIntervalEarly = "5m"
+	}
+	if cfg.Scheduler.ScanIntervalLate == "" {
+		cfg.Scheduler.ScanIntervalLate = "1m"
+	}
+	if cfg.Scheduler.WindowStartMinutes == 0 {
+		cfg.Scheduler.WindowStartMinutes = 30
+	}
+	if cfg.WebSocket.PingInterval == "" {
+		cfg.WebSocket.PingInterval = "2m"
+	}
+	if cfg.WebSocket.StaleTimeout == "" {
+		cfg.WebSocket.StaleTimeout = "30s"
+	}
+	if cfg.WebSocket.MaxReconnectFailures == 0 {
+		cfg.WebSocket.MaxReconnectFailures = 5
+	}
+	if cfg.WebSocket.ReconnectBaseBackoff == "" {
+		cfg.WebSocket.ReconnectBaseBackoff = "1s"
+	}
+	if cfg.WebSocket.ReconnectMaxBackoff == "" {
+		cfg.WebSocket.ReconnectMaxBackoff = "30s"
+	}
+	if cfg.Database.Postgres.Host == "" {
+		cfg.Database.Postgres.Host = "localhost"
+	}
+	if cfg.Database.Postgres.Port == 0 {
+		cfg.Database.Postgres.Port = 5432
+	}
+	if cfg.Database.Postgres.SSLMode == "" {
+		cfg.Database.Postgres.SSLMode = "disable"
+	}
+	if cfg.Database.Postgres.MaxConns == 0 {
+		cfg.Database.Postgres.MaxConns = 10
+	}
+	if cfg.Database.Redis.Addr == "" {
+		cfg.Database.Redis.Addr = "localhost:6379"
+	}
+
+	// Phase 2 defaults
+	if cfg.Filtering.MinDailyROIPct == 0 {
+		cfg.Filtering.MinDailyROIPct = 20.0
+	}
+	if cfg.Filtering.MinVolume24hM == 0 {
+		cfg.Filtering.MinVolume24hM = 50.0
+	}
+	if cfg.Scoring.MinScore == 0 {
+		cfg.Scoring.MinScore = 60.0
+	}
+	if cfg.Scoring.Weights.Funding == 0 {
+		cfg.Scoring.Weights.Funding = 25
+		cfg.Scoring.Weights.OI = 15
+		cfg.Scoring.Weights.BTC = 10
+		cfg.Scoring.Weights.Candle = 20
+		cfg.Scoring.Weights.Volume = 10
+		cfg.Scoring.Weights.ROI = 15
+		cfg.Scoring.Weights.Volatility = 5
+	}
+	if cfg.Indicators.RSIPeriod == 0 {
+		cfg.Indicators.RSIPeriod = 14
+	}
+	if cfg.Indicators.ATRPeriod == 0 {
+		cfg.Indicators.ATRPeriod = 14
+	}
+	if cfg.Indicators.OIWindow == "" {
+		cfg.Indicators.OIWindow = "1h"
+	}
+	if cfg.Indicators.VolumeAvgWindow == 0 {
+		cfg.Indicators.VolumeAvgWindow = 24
+	}
+	if cfg.Indicators.VolumeSpikeThreshold == 0 {
+		cfg.Indicators.VolumeSpikeThreshold = 2.0
+	}
+	if cfg.Risk.MaxDailyLosses == 0 {
+		cfg.Risk.MaxDailyLosses = 2
+	}
+	if cfg.Risk.MaxDrawdownPct == 0 {
+		cfg.Risk.MaxDrawdownPct = 10.0
+	}
+	if cfg.Risk.MaxATRRatio == 0 {
+		cfg.Risk.MaxATRRatio = 6.0
+	}
+	if !cfg.Risk.BTCBreakoutReject {
+		cfg.Risk.BTCBreakoutReject = true
+	}
+	if cfg.Backtest.DataDir == "" {
+		cfg.Backtest.DataDir = "./data/backtest"
+	}
+}
+
+func (c *WebSocketConfig) GetStaleTimeout() time.Duration {
+	d, err := time.ParseDuration(c.StaleTimeout)
+	if err != nil {
+		return 30 * time.Second
+	}
+	return d
+}
+
+func (c *WebSocketConfig) GetPingInterval() time.Duration {
+	d, err := time.ParseDuration(c.PingInterval)
+	if err != nil {
+		return 2 * time.Minute
+	}
+	return d
+}
+
+func (c *WebSocketConfig) GetReconnectBaseBackoff() time.Duration {
+	d, err := time.ParseDuration(c.ReconnectBaseBackoff)
+	if err != nil {
+		return time.Second
+	}
+	return d
+}
+
+func (c *WebSocketConfig) GetReconnectMaxBackoff() time.Duration {
+	d, err := time.ParseDuration(c.ReconnectMaxBackoff)
+	if err != nil {
+		return 30 * time.Second
+	}
+	return d
+}
+
+func (c *SchedulerConfig) GetScanIntervalEarly() time.Duration {
+	d, err := time.ParseDuration(c.ScanIntervalEarly)
+	if err != nil {
+		return 5 * time.Minute
+	}
+	return d
+}
+
+func (c *SchedulerConfig) GetScanIntervalLate() time.Duration {
+	d, err := time.ParseDuration(c.ScanIntervalLate)
+	if err != nil {
+		return time.Minute
+	}
+	return d
+}

@@ -1,0 +1,87 @@
+app:
+  mode: "paper"
+  log_level: "info"
+  paper_balance: 1000.0
+
+binance:
+  api_key: "${BINANCE_API_KEY}"
+  api_secret: "${BINANCE_API_SECRET}"
+  base_url: "https://fapi.binance.com"
+  ws_url: "wss://fstream.binance.com"
+  testnet: false
+
+trading:
+  max_positions: 2
+  leverage: 20
+  position_size_pct: 3.0
+  cooldown_minutes: 15
+
+funding:
+  min_rate: -0.02
+  max_rate: -0.002
+  top_candidates: 10
+
+execution:
+  sl_pct: 5.0
+  tp_pct: 2.0
+  trailing_enabled: false
+  trailing_activation_pct: 1.5
+  breakeven_activation_pct: 1.0
+  slippage_bps: 1
+
+scheduler:
+  scan_interval_early: "5m"
+  scan_interval_late: "1m"
+  window_start_minutes: 30
+
+websocket:
+  ping_interval: "2m"
+  stale_timeout: "30s"
+  max_reconnect_failures: 5
+  reconnect_base_backoff: "1s"
+  reconnect_max_backoff: "30s"
+
+database:
+  postgres:
+    host: "localhost"
+    port: 5432
+    user: "futures"
+    password: "${POSTGRES_PASSWORD}"
+    dbname: "futures_bot"
+    sslmode: "disable"
+    max_conns: 10
+  redis:
+    addr: "localhost:6379"
+    password: ""
+    db: 0
+
+filtering:
+  min_daily_roi_pct: 20.0
+  min_volume_24h_m: 50.0
+
+scoring:
+  weights:
+    funding: 25
+    oi: 15
+    btc: 10
+    candle: 20
+    volume: 10
+    roi: 15
+    volatility: 5
+  min_score: 60.0
+
+indicators:
+  rsi_period: 14
+  atr_period: 14
+  oi_window: "1h"
+  volume_avg_window: 24
+  volume_spike_threshold: 2.0
+
+risk:
+  max_daily_losses: 2
+  max_drawdown_pct: 10.0
+  max_atr_ratio: 6.0
+  btc_breakout_reject: true
+
+backtest:
+  data_dir: "./data/backtest"

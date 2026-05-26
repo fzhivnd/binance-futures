@@ -1,0 +1,39 @@
+CREATE TABLE IF NOT EXISTS indicator_snapshots (
+    id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    trade_id         UUID NOT NULL REFERENCES trades(id) ON DELETE CASCADE,
+    symbol           VARCHAR(32) NOT NULL,
+
+    rsi_14_1h        NUMERIC(6,2),
+    oi_delta_1h      NUMERIC(8,4),
+    oi_delta_4h      NUMERIC(8,4),
+    atr_14_1h        NUMERIC(20,8),
+    atr_ratio        NUMERIC(6,4),
+    vol_change_1h    NUMERIC(8,4),
+    volume_spike     BOOLEAN NOT NULL DEFAULT false,
+
+    candle_patterns  JSONB,
+
+    btc_trend        VARCHAR(16),
+    btc_momentum     INT,
+    btc_rsi          NUMERIC(6,2),
+    btc_change_1h    NUMERIC(8,4),
+    btc_change_4h    NUMERIC(8,4),
+    btc_breakout     BOOLEAN NOT NULL DEFAULT false,
+
+    composite_score  NUMERIC(6,2) NOT NULL,
+    score_funding    NUMERIC(6,2),
+    score_oi         NUMERIC(6,2),
+    score_btc        NUMERIC(6,2),
+    score_candle     NUMERIC(6,2),
+    score_volume     NUMERIC(6,2),
+    score_roi        NUMERIC(6,2),
+    score_volatility NUMERIC(6,2),
+    confidence       VARCHAR(16),
+    position_size_pct NUMERIC(4,2),
+
+    created_at       TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_indicator_snapshots_trade_id ON indicator_snapshots(trade_id);
+CREATE INDEX idx_indicator_snapshots_symbol   ON indicator_snapshots(symbol);
+CREATE INDEX idx_indicator_snapshots_score    ON indicator_snapshots(composite_score DESC);
