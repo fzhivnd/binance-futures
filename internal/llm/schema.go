@@ -22,10 +22,12 @@ type LLMCandidate struct {
 	DailyROI        float64         `json:"daily_roi_pct"`
 	CompositeScore  float64         `json:"composite_score"`
 	ScoreBreakdown  LLMBreakdown    `json:"score_breakdown"`
-	RSI14           float64         `json:"rsi_14_1h"`
+	RSI14_15m       float64         `json:"rsi_14_15m"`
+	RSI7_5m         float64         `json:"rsi_7_5m"`
 	OIDelta1h       float64         `json:"oi_delta_1h_pct"`
-	OIDelta4h       float64         `json:"oi_delta_4h_pct"`
+	OIDelta15m      float64         `json:"oi_delta_15m_pct"`
 	ATRRatio        float64         `json:"atr_ratio"`
+	VolChange5m     float64         `json:"vol_change_5m_pct"`
 	VolumeSpikeFlag bool            `json:"volume_spike"`
 	MomentumLoss    bool            `json:"momentum_loss"`
 	CandlePatterns  []LLMCandleInfo `json:"candle_patterns"`

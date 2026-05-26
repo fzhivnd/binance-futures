@@ -246,18 +246,20 @@ type LLMBTCContext struct {
 }
 
 type LLMCandidate struct {
-    Symbol         string           `json:"symbol"`
-    FundingRate    float64          `json:"funding_rate_pct"`     // e.g. -0.85 means -0.85%
-    DailyROI       float64          `json:"daily_roi_pct"`        // e.g. 34.5 means 34.5%
-    CompositeScore float64          `json:"composite_score"`      // 0-100
-    ScoreBreakdown LLMBreakdown     `json:"score_breakdown"`
-    RSI14          float64          `json:"rsi_14_1h"`
-    OIDelta1h      float64          `json:"oi_delta_1h_pct"`
-    OIDelta4h      float64          `json:"oi_delta_4h_pct"`
-    ATRRatio       float64          `json:"atr_ratio"`
+    Symbol          string          `json:"symbol"`
+    FundingRate     float64         `json:"funding_rate_pct"`    // e.g. -0.85 means -0.85%
+    DailyROI        float64         `json:"daily_roi_pct"`       // e.g. 34.5 means 34.5%
+    CompositeScore  float64         `json:"composite_score"`     // 0-100
+    ScoreBreakdown  LLMBreakdown    `json:"score_breakdown"`
+    RSI14_15m       float64         `json:"rsi_14_15m"`          // setup context (~3.5h lookback)
+    RSI7_5m         float64         `json:"rsi_7_5m"`            // entry timing (~35 min lookback)
+    OIDelta1h       float64         `json:"oi_delta_1h_pct"`     // setup confirmation
+    OIDelta15m      float64         `json:"oi_delta_15m_pct"`    // recent leverage buildup
+    ATRRatio        float64         `json:"atr_ratio"`           // ATR/price * 100
+    VolChange5m     float64         `json:"vol_change_5m_pct"`   // current 5m vol vs 2h avg
     VolumeSpikeFlag bool            `json:"volume_spike"`
     MomentumLoss    bool            `json:"momentum_loss"`
-    CandlePatterns []LLMCandleInfo  `json:"candle_patterns"`
+    CandlePatterns  []LLMCandleInfo `json:"candle_patterns"`
 }
 
 type LLMBreakdown struct {
@@ -390,8 +392,8 @@ Breakout: {{btc_breakout}} | RSI(14): {{btc_rsi}} | 1h change: {{btc_1h_pct}}%
 [{{index}}] {{symbol}}
   Funding: {{funding_rate_pct}}% | Daily ROI: {{daily_roi_pct}}% | Score: {{composite_score}}/100
   Score breakdown: funding={{breakdown.funding}} oi={{breakdown.oi}} btc={{breakdown.btc}} candle={{breakdown.candle}} vol={{breakdown.volume}} roi={{breakdown.roi}} volatility={{breakdown.volatility}}
-  RSI(14,1h): {{rsi_14_1h}} | OI delta 1h: +{{oi_delta_1h_pct}}% | OI delta 4h: +{{oi_delta_4h_pct}}%
-  ATR ratio: {{atr_ratio}} | Volume spike: {{volume_spike}} | Momentum loss: {{momentum_loss}}
+  RSI(14,15m): {{rsi_14_15m}} | RSI(7,5m): {{rsi_7_5m}} | OI delta 1h: +{{oi_delta_1h_pct}}% | OI delta 15m: +{{oi_delta_15m_pct}}%
+  ATR ratio: {{atr_ratio}} | Vol change 5m: {{vol_change_5m_pct}}% | Volume spike: {{volume_spike}} | Momentum loss: {{momentum_loss}}
   Candle patterns: {{#each candle_patterns}}[{{timeframe}}:{{pattern}}({{strength}})] {{/each}}
 {{/each}}
 
@@ -413,22 +415,22 @@ Breakout: false | RSI(14): 52.3 | 1h change: -0.3%
 [1] 1000PEPEUSDT
   Funding: -0.85% | Daily ROI: 34.5% | Score: 78/100
   Score breakdown: funding=21.3 oi=15.0 btc=7.0 candle=18.5 vol=10.0 roi=15.0 volatility=5.0
-  RSI(14,1h): 71.2 | OI delta 1h: +18.3% | OI delta 4h: +42.1%
-  ATR ratio: 2.8 | Volume spike: true | Momentum loss: true
+  RSI(14,15m): 71.2 | RSI(7,5m): 74.8 | OI delta 1h: +18.3% | OI delta 15m: +6.2%
+  ATR ratio: 2.8 | Vol change 5m: 3.1% | Volume spike: true | Momentum loss: true
   Candle patterns: [1h:SHOOTING_STAR(STRONG)] [30m:BEARISH_ENGULFING(STRONG)] [15m:DOJI_AFTER_PUMP(MEDIUM)]
 
 [2] WIFUSDT
   Funding: -0.62% | Daily ROI: 28.1% | Score: 71/100
   Score breakdown: funding=18.5 oi=11.2 btc=7.0 candle=14.2 vol=5.0 roi=15.0 volatility=3.0
-  RSI(14,1h): 65.8 | OI delta 1h: +12.1% | OI delta 4h: +25.6%
-  ATR ratio: 3.1 | Volume spike: false | Momentum loss: false
+  RSI(14,15m): 65.8 | RSI(7,5m): 68.1 | OI delta 1h: +12.1% | OI delta 15m: +3.4%
+  ATR ratio: 3.1 | Vol change 5m: 1.2% | Volume spike: false | Momentum loss: false
   Candle patterns: [1h:UPPER_WICK_REJECTION(MEDIUM)] [5m:FAILED_BREAKOUT(WEAK)]
 
 [3] DOGEUSDT
   Funding: -0.41% | Daily ROI: 22.3% | Score: 64/100
   Score breakdown: funding=15.2 oi=7.5 btc=7.0 candle=12.0 vol=5.0 roi=15.0 volatility=3.0
-  RSI(14,1h): 58.2 | OI delta 1h: +5.2% | OI delta 4h: +11.8%
-  ATR ratio: 1.9 | Volume spike: false | Momentum loss: false
+  RSI(14,15m): 58.2 | RSI(7,5m): 55.9 | OI delta 1h: +5.2% | OI delta 15m: +1.1%
+  ATR ratio: 1.9 | Vol change 5m: 0.4% | Volume spike: false | Momentum loss: false
   Candle patterns: [30m:DOJI_AFTER_PUMP(WEAK)]
 
 Evaluate these candidates and provide your trade decision.
@@ -446,11 +448,11 @@ Evaluate these candidates and provide your trade decision.
   "entry_reasons": [
     "Extreme funding -0.85% with OI still rising +18% indicates overleveraged longs about to face settlement pressure",
     "Strong bearish candle confluence across 1h/30m/15m with shooting star + engulfing pattern",
-    "RSI 71 with momentum loss signals exhaustion at resistance",
-    "Volume spike confirms distribution phase"
+    "RSI(14,15m) 71 + RSI(7,5m) 74 with momentum loss signals exhaustion at resistance",
+    "Volume spike on 5m (+3.1% vs avg) confirms active distribution"
   ],
   "warnings": [
-    "4h OI delta +42% is very high - could indicate incoming squeeze if price breaks above recent high",
+    "OI delta 15m +6.2% still accelerating — could indicate incoming squeeze if price breaks above recent high",
     "BTC momentum neutral but watch for sudden pump that could drag alts up"
   ],
   "skip_reason": ""
@@ -634,10 +636,10 @@ func (p *PromptBuilder) UserMessage(req *LLMRequest) string {
         sb.WriteString(fmt.Sprintf("  Score breakdown: funding=%.1f oi=%.1f btc=%.1f candle=%.1f vol=%.1f roi=%.1f volatility=%.1f\n",
             c.ScoreBreakdown.Funding, c.ScoreBreakdown.OI, c.ScoreBreakdown.BTC,
             c.ScoreBreakdown.Candle, c.ScoreBreakdown.Volume, c.ScoreBreakdown.ROI, c.ScoreBreakdown.Volatility))
-        sb.WriteString(fmt.Sprintf("  RSI(14,1h): %.1f | OI delta 1h: +%.1f%% | OI delta 4h: +%.1f%%\n",
-            c.RSI14, c.OIDelta1h, c.OIDelta4h))
-        sb.WriteString(fmt.Sprintf("  ATR ratio: %.1f | Volume spike: %v | Momentum loss: %v\n",
-            c.ATRRatio, c.VolumeSpikeFlag, c.MomentumLoss))
+        sb.WriteString(fmt.Sprintf("  RSI(14,15m): %.1f | RSI(7,5m): %.1f | OI delta 1h: +%.1f%% | OI delta 15m: +%.1f%%\n",
+            c.RSI14_15m, c.RSI7_5m, c.OIDelta1h, c.OIDelta15m))
+        sb.WriteString(fmt.Sprintf("  ATR ratio: %.1f | Vol change 5m: %.1f%% | Volume spike: %v | Momentum loss: %v\n",
+            c.ATRRatio, c.VolChange5m, c.VolumeSpikeFlag, c.MomentumLoss))
         if len(c.CandlePatterns) > 0 {
             sb.WriteString("  Candle patterns: ")
             for _, cp := range c.CandlePatterns {
@@ -704,12 +706,14 @@ func MapToLLMRequest(
                 ROI:        sc.Breakdown.ROIScore,
                 Volatility: sc.Breakdown.VolatilityScore,
             },
-            RSI14:          sc.Indicators.RSI14_1h,
-            OIDelta1h:      sc.Indicators.OIDelta1h,
-            OIDelta4h:      sc.Indicators.OIDelta4h,
-            ATRRatio:       sc.Indicators.ATRRatio,
+            RSI14_15m:       sc.Indicators.RSI14_15m,
+            RSI7_5m:         sc.Indicators.RSI7_5m,
+            OIDelta1h:       sc.Indicators.OIDelta1h,
+            OIDelta15m:      sc.Indicators.OIDelta15m,
+            ATRRatio:        sc.Indicators.ATRRatio,
+            VolChange5m:     sc.Indicators.VolChange5m,
             VolumeSpikeFlag: sc.Indicators.VolumeSpike,
-            MomentumLoss:   sc.Indicators.MomentumLoss,
+            MomentumLoss:    sc.Indicators.MomentumLoss,
         }
 
         // Map candle patterns

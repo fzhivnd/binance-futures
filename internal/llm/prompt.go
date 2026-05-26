@@ -84,10 +84,10 @@ func (p *PromptBuilder) UserMessage(req *LLMRequest) string {
 		sb.WriteString(fmt.Sprintf("  Score breakdown: funding=%.1f oi=%.1f btc=%.1f candle=%.1f vol=%.1f roi=%.1f volatility=%.1f\n",
 			c.ScoreBreakdown.Funding, c.ScoreBreakdown.OI, c.ScoreBreakdown.BTC,
 			c.ScoreBreakdown.Candle, c.ScoreBreakdown.Volume, c.ScoreBreakdown.ROI, c.ScoreBreakdown.Volatility))
-		sb.WriteString(fmt.Sprintf("  RSI(14,1h): %.1f | OI delta 1h: +%.1f%% | OI delta 4h: +%.1f%%\n",
-			c.RSI14, c.OIDelta1h, c.OIDelta4h))
-		sb.WriteString(fmt.Sprintf("  ATR ratio: %.1f | Volume spike: %v | Momentum loss: %v\n",
-			c.ATRRatio, c.VolumeSpikeFlag, c.MomentumLoss))
+		sb.WriteString(fmt.Sprintf("  RSI(14,15m): %.1f | RSI(7,5m): %.1f | OI delta 1h: +%.1f%% | OI delta 15m: +%.1f%%\n",
+			c.RSI14_15m, c.RSI7_5m, c.OIDelta1h, c.OIDelta15m))
+		sb.WriteString(fmt.Sprintf("  ATR ratio: %.1f | Vol change 5m: %.1f%% | Volume spike: %v | Momentum loss: %v\n",
+			c.ATRRatio, c.VolChange5m, c.VolumeSpikeFlag, c.MomentumLoss))
 		if len(c.CandlePatterns) > 0 {
 			sb.WriteString("  Candle patterns: ")
 			for _, cp := range c.CandlePatterns {
