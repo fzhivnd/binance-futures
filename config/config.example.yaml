@@ -52,7 +52,7 @@ database:
     host: "${POSTGRES.HOST}"
     port: "${POSTGRES.PORT}"
     user: "${POSTGRES.USERNAME}"
-    password: "${POSTGRES_PASSWORD}"
+    password: "${POSTGRES.PASSWORD}"
     dbname: "${POSTGRES.DATABASE}"
     sslmode: "disable"
     max_conns: 10

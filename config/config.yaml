@@ -46,7 +46,7 @@ database:
     host: "${POSTGRES.HOST}"
     port: "${POSTGRES.PORT}"
     user: "${POSTGRES.USERNAME}"
-    password: "${POSTGRES_PASSWORD}"
+    password: "${POSTGRES.PASSWORD}"
     dbname: "${POSTGRES.DATABASE}"
     sslmode: "disable"
     max_conns: 10
@@ -88,7 +88,7 @@ backtest:
 
 llm:
   enabled: false
-  api_key: "${OPENAI_API_KEY}"
+  api_key: "${OPENAI.API_KEY}"
   model: "gpt-4.1-mini"
   timeout_secs: 15
   max_retries: 1
