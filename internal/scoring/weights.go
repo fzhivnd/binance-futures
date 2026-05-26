@@ -24,11 +24,11 @@ var DefaultWeights = WeightConfig{
 func mapScoreToConfidence(score float64) (confidence string, sizePct float64) {
 	switch {
 	case score >= 90:
-		return "VERY_HIGH", 5.0
+		return "VERY_HIGH", 5.5
 	case score >= 80:
-		return "HIGH", 4.0
+		return "HIGH", 5
 	case score >= 70:
-		return "MEDIUM", 3.0
+		return "MEDIUM", 4
 	case score >= 60:
 		return "LOW", 2.0
 	default:

@@ -88,7 +88,10 @@ func (r *Runner) Run(ctx context.Context) (*Result, error) {
 		var btcCtx *domain.BTCContext
 		if btcCandles != nil {
 			btcSrc := &staticCandleSource{candles: btcCandles, cutoff: window.Time}
-			btcCtx, _ = indicator.ComputeBTCContext(btcSrc.GetCandles("BTCUSDT", domain.Timeframe1h, 40))
+			btcCtx, _ = indicator.ComputeBTCContext(
+				btcSrc.GetCandles("BTCUSDT", domain.Timeframe1h, 40),
+				btcSrc.GetCandles("BTCUSDT", domain.Timeframe15m, 20),
+			)
 		}
 
 		// Build candidate

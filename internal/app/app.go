@@ -22,19 +22,19 @@ import (
 )
 
 type App struct {
-	cfg          *config.Config
-	engine       *market.MarketEngine
-	scanner      *scanner.FundingScanner
-	executor     execution.Executor
-	execEng      *execution.ExecutionEngine
-	posMgr       *execution.PositionManager
-	sched        *scheduler.Scheduler
-	wsMarkPx     *exchange.WSConnection
-	wsKlines     *exchange.WSConnection
-	indEngine    *indicator.Engine
-	scorer       *scoring.Scorer
-	riskEngine   *risk.Engine
-	drawdown     *risk.DrawdownTracker
+	cfg        *config.Config
+	engine     *market.MarketEngine
+	scanner    *scanner.FundingScanner
+	executor   execution.Executor
+	execEng    *execution.ExecutionEngine
+	posMgr     *execution.PositionManager
+	sched      *scheduler.Scheduler
+	wsMarkPx   *exchange.WSConnection
+	wsKlines   *exchange.WSConnection
+	indEngine  *indicator.Engine
+	scorer     *scoring.Scorer
+	riskEngine *risk.Engine
+	drawdown   *risk.DrawdownTracker
 }
 
 func New(cfg *config.Config) (*App, error) {
@@ -76,7 +76,7 @@ func (a *App) Run(
 	slog.Info("fetching funding info")
 	fundingInfoList, err := binanceClient.GetFundingInfo(ctx)
 	if err != nil {
-		slog.Warn("failed to fetch funding info, defaulting to 8h interval", "error", err)
+		slog.Warn("failed to fetch funding info, defaulting to 4h interval", "error", err)
 	} else {
 		for _, fi := range fundingInfoList {
 			a.engine.SetFundingInterval(fi.Symbol, fi.FundingIntervalHours)
@@ -250,13 +250,13 @@ func (a *App) Run(
 
 		// Last-minute window: only allow moderate funding rates (-0.2% to -1%)
 		// Extremely negative rates (< -1%) are too risky at entry — squeeze probability is high
-		if window == scheduler.WindowLastMinute {
+		if window == scheduler.WindowLastMinute || window == scheduler.WindowFrontrun {
 			rate := best.Candidate.FundingRate
-			if rate < -0.01 || rate > -0.002 {
+			if rate < -0.012 || rate > -0.002 {
 				slog.Info("last-minute window: funding rate outside allowed range, skipping",
 					"symbol", best.Candidate.Symbol,
 					"funding", rate,
-					"allowed", "-0.2% to -1%",
+					"allowed", "-0.2% to -1.2%",
 				)
 				return nil
 			}
@@ -380,11 +380,13 @@ func (a *App) updateKlineSubscriptions(ctx context.Context, old, new []string) {
 	}
 
 	var toUnsub []string
+	var removed []string
 	for _, s := range old {
 		if !newSet[s] {
 			for _, tf := range timeframes {
 				toUnsub = append(toUnsub, s+"@kline_"+tf)
 			}
+			removed = append(removed, s)
 		}
 	}
 	var toSub []string
@@ -401,5 +403,10 @@ func (a *App) updateKlineSubscriptions(ctx context.Context, old, new []string) {
 	}
 	if len(toSub) > 0 {
 		_ = a.wsKlines.Subscribe(ctx, toSub)
+	}
+
+	// Purge stale candle and OI data for symbols that left the watchlist.
+	for _, sym := range removed {
+		a.engine.PurgeSymbol(sym)
 	}
 }

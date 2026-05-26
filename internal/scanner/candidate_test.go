@@ -52,7 +52,7 @@ func TestMapFundingToScore_Boundaries(t *testing.T) {
 }
 
 func TestBuildCandidate(t *testing.T) {
-	c := buildCandidate("BTCUSDT", -0.01, 50000.0, 8, nil)
+	c := buildCandidate("BTCUSDT", -0.01, 50000.0, nil)
 
 	if c.Symbol != "BTCUSDT" {
 		t.Errorf("symbol mismatch: %s", c.Symbol)
@@ -63,28 +63,24 @@ func TestBuildCandidate(t *testing.T) {
 	if c.MarkPrice != 50000.0 {
 		t.Errorf("mark price mismatch: %v", c.MarkPrice)
 	}
-
-	// daily ROI: -(-0.01) * (24/8) * 100 = 3.0
-	wantROI := 3.0
-	if math.Abs(c.DailyROI-wantROI) > 1e-9 {
-		t.Errorf("daily ROI: got %v, want %v", c.DailyROI, wantROI)
+	// no candle provider → ROI fields are zero
+	if c.ROI1D != 0 || c.DailyROI != 0 {
+		t.Errorf("expected zero ROI with nil provider, got ROI1D=%v DailyROI=%v", c.ROI1D, c.DailyROI)
 	}
 }
 
-func TestBuildCandidate_CustomInterval(t *testing.T) {
-	// 4-hour funding interval: 6 payments/day
-	c := buildCandidate("ETHUSDT", -0.005, 3000.0, 4, nil)
-	wantROI := 0.005 * 6.0 * 100 // 3.0
-	if math.Abs(c.DailyROI-wantROI) > 1e-9 {
-		t.Errorf("daily ROI for 4h interval: got %v, want %v", c.DailyROI, wantROI)
+func TestBuildCandidate_ScoreFromFunding(t *testing.T) {
+	// funding -0.005 should produce a non-zero score
+	c := buildCandidate("ETHUSDT", -0.005, 3000.0, nil)
+	if c.Score <= 0 {
+		t.Errorf("expected positive score for rate -0.005, got %v", c.Score)
 	}
 }
 
-func TestBuildCandidate_ZeroInterval_DefaultsToEight(t *testing.T) {
-	c1 := buildCandidate("X", -0.01, 100.0, 0, nil)
-	c2 := buildCandidate("X", -0.01, 100.0, 8, nil)
-	if c1.DailyROI != c2.DailyROI {
-		t.Errorf("zero interval should default to 8h: got %v vs %v", c1.DailyROI, c2.DailyROI)
+func TestBuildCandidate_NilProvider_ZeroVolume(t *testing.T) {
+	c := buildCandidate("X", -0.01, 100.0, nil)
+	if c.Volume24h != 0 {
+		t.Errorf("expected zero volume with nil provider, got %v", c.Volume24h)
 	}
 }
 

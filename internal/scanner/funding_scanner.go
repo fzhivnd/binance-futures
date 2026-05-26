@@ -44,7 +44,7 @@ func (s *FundingScanner) Scan(ctx context.Context) ([]domain.Candidate, error) {
 		if intervalHours == 1 {
 			continue
 		}
-		c := buildCandidate(symbol, rate, price, intervalHours, s.market)
+		c := buildCandidate(symbol, rate, price, s.market)
 		if c.Score > 0 {
 			candidates = append(candidates, c)
 		}

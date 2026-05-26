@@ -32,15 +32,20 @@ type IndicatorSnapshot struct {
 	Symbol    string
 	Timestamp time.Time
 
-	RSI14_1h float64
+	// RSI on 15m (setup context) and 5m (entry timing)
+	RSI14_15m float64
+	RSI7_5m   float64
 
-	OIDelta1h float64
-	OIDelta4h float64
+	// OI delta: 1h for setup confirmation, 15m for recent leverage buildup
+	OIDelta1h  float64
+	OIDelta15m float64
 
+	// ATR on 1h — used as pre-trade volatility filter only
 	ATR14_1h float64
 	ATRRatio float64
 
-	VolChange1h float64
+	// Volume anomaly on 5m candles — catches the surge at entry time
+	VolChange5m float64
 	VolumeSpike bool
 
 	Patterns []CandleSignal
@@ -49,11 +54,11 @@ type IndicatorSnapshot struct {
 }
 
 type BTCContext struct {
-	Trend         string
-	MomentumScore int
-	Volatility    string
-	RSI14_1h      float64
-	PriceChange1h float64
-	PriceChange4h float64
-	IsBreakout    bool
+	Trend          string
+	MomentumScore  int
+	Volatility     string
+	RSI14_1h       float64
+	PriceChange1h  float64
+	PriceChange15m float64 // replaces 4h — detects breakout in the current window
+	IsBreakout     bool
 }

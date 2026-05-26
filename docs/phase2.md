@@ -210,36 +210,37 @@ type IndicatorSnapshot struct {
     Symbol         string
     Timestamp      time.Time
 
-    // RSI
-    RSI14_1h       float64
+    // RSI — two timeframes matched to short trade duration (1–50 min)
+    RSI14_15m      float64  // setup context (~3.5h lookback)
+    RSI7_5m        float64  // entry timing (~35 min lookback)
 
     // Open Interest
-    OIDelta1h      float64  // % change in OI over 1h
-    OIDelta4h      float64  // % change in OI over 4h
+    OIDelta1h      float64  // % change in OI over 1h (setup confirmation)
+    OIDelta15m     float64  // % change in OI over 15m (recent leverage buildup)
 
-    // ATR
+    // ATR — 1h used only as pre-trade volatility filter, not timing
     ATR14_1h       float64  // absolute ATR value
     ATRRatio       float64  // ATR / price * 100 (normalized volatility %)
 
-    // Volume
-    VolChange1h    float64  // current hour volume vs 24h average (ratio)
+    // Volume — 5m candles: catches the surge happening at entry time
+    VolChange5m    float64  // current 5m volume vs 2h average of 5m candles (ratio)
     VolumeSpike    bool     // volume > 2x average
 
     // Candle Patterns
     Patterns       []CandleSignal
 
     // Computed flags
-    MomentumLoss   bool     // RSI declining + OI flat/down
+    MomentumLoss   bool     // RSI declining on both 15m and 5m + OI flat/down
 }
 
 type BTCContext struct {
-    Trend          string   // "bullish", "bearish", "neutral"
+    Trend          string   // "bullish", "bearish", "neutral" — derived from 1h RSI + 1h change
     MomentumScore  int      // 0-100
     Volatility     string   // "low", "medium", "high"
     RSI14_1h       float64
-    PriceChange1h  float64  // % change
-    PriceChange4h  float64  // % change
-    IsBreakout     bool     // strong directional move detected
+    PriceChange1h  float64  // % change over last 1h candle
+    PriceChange15m float64  // % change over last 15m candle — for breakout detection
+    IsBreakout     bool     // strong directional move on 15m with volume spike
 }
 
 // === Scored Candidate ===
@@ -382,29 +383,33 @@ Modified flow within Scheduler scan:
 IndicatorEngine.Compute(symbol)
        │
        ├── Get candles from MarketEngine
-       │       1h candles (need 20+ for RSI-14 warmup)
-       │       5m, 15m, 30m candles (for patterns)
+       │       15m candles (40+ for RSI-14 warmup)
+       │       5m candles (20+ for RSI-7 + volume anomaly)
+       │       1h candles (20+ for ATR-14 — filter only)
+       │       5m, 15m, 30m, 1h candles (for candle patterns)
        │
        ├── RSI Calculation
        │       │
-       │       └── Wilder's smoothed RSI(14) on 1h closes
-       │               returns: 0-100 float
+       │       ├── Wilder's smoothed RSI(14) on 15m closes (setup context, ~3.5h lookback)
+       │       └── Wilder's smoothed RSI(7) on 5m closes (entry timing, ~35 min lookback)
+       │               returns: 0-100 float each
        │
        ├── OI Delta
        │       │
-       │       └── (current_OI - OI_1h_ago) / OI_1h_ago * 100
+       │       ├── (current_OI - OI_1h_ago) / OI_1h_ago * 100  (setup confirmation)
+       │       └── (current_OI - OI_15m_ago) / OI_15m_ago * 100 (recent leverage buildup)
        │               requires: OI cache with historical snapshots
        │               returns: % change
        │
        ├── ATR Calculation
        │       │
-       │       └── ATR(14) on 1h candles
+       │       └── ATR(14) on 1h candles (pre-trade volatility filter only)
        │               ATRRatio = ATR / currentPrice * 100
        │               returns: absolute ATR + ratio %
        │
        ├── Volume Anomaly
        │       │
-       │       └── current_1h_volume / avg_24h_volume
+       │       └── current_5m_volume / avg_5m_volume (last 24 candles = 2h window)
        │               spike = ratio > 2.0
        │               returns: ratio + spike bool
        │
@@ -420,16 +425,19 @@ IndicatorEngine.Compute(symbol)
 ```
 ComputeBTCContext()
        │
-       ├── Get BTCUSDT 1h candles (last 24)
+       ├── Get BTCUSDT 1h candles (last 40 — RSI warmup)
+       ├── Get BTCUSDT 15m candles (last 20 — breakout detection)
        │
-       ├── Calculate RSI(14) on BTC
+       ├── Calculate RSI(14) on 1h BTC candles
        │
-       ├── Calculate price change 1h / 4h
+       ├── Calculate price change 1h (trend) and 15m (breakout)
        │
        ├── Determine trend:
-       │       RSI > 70 && change4h > 3%  → "bullish"
-       │       RSI < 30 && change4h < -3% → "bearish"
-       │       else                        → "neutral"
+       │       RSI > 70 && change1h > 1.5%  → "bullish"
+       │       RSI < 30 && change1h < -1.5% → "bearish"
+       │       RSI > 60 && change1h > 0.5%  → "bullish"
+       │       RSI < 40 && change1h < -0.5% → "bearish"
+       │       else                          → "neutral"
        │
        ├── Determine momentum score (0-100):
        │       Based on RSI distance from 50 + rate of change
@@ -437,8 +445,9 @@ ComputeBTCContext()
        ├── Determine volatility:
        │       ATR-based: low / medium / high
        │
-       └── Detect breakout:
-               price_change_1h > 2% AND volume_spike → true
+       └── Detect breakout (uses 15m for lower latency):
+               |change_15m| > 0.8% AND volume_spike_15m → true
+               (replaces 1h change > 2% — detects moves sooner)
 ```
 
 ### 4.4 Scoring Flow
@@ -469,8 +478,8 @@ Scorer.Score(candidate, indicators, btcContext)
        │       Multi-TF confirmation bonus
        │
        ├── Volume Score (max 10):
-       │       volume_spike + price_up → 10 (buying exhaustion signal)
-       │       volume_spike + price_down → 5 (already dumping)
+       │       volume_spike_5m + RSI7_5m overbought (>65) → 10 (exhaustion right now)
+       │       volume_spike_5m only → 5 (surge without overbought confirmation)
        │       no spike → 3
        │
        ├── ROI Score (max 15) — based on 24h price change %:
@@ -779,7 +788,8 @@ func (h *OIHistory) Delta(symbol string, window time.Duration) (float64, error) 
 ### 5.6 Volume Anomaly Detection
 
 ```go
-// VolumeAnomaly compares current period volume against the trailing 24h average.
+// VolumeAnomaly compares the most recent candle's volume against the trailing average.
+// Pass 5m candles: last candle = current entry period, preceding 24 = ~2h baseline.
 func VolumeAnomaly(candles []domain.Candle) (ratio float64, spike bool) {
     if len(candles) < 2 {
         return 1.0, false
@@ -788,7 +798,7 @@ func VolumeAnomaly(candles []domain.Candle) (ratio float64, spike bool) {
     // Current candle volume (last closed)
     current := candles[len(candles)-1].Volume
 
-    // Average of preceding candles (up to 24 candles for 1h timeframe = 24h)
+    // Average of preceding candles (up to 24 — ~2h on 5m timeframe)
     var sum float64
     count := min(len(candles)-1, 24)
     for i := len(candles) - 1 - count; i < len(candles)-1; i++ {
@@ -903,28 +913,30 @@ func DetectPatterns(candles []domain.Candle) []CandleSignal {
 ### 5.8 BTC Context Scoring
 
 ```go
-func ComputeBTCContext(candles1h []domain.Candle, currentPrice float64) (*BTCContext, error) {
-    if len(candles1h) < 20 {
-        return nil, fmt.Errorf("need 20+ BTC candles, got %d", len(candles1h))
+// ComputeBTCContext derives trend from 1h data and breakout from 15m data.
+// Using 15m for breakout detection reduces latency from ~45 min to ~12 min.
+func ComputeBTCContext(candles1h []domain.Candle, candles15m []domain.Candle) (*domain.BTCContext, error) {
+    if len(candles1h) < 15 {
+        return nil, fmt.Errorf("need 15+ BTC 1h candles, got %d", len(candles1h))
     }
 
     rsi, _ := RSI(candles1h, 14)
 
-    // Price changes
-    last := candles1h[len(candles1h)-1]
-    change1h := (last.Close - candles1h[len(candles1h)-2].Close) / candles1h[len(candles1h)-2].Close * 100
-    change4h := (last.Close - candles1h[len(candles1h)-5].Close) / candles1h[len(candles1h)-5].Close * 100
+    // Trend uses 1h change (macro context)
+    last1h := candles1h[len(candles1h)-1]
+    prev1h := candles1h[len(candles1h)-2]
+    change1h := (last1h.Close - prev1h.Close) / prev1h.Close * 100
 
-    // Trend determination
+    // Trend determination (thresholds tuned to 1h change magnitude)
     var trend string
     switch {
-    case rsi > 70 && change4h > 3:
+    case rsi > 70 && change1h > 1.5:
         trend = "bullish"
-    case rsi < 30 && change4h < -3:
+    case rsi < 30 && change1h < -1.5:
         trend = "bearish"
-    case rsi > 60 && change4h > 1:
+    case rsi > 60 && change1h > 0.5:
         trend = "bullish"
-    case rsi < 40 && change4h < -1:
+    case rsi < 40 && change1h < -0.5:
         trend = "bearish"
     default:
         trend = "neutral"
@@ -936,9 +948,9 @@ func ComputeBTCContext(candles1h []domain.Candle, currentPrice float64) (*BTCCon
         momentum = 100
     }
 
-    // Volatility from ATR
+    // Volatility from ATR on 1h
     atr, _ := ATR(candles1h, 14)
-    atrRatio := ATRRatio(atr, currentPrice)
+    atrRatio := ATRRatio(atr, last1h.Close)
     var volatility string
     switch {
     case atrRatio > 3:
@@ -949,18 +961,25 @@ func ComputeBTCContext(candles1h []domain.Candle, currentPrice float64) (*BTCCon
         volatility = "low"
     }
 
-    // Breakout detection
-    _, volumeSpike := VolumeAnomaly(candles1h)
-    isBreakout := math.Abs(change1h) > 2 && volumeSpike
+    // Breakout detection on 15m — detects moves sooner than 1h change
+    var change15m float64
+    var isBreakout bool
+    if len(candles15m) >= 2 {
+        last15m := candles15m[len(candles15m)-1]
+        prev15m := candles15m[len(candles15m)-2]
+        change15m = (last15m.Close - prev15m.Close) / prev15m.Close * 100
+        _, volumeSpike := VolumeAnomaly(candles15m)
+        isBreakout = math.Abs(change15m) > 0.8 && volumeSpike
+    }
 
-    return &BTCContext{
-        Trend:         trend,
-        MomentumScore: momentum,
-        Volatility:    volatility,
-        RSI14_1h:      rsi,
-        PriceChange1h: change1h,
-        PriceChange4h: change4h,
-        IsBreakout:    isBreakout,
+    return &domain.BTCContext{
+        Trend:          trend,
+        MomentumScore:  momentum,
+        Volatility:     volatility,
+        RSI14_1h:       rsi,
+        PriceChange1h:  change1h,
+        PriceChange15m: change15m, // used for breakout detection
+        IsBreakout:     isBreakout,
     }, nil
 }
 ```
@@ -1026,10 +1045,10 @@ func (s *ScorerImpl) Score(c domain.Candidate, ind *IndicatorSnapshot, btc *BTCC
     // 4. Candle Score (max 20)
     bd.CandleScore = scoreCandlePatterns(ind.Patterns, s.weights.Candle)
 
-    // 5. Volume Score (max 10)
+    // 5. Volume Score (max 10) — 5m RSI signals exhaustion at entry time
     switch {
-    case ind.VolumeSpike && ind.RSI14_1h > 60:
-        bd.VolumeScore = s.weights.Volume // spike + overbought = exhaustion
+    case ind.VolumeSpike && ind.RSI7_5m > 65:
+        bd.VolumeScore = s.weights.Volume // spike + overbought on 5m = exhaustion right now
     case ind.VolumeSpike:
         bd.VolumeScore = s.weights.Volume * 0.5
     default:
@@ -1085,19 +1104,19 @@ func scoreCandlePatterns(signals []CandleSignal, maxScore float64) float64 {
         return 0
     }
 
-    // Timeframe weight multipliers
+    // Timeframe weight multipliers — near-equal to reflect short trade duration (1–50 min)
     tfWeight := map[domain.Timeframe]float64{
-        domain.Timeframe1h:  1.0,
-        domain.Timeframe30m: 0.8,
-        domain.Timeframe15m: 0.6,
-        domain.Timeframe5m:  0.4,
+        domain.Timeframe1h:  1.00,
+        domain.Timeframe30m: 0.95,
+        domain.Timeframe15m: 0.90,
+        domain.Timeframe5m:  0.85,
     }
 
     // Strength multipliers
     strWeight := map[PatternStrength]float64{
         StrengthStrong: 1.0,
-        StrengthMedium: 0.6,
-        StrengthWeak:   0.3,
+        StrengthMedium: 0.7,
+        StrengthWeak:   0.35,
     }
 
     var rawScore float64
@@ -1122,8 +1141,8 @@ func scoreCandlePatterns(signals []CandleSignal, maxScore float64) float64 {
         bonus = 0.1
     }
 
-    // Normalize: max possible raw score ~ 4.0 (one strong on each TF)
-    normalized := rawScore / 4.0
+    // Normalize: max possible raw score = 3.70 (one STRONG on each of 4 TFs: 1.00+0.95+0.90+0.85)
+    normalized := rawScore / 3.70
     if normalized > 1.0 {
         normalized = 1.0
     }
@@ -1140,7 +1159,7 @@ func mapScoreToConfidence(score float64) (confidence string, sizePct float64) {
     case score >= 90:
         return "VERY_HIGH", 5.0
     case score >= 80:
-        return "HIGH", 4.0
+        return "HIGH", 4.5
     case score >= 70:
         return "MEDIUM", 3.0
     case score >= 60:
@@ -1500,10 +1519,12 @@ scoring:
   min_score: 60              # Reject candidates below this composite score
 
 indicators:
-  rsi_period: 14             # RSI lookback period
-  atr_period: 14             # ATR lookback period
-  oi_window: "1h"            # OI delta calculation window
-  volume_avg_window: 24      # Number of candles for volume average
+  rsi_period: 14             # RSI-14 on 15m (setup context)
+  rsi_fast_period: 7         # RSI-7 on 5m (entry timing)
+  atr_period: 14             # ATR-14 on 1h (volatility filter only)
+  oi_window_1h: "1h"         # OI delta for setup confirmation
+  oi_window_15m: "15m"       # OI delta for recent leverage buildup
+  volume_avg_window: 24      # Candles for volume baseline (24 × 5m = 2h)
   volume_spike_threshold: 2.0 # Volume ratio to consider "spike"
 
 risk:
@@ -1528,54 +1549,55 @@ Stores the indicator state at the time of each trade for post-analysis and strat
 -- migrations/003_create_indicator_snapshots.up.sql
 
 CREATE TABLE IF NOT EXISTS indicator_snapshots (
-    id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    trade_id       UUID NOT NULL REFERENCES trades(id) ON DELETE CASCADE,
-    symbol         VARCHAR(32) NOT NULL,
+    id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    trade_id         UUID NOT NULL REFERENCES trades(id) ON DELETE CASCADE,
+    symbol           VARCHAR(32) NOT NULL,
 
-    -- RSI
-    rsi_14_1h      NUMERIC(6,2),
+    -- RSI: 15m for setup context, 5m for entry timing
+    rsi_14_15m       NUMERIC(6,2),
+    rsi_7_5m         NUMERIC(6,2),
 
-    -- OI
-    oi_delta_1h    NUMERIC(8,4),
-    oi_delta_4h    NUMERIC(8,4),
+    -- OI delta: 1h for setup confirmation, 15m for recent leverage buildup
+    oi_delta_1h      NUMERIC(8,4),
+    oi_delta_15m     NUMERIC(8,4),
 
-    -- ATR
-    atr_14_1h      NUMERIC(20,8),
-    atr_ratio      NUMERIC(6,4),
+    -- ATR on 1h: pre-trade volatility filter only
+    atr_14_1h        NUMERIC(20,8),
+    atr_ratio        NUMERIC(6,4),
 
-    -- Volume
-    vol_change_1h  NUMERIC(8,4),
-    volume_spike   BOOLEAN NOT NULL DEFAULT false,
+    -- Volume anomaly on 5m: surge at entry time
+    vol_change_5m    NUMERIC(8,4),
+    volume_spike     BOOLEAN NOT NULL DEFAULT false,
 
     -- Candle patterns (JSON array of {timeframe, pattern, strength})
-    candle_patterns JSONB,
+    candle_patterns  JSONB,
 
-    -- BTC context
-    btc_trend       VARCHAR(16),
-    btc_momentum    INT,
-    btc_rsi         NUMERIC(6,2),
-    btc_change_1h   NUMERIC(8,4),
-    btc_change_4h   NUMERIC(8,4),
-    btc_breakout    BOOLEAN NOT NULL DEFAULT false,
+    -- BTC context: trend on 1h, breakout detection on 15m
+    btc_trend        VARCHAR(16),
+    btc_momentum     INT,
+    btc_rsi          NUMERIC(6,2),
+    btc_change_1h    NUMERIC(8,4),
+    btc_change_15m   NUMERIC(8,4),
+    btc_breakout     BOOLEAN NOT NULL DEFAULT false,
 
     -- Composite scoring
-    composite_score NUMERIC(6,2) NOT NULL,
-    score_funding   NUMERIC(6,2),
-    score_oi        NUMERIC(6,2),
-    score_btc       NUMERIC(6,2),
-    score_candle    NUMERIC(6,2),
-    score_volume    NUMERIC(6,2),
-    score_roi       NUMERIC(6,2),
+    composite_score  NUMERIC(6,2) NOT NULL,
+    score_funding    NUMERIC(6,2),
+    score_oi         NUMERIC(6,2),
+    score_btc        NUMERIC(6,2),
+    score_candle     NUMERIC(6,2),
+    score_volume     NUMERIC(6,2),
+    score_roi        NUMERIC(6,2),
     score_volatility NUMERIC(6,2),
-    confidence      VARCHAR(16),
+    confidence       VARCHAR(16),
     position_size_pct NUMERIC(4,2),
 
-    created_at      TIMESTAMP NOT NULL DEFAULT NOW()
+    created_at       TIMESTAMP NOT NULL DEFAULT NOW()
 );
 
 CREATE INDEX idx_indicator_snapshots_trade_id ON indicator_snapshots(trade_id);
-CREATE INDEX idx_indicator_snapshots_symbol ON indicator_snapshots(symbol);
-CREATE INDEX idx_indicator_snapshots_score ON indicator_snapshots(composite_score DESC);
+CREATE INDEX idx_indicator_snapshots_symbol   ON indicator_snapshots(symbol);
+CREATE INDEX idx_indicator_snapshots_score    ON indicator_snapshots(composite_score DESC);
 ```
 
 ```sql
@@ -1703,7 +1725,56 @@ Use recorded Binance data from known high-funding events (e.g., meme coin pumps 
 
 ---
 
-## 10. Key Design Decisions
+## 10. In-Memory Footprint and Retention Policy
+
+### 10.1 Memory Estimates
+
+Binance USDⓂ-M has ~350 active perpetuals. The mark price stream covers all of them; kline subscriptions are limited to the top-20 most-negative-funding symbols.
+
+| Store | Scope | Per-entry size | Total estimate |
+|-------|-------|---------------|----------------|
+| `FundingCache` | All 350 symbols | ~145 B (3× float64 + 2× time.Time + int + map overhead + symbol key) | ~51 KB |
+| `TickerCache` | All 350 symbols | ~65 B (float64 + map overhead + symbol key) | ~23 KB |
+| `CandleStore` | Top-20 symbols × 6 TFs × 200 candles | ~130 B/candle (symbol, TF, 2× time.Time, 5× float64, bool + padding) | ~31 MB |
+| `OIHistory` | Top-20 symbols × 288 snapshots | ~32 B/snapshot (float64 + time.Time) | ~184 KB |
+| **Total (logical)** | | | **~32 MB** |
+
+Go GC overhead and slice backing arrays add ~1.5–2× headroom in practice, so real RSS is approximately **50–70 MB** for these caches.
+
+`CandleStore` dominates: 20 symbols × 6 timeframes × 200 candles × 130 bytes = 31 MB. The other stores are negligible by comparison.
+
+### 10.2 Retention Policy
+
+**FundingCache / TickerCache** — no TTL or cleanup. They are driven by the `!markPrice@arr@1s` WebSocket stream which covers every symbol on the exchange. Entries are updated in-place every second and stay accurate. Delisted symbols stop appearing in the stream and become stale, but at ~210 bytes per dead entry the cost is negligible.
+
+**CandleStore** — capped at 200 candles per `{symbol, timeframe}` series (enforced in `CandleStore.Update`). When a symbol rotates out of the top-20 watchlist, `PurgeSymbol` is called from `updateKlineSubscriptions` to delete all 6 timeframe series for that symbol. This prevents unbounded growth as symbols cycle through the watchlist over time.
+
+**OIHistory** — capped at 288 snapshots per symbol (ring buffer, enforced in `OIHistory.Add`). Same rotation cleanup: `PurgeSymbol` calls `OIHistory.Purge` when a symbol leaves the watchlist.
+
+### 10.3 Purge Flow
+
+```
+klineSubscriber goroutine (every 60s)
+    │
+    ├── GetTopNegativeFundingSymbols(20) → newSymbols
+    ├── diff old vs new
+    │
+    ├── removed symbols:
+    │       wsKlines.Unsubscribe(streams)    — stop receiving kline events
+    │       MarketEngine.PurgeSymbol(sym)    — free memory
+    │           ├── CandleStore.Purge(sym)   — delete all 6 TF series
+    │           └── OICache.Purge(sym)       — delete current OI + history ring buffer
+    │
+    └── added symbols:
+            wsKlines.Subscribe(streams)      — start receiving kline events
+            (data populates naturally as candles arrive)
+```
+
+Purge happens synchronously before the next scan cycle, so an indicator computation for the outgoing symbol cannot race against the purge — the symbol will not appear in the top-20 candidate list again until it re-enters, by which point fresh candles will have accumulated.
+
+---
+
+## 11. Key Design Decisions
 
 ### 1. No External TA Library
 

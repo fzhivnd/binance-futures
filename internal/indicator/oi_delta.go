@@ -38,6 +38,13 @@ func (h *OIHistory) Add(symbol string, oi float64) {
 	h.snapshots[symbol] = snaps
 }
 
+// Purge removes all OI history for a symbol (called when it leaves the top-N watchlist).
+func (h *OIHistory) Purge(symbol string) {
+	h.mu.Lock()
+	delete(h.snapshots, symbol)
+	h.mu.Unlock()
+}
+
 // Delta returns (current - past) / past * 100 over the given window.
 func (h *OIHistory) Delta(symbol string, window time.Duration) (float64, error) {
 	h.mu.RLock()

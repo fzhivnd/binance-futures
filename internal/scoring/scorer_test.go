@@ -25,7 +25,7 @@ func TestScore_BelowThreshold(t *testing.T) {
 func TestScore_FundingContribution(t *testing.T) {
 	s := NewDefaultScorer()
 	cand := domain.Candidate{FundingRate: -0.015, DailyROI: 35}
-	snap := &domain.IndicatorSnapshot{OIDelta1h: 16, ATRRatio: 2, RSI14_1h: 70, VolumeSpike: true}
+	snap := &domain.IndicatorSnapshot{OIDelta1h: 16, ATRRatio: 2, RSI7_5m: 70, VolumeSpike: true}
 	sc := s.Score(cand, snap, neutralBTC)
 	if sc.Breakdown.FundingScore <= 0 {
 		t.Errorf("expected positive funding score, got %.2f", sc.Breakdown.FundingScore)

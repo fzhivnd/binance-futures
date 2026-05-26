@@ -44,6 +44,15 @@ func (s *CandleStore) Update(c domain.Candle) {
 	s.data[key] = candles
 }
 
+// Purge removes all candle series for a symbol across every timeframe.
+func (s *CandleStore) Purge(symbol string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, tf := range domain.AllTimeframes {
+		delete(s.data, seriesKey{symbol, tf})
+	}
+}
+
 func (s *CandleStore) Get(symbol string, tf domain.Timeframe, limit int) []domain.Candle {
 	key := seriesKey{symbol, tf}
 	s.mu.RLock()
