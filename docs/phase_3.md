@@ -40,11 +40,20 @@ Phase 3 replaces the deterministic score-threshold gate (`score >= 60`) with an 
 
 ### Cost Estimate
 
-| Scenario              | Calls/Day | Tokens/Call (in+out) | Monthly Cost |
-|-----------------------|-----------|----------------------|--------------|
-| Conservative (3 windows) | 9       | ~2,500 total         | ~$0.50       |
-| Normal (3 windows × 8h) | 27      | ~2,500 total         | ~$1.50       |
-| Aggressive (all windows) | 72     | ~2,500 total         | ~$4.00       |
+Model pricing (gpt-4.1-mini, 2025-05): **$0.40 / 1M input tokens**, **$1.60 / 1M output tokens**.
+
+Typical call: ~2,000 input tokens (system prompt + 5 candidates) + ~300 output tokens = **~$0.00088 / call**.
+
+With `call_cooldown_secs: 300` (5-minute cooldown), LLM calls are suppressed when inputs are stable:
+
+| Funding interval | Windows/Day | Actual calls/window | Calls/Day | Cost/Day  | Monthly   |
+|------------------|-------------|---------------------|-----------|-----------|-----------|
+| 8h (3/day)       | 3 × 3 types | ~6 stable / 30 max  | ~54 (max) | ~$0.047   | ~$1.42    |
+| 8h with cooldown | 3 × 3 types | ~6 per window       | ~18       | ~$0.016   | ~$0.48    |
+| 4h (6/day)       | 6 × 3 types | ~6 per window       | ~36       | ~$0.032   | ~$0.96    |
+| 1h (24/day)      | 24 × 3 types| ~6 per window       | ~144      | ~$0.127   | ~$3.81    |
+
+The rate limiter (`max_rpm: 30`) acts as a hard ceiling regardless of scan frequency.
 
 ---
 
@@ -118,10 +127,11 @@ migrations/
 │  ┌───────────────────────────────────────────────────────────────────┐  │
 │  │              INTENT QUEUE (Phase 3 - new)                         │  │
 │  │                                                                   │  │
-│  │  • Holds 1 active TradeIntent per funding window                  │  │
-│  │  • New LLM decision replaces existing intent                      │  │
-│  │  • Fires intent when current window matches target entry_mode     │  │
-│  │  • Auto-expires after funding settlement                          │  │
+│  │  • Ranked by confidence; dedup per (symbol, entry_mode)           │  │
+│  │  • FRONTRUN: fires best eligible every frontrun_exec_interval     │  │
+│  │  • LAST_MINUTE / AFTER: fires best eligible once on window entry  │  │
+│  │  • Each window type fires independently (max 1 trade each)        │  │
+│  │  • Auto-clears after funding settlement                           │  │
 │  └──────────────────────────────┬────────────────────────────────────┘  │
 │                                 │ when window matches                    │
 │                                 ▼                                        │
@@ -145,32 +155,29 @@ migrations/
 1. Scheduler runs scan every 1m throughout the funding window (T-30m → T+1m)
 2. Each scan: funding filter → ROI/volume filter → indicator compute → scoring
 3. Take top N candidates (configurable, default 5)
-4. Call LLM with candidates + BTC context + current window info
-5. LLM returns: OPEN_SHORT (symbol, confidence, entry_mode, tp_strategy) or SKIP
-6. If OPEN_SHORT → create/replace TradeIntent in the queue
-7. Intent Queue checks every tick (1s):
-   - Does the current window match the intent's target entry_mode?
-   - If YES → fire: risk check → execute
-   - If NO → hold (wait for target window)
-8. Newer LLM decisions always replace older intents (freshest data wins)
-9. Queue auto-clears after funding settlement (T+1m)
+4. LLM call cooldown check: skip if same symbol/score/BTC/window within call_cooldown_secs
+5. Call LLM with candidates + BTC context + current window info
+6. LLM returns: OPEN_SHORT (symbol, confidence, entry_mode, tp_strategy) or SKIP
+7. If OPEN_SHORT → add/upgrade intent in ranked queue (dedup per symbol+mode)
+   - A SKIP does NOT cancel existing queued intents
+8. Intent Queue ticks every 1s:
+   - FRONTRUN window: fire highest-confidence eligible intent every frontrun_exec_interval_secs
+   - LAST_MINUTE / AFTER window: fire highest-confidence eligible intent once on entry
+   - Each window type fires independently (FRONTRUN fire ≠ blocks LAST_MINUTE)
+9. At fire time: re-validate risk (BTC, drawdown) before executing
+10. Queue auto-clears after funding settlement (T+1m)
 ```
 
-### Intent Queue State Machine
+### Intent Queue State Machine (per intent)
 
 ```
-                    ┌─────────────────────────┐
-                    │       EMPTY             │
-                    │   (no active intent)    │
-                    └────────────┬────────────┘
-                                 │ LLM returns OPEN_SHORT
-                                 ▼
                     ┌─────────────────────────┐
                     │       PENDING           │
-                    │  intent.entry_mode !=   │◄──── new LLM decision
-                    │  current_window         │      (replaces old intent)
+                    │  waiting for its        │◄──── upgrade: higher-confidence
+                    │  target window          │      same (symbol, mode) replaces
                     └────────────┬────────────┘
-                                 │ current_window == intent.entry_mode
+                                 │ windowReady(current >= target)
+                                 │ AND firedInWindow[window] == false
                                  ▼
                     ┌─────────────────────────┐
                     │       FIRING            │
@@ -180,7 +187,7 @@ migrations/
                     ┌────────────┼────────────┐
                     ▼            ▼            ▼
                ┌────────┐  ┌────────┐  ┌────────┐
-               │EXECUTED│  │REJECTED│  │EXPIRED │
+               │ FIRED  │  │REJECTED│  │EXPIRED │
                │(trade) │  │(risk)  │  │(T+1m)  │
                └────────┘  └────────┘  └────────┘
 ```
@@ -195,19 +202,22 @@ migrations/
 
 Rule: intent fires when current window >= target window (later is always OK, we don't go backward).
 
-### Deduplication: When NOT to Call LLM
+### LLM Call Cooldown
 
-To avoid redundant LLM calls when candidates haven't changed:
+Scans run every 1 minute, but market conditions change slowly. To avoid calling the LLM 30 times per window with nearly identical data, a `lastLLMCall` state is tracked in `App`:
 
 ```
 Skip LLM call if ALL of:
-  - Intent already queued (not yet fired)
-  - Same top candidate symbol as current intent
-  - Composite score changed < 5 points from intent's original score
-  - BTC context trend unchanged
+  - Same top candidate symbol as last call
+  - Composite score changed < 5 points since last call
+  - BTC trend unchanged since last call
+  - Same window type (FRONTRUN / LAST_MINUTE / AFTER) as last call
+  - Time since last call < call_cooldown_secs (default 5m)
 ```
 
-If any condition fails → call LLM (market conditions shifted, intent may be stale).
+A window transition always triggers a fresh LLM call regardless of other conditions.
+
+**Effect:** With a 5-minute cooldown and 30-minute FRONTRUN window, calls drop from ~30 to ~6 per window under stable conditions, while remaining fully responsive to meaningful changes.
 
 ---
 
@@ -770,14 +780,16 @@ func mapResponseToDecision(resp LLMResponse, candidates []*domain.ScoredCandidat
 // internal/config/config.go
 
 type LLMConfig struct {
-    Enabled       bool    `yaml:"enabled"`
-    APIKey        string  `yaml:"api_key"`
-    Model         string  `yaml:"model"`
-    TimeoutSecs   int     `yaml:"timeout_secs"`
-    MaxRetries    int     `yaml:"max_retries"`
-    MaxRPM        int     `yaml:"max_rpm"`
-    TopCandidates int     `yaml:"top_candidates"` // how many to send to LLM
-    MinConfidence int     `yaml:"min_confidence"` // below this → skip
+    Enabled                  bool   `yaml:"enabled"`
+    APIKey                   string `yaml:"api_key"`
+    Model                    string `yaml:"model"`
+    TimeoutSecs              int    `yaml:"timeout_secs"`
+    MaxRetries               int    `yaml:"max_retries"`
+    MaxRPM                   int    `yaml:"max_rpm"`
+    TopCandidates            int    `yaml:"top_candidates"`          // how many candidates to send to LLM
+    MinConfidence            int    `yaml:"min_confidence"`          // below this → override to SKIP
+    FrontrunExecIntervalSecs int    `yaml:"frontrun_exec_interval_secs"` // how often to fire best FRONTRUN intent (default 300 = 5m)
+    CallCooldownSecs         int    `yaml:"call_cooldown_secs"`      // min gap between LLM calls with similar inputs (default 300 = 5m)
 }
 ```
 
@@ -793,6 +805,8 @@ llm:
   max_rpm: 30
   top_candidates: 5
   min_confidence: 60
+  frontrun_exec_interval_secs: 300  # execute best FRONTRUN intent every 5m
+  call_cooldown_secs: 300           # skip LLM call if inputs unchanged within this window
 
 scheduler:
   scan_interval: "1m"         # uniform 1m (replaces early/late split)
@@ -824,6 +838,12 @@ func setDefaults(cfg *Config) {
     if cfg.LLM.MinConfidence == 0 {
         cfg.LLM.MinConfidence = 60
     }
+    if cfg.LLM.FrontrunExecIntervalSecs == 0 {
+        cfg.LLM.FrontrunExecIntervalSecs = 300 // 5 minutes
+    }
+    if cfg.LLM.CallCooldownSecs == 0 {
+        cfg.LLM.CallCooldownSecs = 300 // 5 minutes
+    }
 
     // Phase 3: uniform scan interval
     if cfg.Scheduler.ScanInterval == "" {
@@ -836,7 +856,14 @@ func setDefaults(cfg *Config) {
 
 ## 9. Intent Queue (`internal/intent/`)
 
-The intent queue is the bridge between LLM decisions and execution. It holds a pending trade intent and fires it at the correct entry window.
+The intent queue is the bridge between LLM decisions and execution. It holds **multiple ranked pending intents** and fires them at the correct entry windows.
+
+### Design
+
+- **Multiple intents per cycle**: each LLM call can add an intent for a different symbol or entry mode. Intents are ranked by confidence descending.
+- **Dedup per (symbol, entry_mode)**: if an intent for the same symbol+mode already exists, the new one replaces it only when its confidence is strictly higher.
+- **One fire per window type per cycle**: FRONTRUN, LAST_MINUTE, and AFTER each fire at most once per funding cycle, independently. A FRONTRUN fire does not block LAST_MINUTE or AFTER.
+- **FRONTRUN interval throttle**: FRONTRUN fires at most once per `frontrun_exec_interval_secs` (default 5m), to accumulate candidates before committing.
 
 ### 9.1 TradeIntent Type (`internal/intent/intent.go`)
 
@@ -866,8 +893,6 @@ type TradeIntent struct {
     CreatedAt       time.Time
     ExpiresAt       time.Time        // auto-expire after funding settlement + 1m
     Status          IntentStatus
-    OriginalScore   float64          // for dedup: score when intent was created
-    BTCTrend        string           // for dedup: BTC trend when intent was created
 }
 
 func (i *TradeIntent) IsExpired(now time.Time) bool {
@@ -877,178 +902,35 @@ func (i *TradeIntent) IsExpired(now time.Time) bool {
 
 ### 9.2 Intent Queue (`internal/intent/queue.go`)
 
+Key fields:
+
 ```go
-package intent
-
-import (
-    "context"
-    "log/slog"
-    "math"
-    "sync"
-    "time"
-
-    "futures/internal/domain"
-    "futures/internal/scheduler"
-)
-
-type ExecuteFn func(ctx context.Context, sc *domain.ScoredCandidate, decision *domain.LLMDecision) error
-
 type Queue struct {
-    mu      sync.Mutex
-    current *TradeIntent
-    execFn  ExecuteFn
+    mu               sync.Mutex
+    intents          []*TradeIntent       // sorted by confidence descending
+    execFn           ExecuteFn
+    frontrunInterval time.Duration
+    lastFrontrunExec time.Time
+    firedInWindow    map[scheduler.WindowType]bool // one fire per window type per cycle
 }
+```
 
-func NewQueue(execFn ExecuteFn) *Queue {
-    return &Queue{execFn: execFn}
-}
+Key methods:
 
-// Enqueue creates or replaces the active intent.
-// Called by scanFn after LLM returns OPEN_SHORT.
-func (q *Queue) Enqueue(intent *TradeIntent) {
-    q.mu.Lock()
-    defer q.mu.Unlock()
+- **`Enqueue(intent)`**: dedup per (symbol, mode) — upgrade if higher confidence, discard otherwise; re-sort after change.
+- **`Tick(ctx, currentWindow)`**: expire stale intents, then route to `tickFrontrunLocked` or `tickTransitionLocked`.
+- **`tickFrontrunLocked`**: checks `firedInWindow[FRONTRUN]`, then interval elapsed, then fires best eligible. Sets `firedInWindow[FRONTRUN] = true`.
+- **`tickTransitionLocked`**: checks `firedInWindow[currentWindow]`, fires best eligible, sets `firedInWindow[currentWindow] = true`.
+- **`bestEligibleLocked(window)`**: first pending intent where `windowReady(current, targetMode)` — queue is sorted, so first match is highest confidence.
+- **`ClearAfterSettlement`**: clears intents, resets `lastFrontrunExec`, resets `firedInWindow = make(...)`.
 
-    if q.current != nil && q.current.Status == IntentPending {
-        slog.Info("replacing existing intent",
-            "old_symbol", q.current.Symbol,
-            "new_symbol", intent.Symbol,
-        )
+```go
+func NewQueue(execFn ExecuteFn, frontrunInterval time.Duration) *Queue {
+    return &Queue{
+        execFn:           execFn,
+        frontrunInterval: frontrunInterval,
+        firedInWindow:    make(map[scheduler.WindowType]bool),
     }
-
-    q.current = intent
-    slog.Info("intent queued",
-        "symbol", intent.Symbol,
-        "target_mode", intent.TargetEntryMode,
-        "confidence", intent.Decision.Confidence,
-        "expires_at", intent.ExpiresAt.Format(time.RFC3339),
-    )
-}
-
-// Cancel clears the current intent (e.g., LLM returned SKIP after previously queueing).
-func (q *Queue) Cancel(reason string) {
-    q.mu.Lock()
-    defer q.mu.Unlock()
-    if q.current != nil && q.current.Status == IntentPending {
-        q.current.Status = IntentRejected
-        slog.Info("intent cancelled", "symbol", q.current.Symbol, "reason", reason)
-    }
-    q.current = nil
-}
-
-// Tick is called every 1s by the scheduler. Checks if the intent should fire.
-func (q *Queue) Tick(ctx context.Context, currentWindow scheduler.WindowType) {
-    q.mu.Lock()
-    intent := q.current
-    q.mu.Unlock()
-
-    if intent == nil || intent.Status != IntentPending {
-        return
-    }
-
-    now := time.Now()
-
-    // Check expiry
-    if intent.IsExpired(now) {
-        q.mu.Lock()
-        intent.Status = IntentExpired
-        q.current = nil
-        q.mu.Unlock()
-        slog.Info("intent expired", "symbol", intent.Symbol)
-        return
-    }
-
-    // Check if current window >= target window (ready to fire)
-    if !windowReady(currentWindow, intent.TargetEntryMode) {
-        return
-    }
-
-    // Fire the intent
-    q.mu.Lock()
-    intent.Status = IntentFired
-    q.current = nil
-    q.mu.Unlock()
-
-    slog.Info("intent firing",
-        "symbol", intent.Symbol,
-        "target_mode", intent.TargetEntryMode,
-        "current_window", currentWindow,
-    )
-
-    if err := q.execFn(ctx, intent.Candidate, intent.Decision); err != nil {
-        slog.Error("intent execution failed", "symbol", intent.Symbol, "error", err)
-    }
-}
-
-// ShouldCallLLM checks if we need to call LLM or if the current intent is still valid.
-func (q *Queue) ShouldCallLLM(topSymbol string, topScore float64, btcTrend string) bool {
-    q.mu.Lock()
-    defer q.mu.Unlock()
-
-    if q.current == nil || q.current.Status != IntentPending {
-        return true // no intent → call LLM
-    }
-
-    // If top candidate changed, re-evaluate
-    if q.current.Symbol != topSymbol {
-        return true
-    }
-
-    // If score shifted significantly, re-evaluate
-    if math.Abs(topScore-q.current.OriginalScore) >= 5 {
-        return true
-    }
-
-    // If BTC trend changed, re-evaluate
-    if q.current.BTCTrend != btcTrend {
-        return true
-    }
-
-    slog.Debug("skipping LLM call: intent still valid",
-        "symbol", q.current.Symbol,
-        "age", time.Since(q.current.CreatedAt).Round(time.Second),
-    )
-    return false
-}
-
-// HasPendingIntent returns true if there's an active intent waiting to fire.
-func (q *Queue) HasPendingIntent() bool {
-    q.mu.Lock()
-    defer q.mu.Unlock()
-    return q.current != nil && q.current.Status == IntentPending
-}
-
-// ClearAfterSettlement resets the queue after funding settlement.
-func (q *Queue) ClearAfterSettlement() {
-    q.mu.Lock()
-    defer q.mu.Unlock()
-    if q.current != nil {
-        slog.Info("clearing queue after settlement", "symbol", q.current.Symbol, "status", q.current.Status)
-    }
-    q.current = nil
-}
-
-// windowReady returns true if the current window is at or past the target entry mode.
-// Window ordering: FRONTRUN(0) < LAST_MINUTE(1) < AFTER(2)
-// Intent fires when currentWindow >= targetMode
-func windowReady(current scheduler.WindowType, target domain.EntryMode) bool {
-    windowRank := map[scheduler.WindowType]int{
-        scheduler.WindowFrontrun:   0,
-        scheduler.WindowLastMinute: 1,
-        scheduler.WindowAfter:      2,
-    }
-    modeRank := map[domain.EntryMode]int{
-        domain.EntryModeFrontrun:   0,
-        domain.EntryModeLastMinute: 1,
-        domain.EntryModeAfter:      2,
-    }
-
-    cr, ok1 := windowRank[current]
-    tr, ok2 := modeRank[target]
-    if !ok1 || !ok2 {
-        return false
-    }
-    return cr >= tr
 }
 ```
 
@@ -1063,157 +945,107 @@ The scanFn now produces intents instead of executing immediately. The queue fire
 Uniform 1m scan interval replaces the previous 5m/1m split:
 
 ```go
-// Scheduler config change:
-// - Remove scan_interval_early / scan_interval_late distinction
-// - Single scan_interval: 1m for the entire window (T-30m → T+1m)
-
 type SchedulerConfig struct {
     ScanInterval       string `yaml:"scan_interval"`        // "1m" (uniform)
     WindowStartMinutes int    `yaml:"window_start_minutes"` // 30
 }
 ```
 
-### Modified scanFn
+### Key app.go Fields
 
 ```go
-// In app.go, new fields:
-type App struct {
-    // ... existing fields ...
-    llmEngine    *llm.DecisionEngine
-    intentQueue  *intent.Queue
+// llmCallState tracks the last LLM call inputs for cooldown dedup.
+type llmCallState struct {
+    symbol   string
+    score    float64
+    btcTrend string
+    window   scheduler.WindowType
+    calledAt time.Time
 }
 
-// Wire up intent queue with execute function
+type App struct {
+    // ... existing fields ...
+    llmEngine   *llm.DecisionEngine
+    intentQueue *intent.Queue
+    lastLLMCall *llmCallState
+}
+```
+
+### Modified scanFn (Phase 3 path, LLM enabled)
+
+```go
+// Wire up intent queue — risk re-validated at fire time
+frontrunInterval := time.Duration(cfg.LLM.FrontrunExecIntervalSecs) * time.Second
 a.intentQueue = intent.NewQueue(func(ctx context.Context, sc *domain.ScoredCandidate, decision *domain.LLMDecision) error {
-    // Risk check at fire time (market may have changed since intent was queued)
-    btc, _ := a.indEngine.ComputeBTCContext(ctx)
-    if err := a.riskEngine.EvaluateCandidate(ctx, sc, btc); err != nil {
+    btcAtFire, _ := a.indEngine.ComputeBTCContext(ctx)
+    if err := a.riskEngine.EvaluateCandidate(ctx, sc, btcAtFire); err != nil {
         slog.Info("intent rejected by risk engine at fire time",
             "symbol", sc.Candidate.Symbol, "reason", err)
         return nil
     }
     return a.execEng.ExecuteScoredWithLLM(ctx, sc, decision)
-})
+}, frontrunInterval)
 
-scanFn := func(ctx context.Context, window scheduler.WindowType) error {
-    // Phase 1: pre-checks
-    if err := a.riskEngine.PreCheck(ctx); err != nil {
-        slog.Info("pre-check rejected", "reason", err)
-        return nil
-    }
+// ... inside scanFn, after scoring + sorting ...
 
-    // Phase 1: funding scanner
-    candidates, err := a.scanner.Scan(ctx)
-    if err != nil {
-        return err
-    }
-    if len(candidates) == 0 {
-        return nil
-    }
+// LLM call cooldown: skip if inputs haven't materially changed since last call.
+// Window change always bypasses the cooldown.
+btcTrend := ""
+if btc != nil {
+    btcTrend = btc.Trend
+}
+cooldown := time.Duration(cfg.LLM.CallCooldownSecs) * time.Second
+if lc := a.lastLLMCall; lc != nil &&
+    lc.window == window &&
+    lc.symbol == top[0].Candidate.Symbol &&
+    math.Abs(lc.score-top[0].CompositeScore) < 5 &&
+    lc.btcTrend == btcTrend &&
+    time.Since(lc.calledAt) < cooldown {
+    return nil // inputs unchanged, existing queue intents still valid
+}
 
-    // Phase 2: filters
-    candidates = scanner.FilterByROI(candidates, a.cfg.Filtering.MinDailyROIPct)
-    candidates = scanner.FilterByVolume(candidates, a.cfg.Filtering.MinVolume24hM)
-    if len(candidates) == 0 {
-        return nil
-    }
-
-    // Phase 2: BTC context
-    btc, err := a.indEngine.ComputeBTCContext(ctx)
-    if err != nil {
-        slog.Warn("BTC context unavailable", "error", err)
-    }
-
-    // Phase 2: indicators + scoring (parallel)
-    scored := computeAndScoreAll(candidates, a.indEngine, a.scorer, btc)
-    if len(scored) == 0 {
-        return nil
-    }
-
-    // Sort by score, take top N
-    sort.Slice(scored, func(i, j int) bool {
-        return scored[i].CompositeScore > scored[j].CompositeScore
-    })
-    topN := min(a.cfg.LLM.TopCandidates, len(scored))
-    top := scored[:topN]
-
-    // ===== PHASE 3: LLM + INTENT QUEUE =====
-    if !a.cfg.LLM.Enabled || a.llmEngine == nil {
-        // Fallback: Phase 2 deterministic (no LLM)
-        best := top[0]
-        if err := a.riskEngine.EvaluateCandidate(ctx, best, btc); err != nil {
-            return nil
-        }
-        return a.execEng.ExecuteScored(ctx, best, window)
-    }
-
-    // Dedup check: skip LLM if intent is still valid
-    btcTrend := ""
-    if btc != nil {
-        btcTrend = btc.Trend
-    }
-    if !a.intentQueue.ShouldCallLLM(top[0].Candidate.Symbol, top[0].CompositeScore, btcTrend) {
-        return nil // intent still valid, no LLM call needed
-    }
-
-    // Call LLM
-    decision, err := a.llmEngine.Evaluate(ctx, top, btc, window)
-    if err != nil {
-        slog.Error("LLM engine error", "error", err)
-        return nil
-    }
-
-    if decision.Action == "SKIP" {
-        slog.Info("LLM decided to skip", "reason", decision.SkipReason)
-        a.intentQueue.Cancel("LLM returned SKIP")
-        return nil
-    }
-
-    // Find selected candidate
-    var selected *domain.ScoredCandidate
-    for _, sc := range top {
-        if sc.Candidate.Symbol == decision.Symbol {
-            selected = sc
-            break
-        }
-    }
-    if selected == nil {
-        slog.Warn("LLM selected unknown symbol", "symbol", decision.Symbol)
-        return nil
-    }
-
-    // Apply LLM confidence → position sizing
-    selected.PositionSizePct = confidenceToSize(decision.Confidence)
-
-    // Create intent
-    nextSettlement := scheduler.NextFundingTime(time.Now().UTC())
-    ti := &intent.TradeIntent{
-        Symbol:          decision.Symbol,
-        Candidate:       selected,
-        Decision:        decision,
-        TargetEntryMode: decision.EntryMode,
-        CreatedAt:       time.Now(),
-        ExpiresAt:       nextSettlement.Add(1 * time.Minute), // expire 1m after settlement
-        Status:          intent.IntentPending,
-        OriginalScore:   selected.CompositeScore,
-        BTCTrend:        btcTrend,
-    }
-
-    a.intentQueue.Enqueue(ti)
-
-    // If target mode matches current window, queue will fire on next tick (within 1s)
+// Call LLM
+decision, err := a.llmEngine.Evaluate(ctx, top, btc, window)
+if err != nil {
+    slog.Error("LLM engine error", "error", err)
     return nil
 }
+
+// Record call state for next cooldown check
+a.lastLLMCall = &llmCallState{
+    symbol: top[0].Candidate.Symbol, score: top[0].CompositeScore,
+    btcTrend: btcTrend, window: window, calledAt: time.Now(),
+}
+
+if decision.Action == "SKIP" {
+    slog.Info("LLM decided to skip",
+        "reason", decision.SkipReason,
+        "queue_depth", a.intentQueue.PendingCount(),
+    )
+    return nil // existing queue intents are not cancelled on a SKIP
+}
+
+// Find selected candidate, size by confidence, enqueue
+selected.PositionSizePct = confidenceToSize(decision.Confidence)
+nextSettlement := scheduler.NextFundingTime(time.Now().UTC())
+ti := &intent.TradeIntent{
+    Symbol:          decision.Symbol,
+    Candidate:       selected,
+    Decision:        decision,
+    TargetEntryMode: decision.EntryMode,
+    CreatedAt:       time.Now(),
+    ExpiresAt:       nextSettlement.Add(1 * time.Minute),
+    Status:          intent.IntentPending,
+}
+a.intentQueue.Enqueue(ti)
 ```
 
 ### Intent Queue Tick (integrated into scheduler)
 
 ```go
-// The scheduler's 1s tick now also ticks the intent queue:
 func (s *Scheduler) tick(ctx context.Context) {
     window := CurrentWindow(time.Now(), s.cfg.WindowStartMinutes)
 
-    // Always tick the intent queue (even outside scan intervals)
     if s.intentQueue != nil {
         if window == WindowNone {
             s.intentQueue.ClearAfterSettlement()
@@ -1222,11 +1054,10 @@ func (s *Scheduler) tick(ctx context.Context) {
         }
     }
 
-    // Scan logic (1m interval lock)
     if window == WindowNone {
         return
     }
-    // ... existing lock + scan logic with uniform 1m interval ...
+    // ... existing lock + scan logic ...
 }
 ```
 
@@ -1235,16 +1066,11 @@ func (s *Scheduler) tick(ctx context.Context) {
 ```go
 func confidenceToSize(confidence int) float64 {
     switch {
-    case confidence >= 90:
-        return 5.0
-    case confidence >= 80:
-        return 4.0
-    case confidence >= 70:
-        return 3.0
-    case confidence >= 60:
-        return 2.0
-    default:
-        return 0
+    case confidence >= 90: return 5.0
+    case confidence >= 80: return 4.0
+    case confidence >= 70: return 3.0
+    case confidence >= 60: return 2.0
+    default:               return 0
     }
 }
 ```
@@ -1256,27 +1082,19 @@ func confidenceToSize(confidence int) float64 {
 New method to handle LLM-driven execution (called by intent queue's execFn):
 
 ```go
-// internal/execution/engine.go
-
 func (e *ExecutionEngine) ExecuteScoredWithLLM(
     ctx context.Context,
     sc *domain.ScoredCandidate,
     decision *domain.LLMDecision,
 ) error {
-    // Map LLM entry mode to window type for TP calculation
     windowType := entryModeToWindow(decision.EntryMode)
-
-    // Map LLM TP strategy to TP percentage
     tpPct := e.cfg.Execution.TpPct
     switch decision.TPStrategy {
     case "AGGRESSIVE":
-        tpPct = e.cfg.Execution.TpPct * 1.5 // 3% instead of 2%
+        tpPct = e.cfg.Execution.TpPct * 1.5
     case "TRAILING":
-        tpPct = e.cfg.Execution.TpPct // base TP, trailing will extend
-    case "BASE":
-        // default
+        tpPct = e.cfg.Execution.TpPct // base TP; trailing stop extends it
     }
-
     return e.executeInternalLLM(ctx, sc.Candidate, windowType, sc.PositionSizePct, decision)
 }
 ```
@@ -1284,26 +1102,32 @@ func (e *ExecutionEngine) ExecuteScoredWithLLM(
 ### Example Timeline
 
 ```
-T-30m: Scan #1 → LLM says OPEN_SHORT 1000PEPEUSDT, entry_mode=LAST_MINUTE, confidence=82
-        → Intent queued: {PEPE, LAST_MINUTE, conf=82, expires=T+1m}
+T-30m: Scan #1 → LLM called → OPEN_SHORT PEPE (LAST_MINUTE, conf=82), OPEN_SHORT WIF (AFTER, conf=75)
+        → Queue: [{PEPE,LM,82}, {WIF,AFTER,75}]
 
-T-29m: Scan #2 → ShouldCallLLM? same symbol, score changed <5, same BTC → SKIP LLM
-        → No action (intent still valid)
+T-29m: Scan #2 → cooldown active (same symbol/score/BTC/window) → skip LLM, queue unchanged
 
-T-25m: Scan #6 → ShouldCallLLM? BTC trend changed to bullish → CALL LLM
-        → LLM says SKIP (BTC too risky) → Cancel intent
+T-25m: Scan #6 → BTC trend changed to bullish → cooldown bypassed → LLM called
+        → LLM: OPEN_SHORT PEPE (LAST_MINUTE, conf=78) [lower than 82, discarded]
+        → LLM: OPEN_SHORT DOGE (FRONTRUN, conf=70) [new symbol/mode, added]
+        → Queue: [{PEPE,LM,82}, {WIF,AFTER,75}, {DOGE,FR,70}]
 
-T-20m: Scan #11 → No intent, call LLM → LLM says OPEN_SHORT WIFUSDT, entry_mode=AFTER, conf=75
-        → Intent queued: {WIF, AFTER, conf=75, expires=T+1m}
+T-15m: FRONTRUN interval (5m) elapsed
+        → Queue tick fires DOGE (conf=70, highest FRONTRUN-eligible)
+        → Risk check → execute DOGE short
+        → firedInWindow[FRONTRUN] = true
 
-T-5m:  Window transitions to LAST_MINUTE
-        → Queue tick: intent target=AFTER, current=LAST_MINUTE → HOLD (not ready)
+T-5m:  Window → LAST_MINUTE
+        → Queue tick fires PEPE (conf=82, highest LAST_MINUTE-eligible)
+        → Risk check → execute PEPE short
+        → firedInWindow[LAST_MINUTE] = true
 
-T+0:   Window transitions to AFTER
-        → Queue tick: intent target=AFTER, current=AFTER → FIRE!
-        → Risk check passes → Execute short on WIFUSDT
+T+0:   Window → AFTER
+        → Queue tick fires WIF (conf=75, highest AFTER-eligible)
+        → Risk check → execute WIF short
+        → firedInWindow[AFTER] = true
 
-T+1m:  Queue auto-clears (settlement done)
+T+1m:  ClearAfterSettlement → queue emptied, firedInWindow reset
 ```
 
 ---
@@ -1398,7 +1222,7 @@ Used in the API call to enforce response format:
 | LLM returns symbol not in list    | SKIP, log mismatch                                 |
 | LLM confidence < 60 but OPEN      | Override to SKIP                                   |
 | LLM entry_mode is future window   | Queue intent, fire when window arrives             |
-| Intent queued but LLM says SKIP   | Cancel existing intent                             |
+| LLM says SKIP                      | Existing queued intents are NOT cancelled; SKIP only means no new intent added |
 | Intent expires (past settlement)  | Auto-clear, log expiry                             |
 | Market changed since intent queued| Risk check at fire time catches this               |
 | Rate limit exceeded locally       | SKIP this cycle, resume next cycle                 |
@@ -1453,17 +1277,24 @@ slog.Info("llm_skip",
 
 ### Unit Tests — Intent Queue
 
-| Test                                | What it validates                                   |
-|-------------------------------------|-----------------------------------------------------|
-| `TestQueue_Enqueue`                 | Intent is stored and retrievable                    |
-| `TestQueue_ReplaceExisting`         | New intent replaces old pending intent              |
-| `TestQueue_FiresOnWindowMatch`      | Intent fires when current window >= target mode     |
-| `TestQueue_HoldsUntilWindow`        | Intent with AFTER mode doesn't fire during FRONTRUN |
-| `TestQueue_Expiry`                  | Expired intent is cleared, not fired                |
-| `TestQueue_CancelOnSkip`            | Cancel clears pending intent                        |
-| `TestQueue_ShouldCallLLM_SameSymbol`| Returns false when symbol/score/btc unchanged       |
-| `TestQueue_ShouldCallLLM_Changed`   | Returns true when conditions shifted                |
-| `TestWindowReady`                   | All window/mode combinations produce correct result |
+| Test                                          | What it validates                                              |
+|-----------------------------------------------|----------------------------------------------------------------|
+| `TestEnqueue_AddsNewIntent`                   | Intent is stored and count increases                           |
+| `TestEnqueue_SortsByConfidenceDesc`           | Queue is always sorted highest confidence first                |
+| `TestEnqueue_SameSymbolSameMode_Upgrade`      | Higher confidence replaces lower for same (symbol, mode)       |
+| `TestEnqueue_SameSymbolSameMode_Discard`      | Lower/equal confidence is discarded                            |
+| `TestEnqueue_SameSymbolDifferentMode`         | Different modes for same symbol both kept                      |
+| `TestTick_Frontrun_FiresAfterInterval`        | FRONTRUN intent fires after frontrun_exec_interval elapses     |
+| `TestTick_Frontrun_DoesNotFireBeforeInterval` | FRONTRUN intent held until interval elapsed                    |
+| `TestTick_Frontrun_PicksHighestConfidence`    | Highest-confidence eligible intent fires first                 |
+| `TestTick_LastMinute_FiresOnWindowEntry`      | LAST_MINUTE intent fires on first LAST_MINUTE tick             |
+| `TestTick_LastMinute_FiresOnlyOnce`           | Second LAST_MINUTE tick does not fire again                    |
+| `TestTick_FrontrunFire_DoesNotBlockLM`        | FRONTRUN fire does not prevent LAST_MINUTE or AFTER firing     |
+| `TestTick_LastMinuteFire_DoesNotBlockAfter`   | LAST_MINUTE fire does not prevent AFTER from firing            |
+| `TestTick_OneFirePerWindowTypePerCycle`       | Each window type fires at most once; up to 3 trades per cycle  |
+| `TestTick_ExpiredIntentNotFired`              | Expired intent is removed, not fired                           |
+| `TestClearAfterSettlement_ResetsWindowFlags`  | firedInWindow is fully reset after settlement                  |
+| `TestWindowReady_AllCombinations`             | All window/mode combinations produce correct result            |
 
 ### Integration Tests (with mock HTTP server)
 

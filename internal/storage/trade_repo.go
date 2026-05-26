@@ -27,11 +27,15 @@ func (r *PGTradeRepository) Insert(ctx context.Context, trade *domain.Trade) err
 	}
 	_, err := r.pool.Exec(ctx, `
 		INSERT INTO trades (id, symbol, side, entry_mode, leverage, confidence,
-		    funding_rate, daily_roi, entry_price, is_paper, created_at)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+		    funding_rate, daily_roi, entry_price, is_paper, created_at,
+		    llm_confidence, llm_entry_mode, llm_tp_strategy,
+		    llm_entry_reasons, llm_warnings, llm_skip_reason)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
 	`, trade.ID, trade.Symbol, trade.Side, trade.EntryMode, trade.Leverage,
 		trade.Confidence, trade.FundingRate, trade.DailyROI,
-		trade.EntryPrice, trade.IsPaper, trade.CreatedAt)
+		trade.EntryPrice, trade.IsPaper, trade.CreatedAt,
+		trade.LLMConfidence, trade.LLMEntryMode, trade.LLMTPStrategy,
+		trade.LLMEntryReasons, trade.LLMWarnings, trade.LLMSkipReason)
 	return err
 }
 
@@ -40,12 +44,16 @@ func (r *PGTradeRepository) GetByID(ctx context.Context, id uuid.UUID) (*domain.
 	err := r.pool.QueryRow(ctx, `
 		SELECT id, symbol, side, entry_mode, leverage, confidence,
 		    funding_rate, daily_roi, entry_price, exit_price, pnl, result,
-		    is_paper, created_at, closed_at
+		    is_paper, created_at, closed_at,
+		    llm_confidence, llm_entry_mode, llm_tp_strategy,
+		    llm_entry_reasons, llm_warnings, llm_skip_reason
 		FROM trades WHERE id = $1
 	`, id).Scan(&t.ID, &t.Symbol, &t.Side, &t.EntryMode, &t.Leverage,
 		&t.Confidence, &t.FundingRate, &t.DailyROI,
 		&t.EntryPrice, &t.ExitPrice, &t.PnL, &t.Result,
-		&t.IsPaper, &t.CreatedAt, &t.ClosedAt)
+		&t.IsPaper, &t.CreatedAt, &t.ClosedAt,
+		&t.LLMConfidence, &t.LLMEntryMode, &t.LLMTPStrategy,
+		&t.LLMEntryReasons, &t.LLMWarnings, &t.LLMSkipReason)
 	if err != nil {
 		return nil, err
 	}
@@ -56,7 +64,9 @@ func (r *PGTradeRepository) GetRecent(ctx context.Context, limit int) ([]domain.
 	rows, err := r.pool.Query(ctx, `
 		SELECT id, symbol, side, entry_mode, leverage, confidence,
 		    funding_rate, daily_roi, entry_price, exit_price, pnl, result,
-		    is_paper, created_at, closed_at
+		    is_paper, created_at, closed_at,
+		    llm_confidence, llm_entry_mode, llm_tp_strategy,
+		    llm_entry_reasons, llm_warnings, llm_skip_reason
 		FROM trades ORDER BY created_at DESC LIMIT $1
 	`, limit)
 	if err != nil {
@@ -69,7 +79,9 @@ func (r *PGTradeRepository) GetRecent(ctx context.Context, limit int) ([]domain.
 		if err := rows.Scan(&t.ID, &t.Symbol, &t.Side, &t.EntryMode, &t.Leverage,
 			&t.Confidence, &t.FundingRate, &t.DailyROI,
 			&t.EntryPrice, &t.ExitPrice, &t.PnL, &t.Result,
-			&t.IsPaper, &t.CreatedAt, &t.ClosedAt); err != nil {
+			&t.IsPaper, &t.CreatedAt, &t.ClosedAt,
+			&t.LLMConfidence, &t.LLMEntryMode, &t.LLMTPStrategy,
+			&t.LLMEntryReasons, &t.LLMWarnings, &t.LLMSkipReason); err != nil {
 			return nil, err
 		}
 		trades = append(trades, t)

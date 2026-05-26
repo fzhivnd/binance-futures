@@ -11,7 +11,7 @@ binance:
   testnet: false
 
 trading:
-  max_positions: 2
+  max_positions: 3
   leverage: 20
   position_size_pct: 5.0
   cooldown_minutes: 15
@@ -23,14 +23,14 @@ funding:
 
 execution:
   sl_pct: 5.0
-  tp_pct: 2.2
+  tp_pct: 2.1
   trailing_enabled: false
   trailing_activation_pct: 1.5
-  breakeven_activation_pct: 1.0
+  breakeven_activation_pct: 1.5
   slippage_bps: 1
 
 scheduler:
-  scan_interval_early: "5m"
+  scan_interval_early: "1m"
   scan_interval_late: "1m"
   window_start_minutes: 15
 
@@ -44,16 +44,16 @@ websocket:
 database:
   postgres:
     host: "${POSTGRES.HOST}"
-    port: 5432
+    port: "${POSTGRES.PORT}"
     user: "${POSTGRES.USERNAME}"
-    password: "${POSTGRES.PASSWORD}"
+    password: "${POSTGRES_PASSWORD}"
     dbname: "${POSTGRES.DATABASE}"
     sslmode: "disable"
     max_conns: 10
   redis:
     addr: "${REDIS.HOST}:${REDIS.PORT}"
     password: "${REDIS.PASSWORD}"
-    db: "${REDOS.DATABASE}"
+    db: "${REDIS.DATABASE}"
 
 filtering:
   min_daily_roi_pct: 20.0
@@ -85,3 +85,15 @@ risk:
 
 backtest:
   data_dir: "./data/backtest"
+
+llm:
+  enabled: false
+  api_key: "${OPENAI_API_KEY}"
+  model: "gpt-4.1-mini"
+  timeout_secs: 15
+  max_retries: 1
+  max_rpm: 30
+  top_candidates: 5
+  min_confidence: 60
+  frontrun_exec_interval_secs: 300  # execute best FRONTRUN intent every 5m
+  call_cooldown_secs: 300           # skip LLM call if inputs unchanged within this window
