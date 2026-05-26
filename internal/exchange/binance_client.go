@@ -257,6 +257,27 @@ func (c *BinanceClient) GetHistoricalFundingRates(ctx context.Context, symbol st
 	return all, nil
 }
 
+func (c *BinanceClient) CreateListenKey(ctx context.Context) (string, error) {
+	body, err := c.post(ctx, "/fapi/v1/listenKey", nil)
+	if err != nil {
+		return "", err
+	}
+	var resp struct {
+		ListenKey string `json:"listenKey"`
+	}
+	if err := json.Unmarshal(body, &resp); err != nil {
+		return "", fmt.Errorf("parse listenKey: %w", err)
+	}
+	return resp.ListenKey, nil
+}
+
+func (c *BinanceClient) KeepAliveListenKey(ctx context.Context, listenKey string) error {
+	params := url.Values{}
+	params.Set("listenKey", listenKey)
+	_, err := c.put(ctx, "/fapi/v1/listenKey", params)
+	return err
+}
+
 func (c *BinanceClient) GetAccount(ctx context.Context) (*AccountResponse, error) {
 	params := url.Values{}
 	params.Set("timestamp", strconv.FormatInt(time.Now().UnixMilli(), 10))
@@ -291,8 +312,27 @@ func (c *BinanceClient) get(ctx context.Context, path string, params url.Values,
 }
 
 func (c *BinanceClient) post(ctx context.Context, path string, params url.Values) ([]byte, error) {
+	body := ""
+	if params != nil {
+		body = params.Encode()
+	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+path,
-		strings.NewReader(params.Encode()))
+		strings.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("X-MBX-APIKEY", c.apiKey)
+	return c.do(req)
+}
+
+func (c *BinanceClient) put(ctx context.Context, path string, params url.Values) ([]byte, error) {
+	body := ""
+	if params != nil {
+		body = params.Encode()
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPut, c.baseURL+path,
+		strings.NewReader(body))
 	if err != nil {
 		return nil, err
 	}

@@ -10,6 +10,7 @@ import (
 
 	"futures/internal/config"
 	"futures/internal/domain"
+	"futures/internal/exchange"
 	"futures/internal/storage"
 )
 
@@ -65,23 +66,6 @@ func (m *PositionManager) checkAll(ctx context.Context) {
 }
 
 func (m *PositionManager) check(ctx context.Context, pos domain.Position) {
-	// Detect exchange-side fill: SL or TP order was triggered
-	exchangePos, err := m.executor.GetPosition(ctx, pos.Symbol)
-	if err != nil {
-		slog.Warn("get exchange position failed", "symbol", pos.Symbol, "error", err)
-	} else if exchangePos == nil {
-		// Position is closed on the exchange — record the result
-		exitPrice, _ := m.market.GetPrice(pos.Symbol)
-		result := "WIN"
-		if pos.Side == domain.SideSell && exitPrice >= pos.EntryPrice {
-			result = "LOSS"
-		} else if pos.Side == domain.SideBuy && exitPrice <= pos.EntryPrice {
-			result = "LOSS"
-		}
-		m.recordClose(ctx, pos, exitPrice, result)
-		return
-	}
-
 	if pos.BreakevenMoved {
 		return
 	}
@@ -94,7 +78,7 @@ func (m *PositionManager) check(ctx context.Context, pos domain.Position) {
 	// For SHORT: profit when price falls below entry
 	unrealizedPnlPct := (pos.EntryPrice - currentPrice) / pos.EntryPrice * float64(pos.Leverage) * 100
 
-	// Breakeven: cancel the resting SL order and replace it at entry price.
+	// Breakeven: cancel the resting SL and replace it at entry price as STOP_MARKET.
 	// Requires the profit threshold AND at least 5 minutes since open to avoid
 	// reacting to the initial spike on entry fill.
 	if unrealizedPnlPct > m.cfg.Execution.BreakevenActivationPct &&
@@ -104,14 +88,12 @@ func (m *PositionManager) check(ctx context.Context, pos domain.Position) {
 				slog.Warn("cancel SL for breakeven failed", "symbol", pos.Symbol, "error", err)
 			}
 		}
-		breakevenLimit := pos.EntryPrice * 1.001
-		newSL, err := m.executor.PlaceStopLimitOrder(ctx, domain.OrderRequest{
+		newSL, err := m.executor.PlaceStopMarketOrder(ctx, domain.OrderRequest{
 			Symbol:     pos.Symbol,
 			Side:       domain.SideBuy,
-			Type:       domain.OrderTypeStop,
+			Type:       domain.OrderTypeStopMarket,
 			Quantity:   pos.Quantity,
 			StopPrice:  pos.EntryPrice,
-			Price:      breakevenLimit,
 			ReduceOnly: true,
 		})
 		if err != nil {
@@ -128,6 +110,44 @@ func (m *PositionManager) check(ctx context.Context, pos domain.Position) {
 		}
 		slog.Info("moved SL to breakeven", "symbol", pos.Symbol, "entry", pos.EntryPrice, "sl_order", pos.SLOrderID)
 	}
+}
+
+// HandleUserDataEvent is called by the user data stream router on every ORDER_TRADE_UPDATE.
+// It detects when a SL or TP reduce-only order is FILLED and records the close with the
+// actual fill price from Binance rather than an approximated mark price.
+func (m *PositionManager) HandleUserDataEvent(event exchange.UserDataEvent) {
+	o := event.Order
+	if o.OrderStatus != "FILLED" || !o.ReduceOnly {
+		return
+	}
+
+	ctx := context.Background()
+	positions, err := m.cache.GetActivePositions(ctx)
+	if err != nil {
+		slog.Error("HandleUserDataEvent: get active positions", "error", err)
+		return
+	}
+
+	var pos *domain.Position
+	for i := range positions {
+		if positions[i].Symbol == o.Symbol {
+			pos = &positions[i]
+			break
+		}
+	}
+	if pos == nil {
+		return
+	}
+
+	exitPrice := o.AvgPrice
+	result := "WIN"
+	if pos.Side == domain.SideSell && exitPrice >= pos.EntryPrice {
+		result = "LOSS"
+	} else if pos.Side == domain.SideBuy && exitPrice <= pos.EntryPrice {
+		result = "LOSS"
+	}
+
+	m.recordClose(ctx, *pos, exitPrice, result)
 }
 
 func (m *PositionManager) recordClose(ctx context.Context, pos domain.Position, exitPrice float64, result string) {
@@ -177,4 +197,3 @@ func (m *PositionManager) recordClose(ctx context.Context, pos domain.Position, 
 	slog.Info("position closed", "symbol", pos.Symbol, "result", result,
 		"entry", pos.EntryPrice, "exit", exitPrice, "pnl", pnl)
 }
-

@@ -137,3 +137,24 @@ type fundingRateRaw struct {
 	FundingRate string `json:"fundingRate"`
 	FundingTime int64  `json:"fundingTime"`
 }
+
+// UserDataEvent wraps ORDER_TRADE_UPDATE from the user data stream.
+type UserDataEvent struct {
+	EventType string           `json:"e"`
+	EventTime int64            `json:"E"`
+	Order     OrderTradeUpdate `json:"o"`
+}
+
+// OrderTradeUpdate is the "o" payload inside a USER_DATA_STREAM ORDER_TRADE_UPDATE event.
+type OrderTradeUpdate struct {
+	Symbol        string  `json:"s"`
+	OrderID       int64   `json:"i"`
+	ClientOrderID string  `json:"c"`
+	Side          string  `json:"S"`
+	OrderType     string  `json:"o"`
+	OrderStatus   string  `json:"X"` // NEW, PARTIALLY_FILLED, FILLED, CANCELED, …
+	AvgPrice      float64 `json:"ap,string"`
+	Quantity      float64 `json:"q,string"`
+	FilledQty     float64 `json:"z,string"`
+	ReduceOnly    bool    `json:"R"`
+}

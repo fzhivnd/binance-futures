@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"time"
 
@@ -22,19 +23,20 @@ import (
 )
 
 type App struct {
-	cfg        *config.Config
-	engine     *market.MarketEngine
-	scanner    *scanner.FundingScanner
-	executor   execution.Executor
-	execEng    *execution.ExecutionEngine
-	posMgr     *execution.PositionManager
-	sched      *scheduler.Scheduler
-	wsMarkPx   *exchange.WSConnection
-	wsKlines   *exchange.WSConnection
-	indEngine  *indicator.Engine
-	scorer     *scoring.Scorer
-	riskEngine *risk.Engine
-	drawdown   *risk.DrawdownTracker
+	cfg          *config.Config
+	engine       *market.MarketEngine
+	scanner      *scanner.FundingScanner
+	executor     execution.Executor
+	execEng      *execution.ExecutionEngine
+	posMgr       *execution.PositionManager
+	sched        *scheduler.Scheduler
+	wsMarkPx     *exchange.WSConnection
+	wsKlines     *exchange.WSConnection
+	wsUserData   *exchange.WSConnection
+	indEngine    *indicator.Engine
+	scorer       *scoring.Scorer
+	riskEngine   *risk.Engine
+	drawdown     *risk.DrawdownTracker
 }
 
 func New(cfg *config.Config) (*App, error) {
@@ -166,6 +168,27 @@ func (a *App) Run(
 		killSwitchFn,
 	)
 
+	// User data stream (live mode only) — delivers ORDER_TRADE_UPDATE for accurate close detection
+	var listenKey string
+	if a.cfg.App.Mode == "live" {
+		listenKey, err = binanceClient.CreateListenKey(ctx)
+		if err != nil {
+			return fmt.Errorf("create listenKey: %w", err)
+		}
+		userDataURL := a.cfg.Binance.WsURL + "/ws/" + listenKey
+		userDataRouter := exchange.NewUserDataRouter(a.posMgr.HandleUserDataEvent)
+		a.wsUserData = exchange.NewWSConnection(
+			userDataURL,
+			userDataRouter.Handle,
+			wsCfg.GetStaleTimeout(),
+			wsCfg.GetPingInterval(),
+			wsCfg.GetReconnectBaseBackoff(),
+			wsCfg.GetReconnectMaxBackoff(),
+			wsCfg.MaxReconnectFailures,
+			killSwitchFn,
+		)
+	}
+
 	// Scheduler scan function (Phase 2 pipeline)
 	scanFn := func(ctx context.Context, window scheduler.WindowType) error {
 		// Phase 1: pre-checks
@@ -281,6 +304,10 @@ func (a *App) Run(
 	go a.oiPoller(ctx, binanceClient)
 	go a.klineSubscriber(ctx)
 	go a.fundingIntervalRefresher(ctx, binanceClient)
+	if a.cfg.App.Mode == "live" {
+		go a.wsUserData.Run(ctx)
+		go a.keepAliveListenKey(ctx, binanceClient, listenKey)
+	}
 
 	slog.Info("bot started", "mode", a.cfg.App.Mode)
 
@@ -364,6 +391,22 @@ func (a *App) klineSubscriber(ctx context.Context) {
 			}
 			a.updateKlineSubscriptions(ctx, currentSymbols, newSymbols)
 			currentSymbols = newSymbols
+		}
+	}
+}
+
+// keepAliveListenKey pings /fapi/v1/listenKey every 30 minutes to prevent expiry (Binance timeout is 60 min).
+func (a *App) keepAliveListenKey(ctx context.Context, client *exchange.BinanceClient, listenKey string) {
+	ticker := time.NewTicker(30 * time.Minute)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if err := client.KeepAliveListenKey(ctx, listenKey); err != nil {
+				slog.Warn("listenKey keepalive failed", "error", err)
+			}
 		}
 	}
 }

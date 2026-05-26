@@ -119,9 +119,12 @@ func (e *ExecutionEngine) executeInternal(ctx context.Context, candidate domain.
 	}
 
 	entryPrice := order.FillPrice
+	if entryPrice == 0 {
+		entryPrice = candidate.MarkPrice
+	}
 
-	// Calculate SL/TP prices
-	slDistance := entryPrice * (e.cfg.Execution.SlPct / 100 / float64(e.cfg.Trading.Leverage))
+	// Calculate SL/TP prices from the actual avg fill price returned by Binance.
+	slDistance := entryPrice * (e.cfg.Execution.SlPct / 100)
 	stopLoss := entryPrice + slDistance // SHORT: SL above entry
 
 	tpDistance := entryPrice * (e.cfg.Execution.TpPct / 100)
@@ -130,15 +133,13 @@ func (e *ExecutionEngine) executeInternal(ctx context.Context, candidate domain.
 	}
 	takeProfit := entryPrice - tpDistance // SHORT: TP below entry
 
-	// Place SL as STOP (stop-limit): trigger = stopLoss, limit slightly above to ensure fill
-	slLimit := stopLoss * 1.001
-	slOrder, err := e.executor.PlaceStopLimitOrder(ctx, domain.OrderRequest{
+	// Place SL as STOP_MARKET: triggers at stopLoss, fills at market — guaranteed fill.
+	slOrder, err := e.executor.PlaceStopMarketOrder(ctx, domain.OrderRequest{
 		Symbol:     candidate.Symbol,
 		Side:       domain.SideBuy, // close short
-		Type:       domain.OrderTypeStop,
+		Type:       domain.OrderTypeStopMarket,
 		Quantity:   order.Quantity,
 		StopPrice:  stopLoss,
-		Price:      slLimit,
 		ReduceOnly: true,
 	})
 	if err != nil {
@@ -146,7 +147,7 @@ func (e *ExecutionEngine) executeInternal(ctx context.Context, candidate domain.
 	}
 
 	// Place TP as TAKE_PROFIT (stop-limit): trigger = takeProfit, limit slightly below to ensure fill
-	tpLimit := takeProfit * 0.999
+	tpLimit := takeProfit * 0.99
 	tpOrder, err := e.executor.PlaceStopLimitOrder(ctx, domain.OrderRequest{
 		Symbol:     candidate.Symbol,
 		Side:       domain.SideBuy, // close short
