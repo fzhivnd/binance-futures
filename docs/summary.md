@@ -383,13 +383,37 @@ CREATE TABLE risk_state (
 
 ## 10. Execution & SL/TP Logic
 
-| Rule              | Trigger                         | Action                         |
-|-------------------|---------------------------------|--------------------------------|
-| Initial SL        | On entry                        | Max 5% account loss (w/ leverage) |
-| Move to breakeven | `profit > 1%`                   | SL → entry price               |
-| Tight SL          | Price not dumping after funding | Tighten SL aggressively        |
-| Base TP           | —                               | 2% move ≈ 40% ROI at 20x      |
-| Trailing stop     | `unrealized PnL > 1.5%`         | Enable trailing                |
+### Entry Price
+
+`avgPrice` from Binance market order response (actual weighted fill price). Falls back to `candidate.MarkPrice` if response returns zero.
+
+### Order Types
+
+| Order      | Type             | Notes                                                      |
+|------------|------------------|------------------------------------------------------------|
+| Entry      | `MARKET`         | Always market fill                                         |
+| Stop Loss  | `STOP_MARKET`    | Trigger at SL price, fills at market — no gap risk        |
+| Take Profit| `TAKE_PROFIT`    | Stop-limit with 1% buffer below trigger                   |
+| Breakeven  | `STOP_MARKET`    | Replaces initial SL after profit threshold is hit         |
+
+### Position Rules
+
+| Rule              | Trigger                          | Action                                                   |
+|-------------------|----------------------------------|----------------------------------------------------------|
+| Initial SL        | On entry (STOP_MARKET)           | Placed at `entryPrice + slPct%`                         |
+| Initial TP        | On entry (TAKE_PROFIT)           | Placed at `entryPrice - tpPct%` (+ funding adj. for frontrun/last-min) |
+| Move to breakeven | `profit > BreakevenActivationPct` AND open ≥ 5 min | Cancel SL → place new STOP_MARKET at entryPrice |
+| Base TP           | —                                | 2% move ≈ 40% ROI at 20x                               |
+| Trailing stop     | `unrealized PnL > 1.5%`          | Enable trailing (Phase 5)                               |
+
+### Close Detection
+
+Positions are closed via **Binance user data stream** (`ORDER_TRADE_UPDATE` events, live mode). When a reduce-only order (SL or TP) is `FILLED`:
+- `exitPrice` = actual `avgPrice` from Binance (not approximated mark price)
+- Surviving leg (other SL or TP order) is cancelled
+- Trade result recorded with accurate PnL
+
+In paper mode, close detection falls back to polling `GetPosition` (REST).
 
 ---
 

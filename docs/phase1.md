@@ -519,39 +519,44 @@ StreamRouter.handleKline([]byte)
 ### 4.4 Position Management Flow
 
 ```
-PositionManager.Run() — 1s tick loop
+User Data Stream (live mode) — ORDER_TRADE_UPDATE events
+       │
+       ▼
+HandleUserDataEvent(event)
+       │
+       ├── event.Order.OrderStatus == "FILLED" && ReduceOnly?
+       │       │
+       │       No → ignore (entry fill or cancel ack)
+       │       │
+       │       Yes → find matching position in Redis by symbol
+       │               │
+       │               ├── exitPrice = event.Order.AvgPrice  (actual fill price from Binance)
+       │               │
+       │               ├── result = WIN or LOSS vs entryPrice
+       │               │
+       │               ├── cancel surviving leg (other SL or TP order)
+       │               │
+       │               ├── tradeRepo.UpdateResult(exitPrice, pnl, result)
+       │               │
+       │               ├── cache.RemovePosition(symbol)
+       │               │
+       │               └── if LOSS → set cooldown in Redis
+
+PositionManager.Run() — 1s tick loop (breakeven only)
        │
        ▼
 For each active position in Redis:
        │
-       ├── Get current price from TickerCache
-       │
-       ├── Calculate unrealized PnL:
-       │       pnl = (entryPrice - currentPrice) / entryPrice * leverage * 100
-       │       (for SHORT position)
-       │
-       ├── Check STOP LOSS:
-       │       │
-       │       └── currentPrice >= position.StopLoss?
-       │               │
-       │               Yes → close position (market order)
-       │                       → record trade result: LOSS
-       │                       → set cooldown in Redis
-       │                       → increment daily_loss_count
-       │
-       ├── Check TAKE PROFIT:
-       │       │
-       │       └── currentPrice <= position.TakeProfit?
-       │               │
-       │               Yes → close position (market order)
-       │                       → record trade result: WIN
-       │
        └── Check BREAKEVEN MOVE:
                │
-               └── unrealizedPnL > 1%?
-                       │
-                       Yes → move SL to entry price
-                              (only once per position)
+               ├── unrealizedPnL > BreakevenActivationPct AND open >= 5 min?
+               │       │
+               │       Yes → cancel existing STOP_MARKET SL
+               │               → place new STOP_MARKET SL at entryPrice
+               │               → mark pos.BreakevenMoved = true
+               │               → update Redis
+               │
+               └── pos.BreakevenMoved == true → skip (nothing to check)
 ```
 
 ### 4.5 Graceful Shutdown Flow
@@ -709,15 +714,20 @@ Step 4: PLACE ORDER
     })
 
 Step 5: CALCULATE and Set SL/TP
-    entryPrice = order.FillPrice
+    // entryPrice = avgPrice from Binance market order response (actual fill price)
+    // Falls back to candidate.MarkPrice if avgPrice == 0
+    entryPrice = order.FillPrice  // = resp.AvgPrice from Binance
+    if entryPrice == 0 { entryPrice = candidate.MarkPrice }
     
-    // Stop Loss: max 5% account loss
+    // Stop Loss: max % price move against position
     // For SHORT: SL is ABOVE entry
-    slDistance = entryPrice * (config.Execution.SlPct / 100 / leverage)
+    // Order type: STOP_MARKET (guaranteed fill, no limit price slippage risk)
+    slDistance = entryPrice * (config.Execution.SlPct / 100)
     stopLoss = entryPrice + slDistance
     
-    // Take Profit: 2% price move down + funding fee in % for FRONTRUN and LAST_MINUTE mode
-    tpDistance = if frontrun/lastminutes -> entryPrice * (config.Execution.TpPct / 100) + (funding_rate/100)
+    // Take Profit: % price move down + funding fee for FRONTRUN and LAST_MINUTE mode
+    // Order type: TAKE_PROFIT (stop-limit with 1% buffer below trigger)
+    tpDistance = if frontrun/lastminutes -> entryPrice * (config.Execution.TpPct / 100) + (-funding_rate * entryPrice)
                 else entryPrice * (config.Execution.TpPct / 100)
     takeProfit = entryPrice - tpDistance
 
@@ -817,7 +827,7 @@ func (l *LiveExecutor) PlaceMarketOrder(ctx context.Context, req OrderRequest) (
 
 **Problem:** ~250 USDT-M perps × 4 timeframes = 1000 kline streams. Binance limit: 200 streams/connection, max 5 connections. Subscribing to all is wasteful.
 
-**Solution: Two-tier subscription model**
+**Solution: Three-tier subscription model**
 
 ```
 Tier 1 — Always connected (1 connection):
@@ -834,11 +844,21 @@ Tier 2 — Dynamic subscription (1-2 connections):
         - Unsubscribe streams for removed symbols
         - Subscribe streams for new symbols
         - Use WS SUBSCRIBE/UNSUBSCRIBE method (no reconnection needed)
+
+Tier 3 — User data stream (1 connection, live mode only):
+    URL: /ws/<listenKey>   (listenKey from POST /fapi/v1/listenKey)
+    Purpose: ORDER_TRADE_UPDATE events — accurate close detection + actual fill price
+    Data: order fills, cancels, status changes for this account's orders
+    Keepalive: PUT /fapi/v1/listenKey every 30 min (Binance expires key after 60 min)
+    
+    Events handled:
+        - ORDER_TRADE_UPDATE with status=FILLED and reduceOnly=true
+          → triggers position close with actual avgPrice from exchange
 ```
 
 **Connection limits:**
 - Top 20 symbols × 4 timeframes = 80 streams → fits in 1 connection
-- Total connections: 2 (well within Binance's limits)
+- Total connections: 3 (well within Binance's limits)
 
 ### 5.7 WebSocket Reconnection Strategy
 

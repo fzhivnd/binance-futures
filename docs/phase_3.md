@@ -21,8 +21,8 @@ Phase 3 replaces the deterministic score-threshold gate (`score >= 60`) with an 
 - All pre-LLM pipeline: funding scan → ROI/volume filter → indicator compute → scoring
 - Risk engine still does pre-checks (kill switch, cooldown, daily loss, drawdown)
 - Execution engine still places orders (paper/live)
-- Position manager still monitors SL/TP
-- WebSocket market data infrastructure unchanged
+- Position manager: breakeven SL logic unchanged; close detection via user data stream (pre-Phase 3 improvement)
+- WebSocket market data infrastructure unchanged (mark price + klines + user data stream)
 
 ---
 
