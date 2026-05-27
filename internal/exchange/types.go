@@ -64,13 +64,14 @@ type Filter struct {
 
 // NewOrderRequest for POST /fapi/v1/order
 type NewOrderRequest struct {
-	Symbol     string
-	Side       string
-	Type       string
-	Quantity   string
-	Price      string
-	StopPrice  string
-	ReduceOnly bool
+	Symbol       string
+	Side         string
+	Type         string
+	Quantity     string
+	Price        string
+	StopPrice    string
+	ReduceOnly   bool
+	CallbackRate string // for TRAILING_STOP_MARKET orders (Phase 5)
 }
 
 // NewOrderResponse from Binance after placing order

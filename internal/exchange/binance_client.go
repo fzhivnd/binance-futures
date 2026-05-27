@@ -86,6 +86,9 @@ func (c *BinanceClient) NewOrder(ctx context.Context, req NewOrderRequest) (*New
 	if req.ReduceOnly {
 		params.Set("reduceOnly", "true")
 	}
+	if req.CallbackRate != "" {
+		params.Set("callbackRate", req.CallbackRate)
+	}
 	params.Set("timestamp", strconv.FormatInt(time.Now().UnixMilli(), 10))
 
 	sig := c.sign(params.Encode())

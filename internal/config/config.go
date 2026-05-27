@@ -60,6 +60,19 @@ type ExecutionConfig struct {
 	TrailingActivationPct  float64 `yaml:"trailing_activation_pct"`
 	BreakevenActivationPct float64 `yaml:"breakeven_activation_pct"`
 	SlippageBps            int     `yaml:"slippage_bps"`
+
+	// Phase 5: Split TP + trailing stop
+	TrailingCallbackRate float64 `yaml:"trailing_callback_rate"` // e.g. 0.5 = 0.5%
+	TP1SizePct          float64 `yaml:"tp1_size_pct"`           // e.g. 50 = 50% of position
+
+	// Phase 5: Force stop-loss
+	ForceSLEnabled          bool    `yaml:"force_sl_enabled"`
+	ForceSLStartMin         int     `yaml:"force_sl_start_min"`          // start checking after N minutes
+	ForceSLPnlGatePct       float64 `yaml:"force_sl_pnl_gate_pct"`       // skip if PnL above this (e.g. -0.5)
+	ForceSLEscalatePnlPct   float64 `yaml:"force_sl_escalate_pnl_pct"`  // escalate below this (e.g. -2.0)
+	ForceSLSlowIntervalSec  int     `yaml:"force_sl_slow_interval_sec"` // interval when mild loss (300s)
+	ForceSLFastIntervalSec  int     `yaml:"force_sl_fast_interval_sec"` // interval when severe loss (60s)
+	ForceSLTimeoutSec       int     `yaml:"force_sl_timeout_sec"`        // LLM call timeout (5s)
 }
 
 type SchedulerConfig struct {
@@ -343,6 +356,32 @@ func setDefaults(cfg *Config) {
 	}
 	if cfg.LLM.CallCooldownSecs == 0 {
 		cfg.LLM.CallCooldownSecs = 300 // 5 minutes
+	}
+
+	// Phase 5: Split TP + force-SL defaults
+	if cfg.Execution.TrailingCallbackRate == 0 {
+		cfg.Execution.TrailingCallbackRate = 0.5
+	}
+	if cfg.Execution.TP1SizePct == 0 {
+		cfg.Execution.TP1SizePct = 50
+	}
+	if cfg.Execution.ForceSLStartMin == 0 {
+		cfg.Execution.ForceSLStartMin = 5
+	}
+	if cfg.Execution.ForceSLPnlGatePct == 0 {
+		cfg.Execution.ForceSLPnlGatePct = -0.5
+	}
+	if cfg.Execution.ForceSLEscalatePnlPct == 0 {
+		cfg.Execution.ForceSLEscalatePnlPct = -2.0
+	}
+	if cfg.Execution.ForceSLSlowIntervalSec == 0 {
+		cfg.Execution.ForceSLSlowIntervalSec = 300
+	}
+	if cfg.Execution.ForceSLFastIntervalSec == 0 {
+		cfg.Execution.ForceSLFastIntervalSec = 60
+	}
+	if cfg.Execution.ForceSLTimeoutSec == 0 {
+		cfg.Execution.ForceSLTimeoutSec = 5
 	}
 
 	// Phase 4: Memory defaults

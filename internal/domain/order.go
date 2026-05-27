@@ -12,11 +12,12 @@ const (
 type OrderType string
 
 const (
-	OrderTypeMarket      OrderType = "MARKET"
-	OrderTypeLimit       OrderType = "LIMIT"
-	OrderTypeStop        OrderType = "STOP"         // stop-limit SL (Binance Futures)
-	OrderTypeStopMarket  OrderType = "STOP_MARKET"  // stop-market SL — guaranteed fill, no limit price
-	OrderTypeTakeProfit  OrderType = "TAKE_PROFIT"  // take-profit-limit TP (Binance Futures)
+	OrderTypeMarket         OrderType = "MARKET"
+	OrderTypeLimit          OrderType = "LIMIT"
+	OrderTypeStop           OrderType = "STOP"                 // stop-limit SL (Binance Futures)
+	OrderTypeStopMarket     OrderType = "STOP_MARKET"          // stop-market SL — guaranteed fill, no limit price
+	OrderTypeTakeProfit     OrderType = "TAKE_PROFIT"          // take-profit-limit TP (Binance Futures)
+	OrderTypeTrailingStop   OrderType = "TRAILING_STOP_MARKET" // native Binance trailing stop
 )
 
 type EntryMode string

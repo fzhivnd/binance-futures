@@ -152,6 +152,7 @@ func (a *App) Run(
 	a.posMgr = execution.NewPositionManager(
 		a.executor, a.engine, cache, tradeRepo, riskRepo, a.cfg,
 	)
+	a.posMgr.SetIndicatorEngine(a.indEngine)
 
 	// Kill switch callback
 	killSwitchFn := func() {
@@ -222,6 +223,15 @@ func (a *App) Run(
 		})
 		a.llmEngine = llm.NewDecisionEngine(llmClient)
 		slog.Info("LLM engine enabled", "model", a.cfg.LLM.Model)
+
+		// Phase 5: Force-SL engine (uses same LLM client)
+		if a.cfg.Execution.ForceSLEnabled {
+			a.posMgr.SetForceSLEngine(llm.NewForceSLEngine(llmClient))
+			slog.Info("force-SL engine enabled",
+				"start_min", a.cfg.Execution.ForceSLStartMin,
+				"fast_interval_sec", a.cfg.Execution.ForceSLFastIntervalSec,
+			)
+		}
 	} else {
 		slog.Info("LLM engine disabled, using Phase 2 deterministic scoring")
 	}
@@ -257,6 +267,8 @@ func (a *App) Run(
 			LLMClient: memClient,
 			Repo:      memRepo,
 		})
+		// Phase 5: wire memory repo into position manager for outcome recording on close
+		a.posMgr.SetMemoryRepo(memRepo)
 		slog.Info("memory engine enabled",
 			"embedding_model", a.cfg.Memory.EmbeddingModel,
 			"top_similar", a.cfg.Memory.TopSimilar,

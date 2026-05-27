@@ -160,10 +160,10 @@ func (e *ExecutionEngine) executeInternalWithTP(ctx context.Context, candidate d
 	}
 	takeProfit := entryPrice - tpDistance // SHORT: TP below entry
 
-	// Place SL as STOP_MARKET: triggers at stopLoss, fills at market — guaranteed fill.
+	// SL: 100% quantity — always the backstop
 	slOrder, err := e.executor.PlaceStopMarketOrder(ctx, domain.OrderRequest{
 		Symbol:     candidate.Symbol,
-		Side:       domain.SideBuy, // close short
+		Side:       domain.SideBuy,
 		Type:       domain.OrderTypeStopMarket,
 		Quantity:   order.Quantity,
 		StopPrice:  stopLoss,
@@ -173,19 +173,22 @@ func (e *ExecutionEngine) executeInternalWithTP(ctx context.Context, candidate d
 		slog.Error("place SL order failed", "symbol", candidate.Symbol, "error", err)
 	}
 
-	// Place TP as TAKE_PROFIT (stop-limit): trigger = takeProfit, limit slightly below to ensure fill
+	// TP1: 50% quantity (partial take-profit — trailing handles the rest)
+	tp1SizePct := e.cfg.Execution.TP1SizePct / 100
+	tp1Qty := order.Quantity * tp1SizePct
+
 	tpLimit := takeProfit * 0.99
 	tpOrder, err := e.executor.PlaceStopLimitOrder(ctx, domain.OrderRequest{
 		Symbol:     candidate.Symbol,
-		Side:       domain.SideBuy, // close short
+		Side:       domain.SideBuy,
 		Type:       domain.OrderTypeTakeProfit,
-		Quantity:   order.Quantity,
+		Quantity:   tp1Qty,
 		StopPrice:  takeProfit,
 		Price:      tpLimit,
 		ReduceOnly: true,
 	})
 	if err != nil {
-		slog.Error("place TP order failed", "symbol", candidate.Symbol, "error", err)
+		slog.Error("place TP1 order failed", "symbol", candidate.Symbol, "error", err)
 	}
 
 	var slOrderID, tpOrderID string
@@ -200,19 +203,27 @@ func (e *ExecutionEngine) executeInternalWithTP(ctx context.Context, candidate d
 	now := time.Now()
 
 	pos := domain.Position{
-		Symbol:     candidate.Symbol,
-		Side:       domain.SideSell,
-		EntryPrice: entryPrice,
-		Quantity:   order.Quantity,
-		Leverage:   e.cfg.Trading.Leverage,
-		EntryMode:  domain.EntryMode(window.ToEntryMode()),
-		StopLoss:   stopLoss,
-		TakeProfit: takeProfit,
-		SLOrderID:  slOrderID,
-		TPOrderID:  tpOrderID,
-		TradeID:    tradeID,
-		OpenedAt:   now,
-		IsPaper:    e.cfg.App.Mode == "paper",
+		Symbol:             candidate.Symbol,
+		Side:               domain.SideSell,
+		EntryPrice:         entryPrice,
+		Quantity:           order.Quantity,
+		OriginalQty:        order.Quantity,
+		Leverage:           e.cfg.Trading.Leverage,
+		EntryMode:          domain.EntryMode(window.ToEntryMode()),
+		StopLoss:           stopLoss,
+		TakeProfit:         takeProfit,
+		SLOrderID:          slOrderID,
+		TPOrderID:          tpOrderID,
+		TradeID:            tradeID,
+		OpenedAt:           now,
+		IsPaper:            e.cfg.App.Mode == "paper",
+		HighSinceEntry:     entryPrice,
+		LowSinceEntry:      entryPrice,
+		OriginalConfidence: confidence,
+	}
+	if llmDecision != nil {
+		pos.LLMEntryReasons = llmDecision.EntryReasons
+		pos.OriginalConfidence = llmDecision.Confidence
 	}
 
 	trade := &domain.Trade{
@@ -245,14 +256,16 @@ func (e *ExecutionEngine) executeInternalWithTP(ctx context.Context, candidate d
 		slog.Error("set active position", "symbol", candidate.Symbol, "error", err)
 	}
 
-	slog.Info("position opened",
+	slog.Info("position opened (split TP)",
 		"symbol", candidate.Symbol,
 		"entry", entryPrice,
 		"sl", stopLoss,
 		"sl_order", slOrderID,
-		"tp", takeProfit,
-		"tp_order", tpOrderID,
-		"qty", qty,
+		"tp1", takeProfit,
+		"tp1_order", tpOrderID,
+		"qty_total", order.Quantity,
+		"qty_tp1", tp1Qty,
+		"qty_trail", order.Quantity-tp1Qty,
 		"window", window,
 		"paper", e.cfg.App.Mode == "paper",
 	)

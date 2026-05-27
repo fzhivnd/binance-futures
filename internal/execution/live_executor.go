@@ -112,6 +112,30 @@ func (l *LiveExecutor) PlaceStopMarketOrder(ctx context.Context, req domain.Orde
 	}, nil
 }
 
+func (l *LiveExecutor) PlaceTrailingStopOrder(ctx context.Context, req TrailingStopRequest) (*domain.OrderResult, error) {
+	resp, err := l.client.NewOrder(ctx, exchange.NewOrderRequest{
+		Symbol:       req.Symbol,
+		Side:         string(req.Side),
+		Type:         string(domain.OrderTypeTrailingStop),
+		Quantity:     formatQty(req.Quantity),
+		ReduceOnly:   req.ReduceOnly,
+		CallbackRate: formatQty(req.CallbackRate),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("binance trailing stop order: %w", err)
+	}
+	return &domain.OrderResult{
+		OrderID:   strconv.FormatInt(resp.OrderID, 10),
+		Symbol:    resp.Symbol,
+		Side:      domain.Side(resp.Side),
+		FillPrice: resp.AvgPrice,
+		Quantity:  resp.ExecutedQty,
+		Status:    resp.Status,
+		IsPaper:   false,
+		Timestamp: time.UnixMilli(resp.UpdateTime),
+	}, nil
+}
+
 func (l *LiveExecutor) CancelOrder(ctx context.Context, symbol string, orderID string) error {
 	return l.client.CancelOrder(ctx, symbol, orderID)
 }
