@@ -23,6 +23,7 @@ type Config struct {
 	Risk       RiskConfig       `yaml:"risk"`
 	Backtest   BacktestConfig   `yaml:"backtest"`
 	LLM        LLMConfig        `yaml:"llm"`
+	Memory     MemoryConfig     `yaml:"memory"`
 }
 
 type AppConfig struct {
@@ -131,6 +132,18 @@ type RiskConfig struct {
 
 type BacktestConfig struct {
 	DataDir string `yaml:"data_dir"`
+}
+
+type MemoryConfig struct {
+	Enabled             bool    `yaml:"enabled"`
+	EmbeddingModel      string  `yaml:"embedding_model"`
+	EmbeddingDimensions int     `yaml:"embedding_dimensions"`
+	TopSimilar          int     `yaml:"top_similar"`
+	MinSimilarity       float64 `yaml:"min_similarity"`
+	EmbedSkips          bool    `yaml:"embed_skips"`
+	SkipValidationDelay string  `yaml:"skip_validation_delay"`
+	MaxMemoryAge        string  `yaml:"max_memory_age"`
+	SummarizerModel     string  `yaml:"summarizer_model"`
 }
 
 type PostgresConfig struct {
@@ -309,6 +322,7 @@ func setDefaults(cfg *Config) {
 	if cfg.LLM.Model == "" {
 		cfg.LLM.Model = "gpt-4.1-mini"
 	}
+
 	if cfg.LLM.TimeoutSecs == 0 {
 		cfg.LLM.TimeoutSecs = 15
 	}
@@ -329,6 +343,29 @@ func setDefaults(cfg *Config) {
 	}
 	if cfg.LLM.CallCooldownSecs == 0 {
 		cfg.LLM.CallCooldownSecs = 300 // 5 minutes
+	}
+
+	// Phase 4: Memory defaults
+	if cfg.Memory.EmbeddingModel == "" {
+		cfg.Memory.EmbeddingModel = "text-embedding-3-small"
+	}
+	if cfg.Memory.EmbeddingDimensions == 0 {
+		cfg.Memory.EmbeddingDimensions = 1536
+	}
+	if cfg.Memory.TopSimilar == 0 {
+		cfg.Memory.TopSimilar = 5
+	}
+	if cfg.Memory.MinSimilarity == 0 {
+		cfg.Memory.MinSimilarity = 0.75
+	}
+	if cfg.Memory.SkipValidationDelay == "" {
+		cfg.Memory.SkipValidationDelay = "2h"
+	}
+	if cfg.Memory.MaxMemoryAge == "" {
+		cfg.Memory.MaxMemoryAge = "90d"
+	}
+	if cfg.Memory.SummarizerModel == "" {
+		cfg.Memory.SummarizerModel = "gpt-4.1-mini"
 	}
 }
 
@@ -397,4 +434,28 @@ func (c *SchedulerConfig) GetScanInterval() time.Duration {
 		}
 	}
 	return time.Minute
+}
+
+// GetMaxMemoryAge parses the max_memory_age string (e.g. "90d", "30d", "24h").
+// Falls back to 90 days if parsing fails.
+func (c *MemoryConfig) GetMaxMemoryAge() time.Duration {
+	s := c.MaxMemoryAge
+	if len(s) > 1 && s[len(s)-1] == 'd' {
+		days := 0
+		if _, err := fmt.Sscanf(s[:len(s)-1], "%d", &days); err == nil {
+			return time.Duration(days) * 24 * time.Hour
+		}
+	}
+	if d, err := time.ParseDuration(s); err == nil {
+		return d
+	}
+	return 90 * 24 * time.Hour
+}
+
+// GetSkipValidationDelay parses the skip_validation_delay string.
+func (c *MemoryConfig) GetSkipValidationDelay() time.Duration {
+	if d, err := time.ParseDuration(c.SkipValidationDelay); err == nil {
+		return d
+	}
+	return 2 * time.Hour
 }

@@ -1,10 +1,19 @@
 package llm
 
 type LLMRequest struct {
-	Timestamp          int64          `json:"timestamp"`
-	MinutesToSettlement int           `json:"minutes_to_settlement"`
-	BTCContext         LLMBTCContext  `json:"btc_context"`
-	Candidates         []LLMCandidate `json:"candidates"`
+	Timestamp           int64             `json:"timestamp"`
+	MinutesToSettlement int               `json:"minutes_to_settlement"`
+	BTCContext          LLMBTCContext     `json:"btc_context"`
+	Candidates          []LLMCandidate    `json:"candidates"`
+	SimilarTrades       []LLMSimilarTrade `json:"similar_past_trades,omitempty"` // Phase 4
+}
+
+type LLMSimilarTrade struct {
+	Outcome    string  `json:"outcome"`
+	ProfitPct  float64 `json:"profit_pct"`
+	Similarity float64 `json:"similarity"`
+	Lesson     string  `json:"lesson"`
+	DaysAgo    int     `json:"days_ago"`
 }
 
 type LLMBTCContext struct {

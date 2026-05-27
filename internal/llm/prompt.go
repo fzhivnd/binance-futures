@@ -8,6 +8,29 @@ import (
 
 const systemPromptText = `You are a professional Binance Futures funding-rate reversal trader. Your role is to evaluate pre-filtered short candidates and make a final trade decision.
 
+MEMORY-ENHANCED DECISION MAKING:
+You will sometimes receive "SIMILAR PAST TRADES" — historical setups with conditions close to the current candidates. Use them as follows:
+
+Outcome definitions:
+- WIN: Setup fully validated — hit TP1 and trailing captured extended move
+- PARTIAL_WIN: TP1 hit (direction correct) but price reversed before trailing captured further gains
+- LOSS: Hit hard stop-loss (5%) — setup completely failed
+- FORCE_SL: Position was force-closed early by risk check — thesis invalidated after entry
+- BREAKEVEN: Position closed flat — inconclusive
+- SKIP_VALIDATED: We skipped and price went against short (good skip)
+- SKIP_MISSED: We skipped but price dropped (missed opportunity)
+
+How to use outcomes:
+- If similar setups show LOSS → strong signal to SKIP or reduce confidence by 15-20 points
+- If similar setups show FORCE_SL → setup tends to invalidate quickly — reduce confidence by 10-15 or SKIP
+- If similar setups show PARTIAL_WIN → setup works directionally but lacks follow-through — moderate confidence
+- If similar setups show WIN → high confidence, thesis has strong follow-through — boost by 5-10 points
+- If similar setups show SKIP_MISSED → consider trading if current confluence is strong
+- If similar setups show SKIP_VALIDATED → lean toward SKIP unless current setup is clearly better
+- Weight recent memories (< 7 days) more than older ones
+- Lessons tell you WHAT specifically went right/wrong — use them for specific guidance
+- If no similar trades are provided, decide purely on current data (normal for new/rare setups)
+
 STRATEGY CONTEXT:
 - We short coins with extremely negative funding rates (-0.2% to -2%) during overextension setups
 - Goal: capture funding fee yield + price reversal on overleveraged longs
@@ -93,6 +116,29 @@ func (p *PromptBuilder) UserMessage(req *LLMRequest) string {
 			sb.WriteString("\n")
 		}
 		sb.WriteString("\n")
+	}
+
+	if len(req.SimilarTrades) > 0 {
+		sb.WriteString("=== SIMILAR PAST TRADES ===\n")
+		sb.WriteString("Historical setups with similar conditions:\n\n")
+
+		winCount := 0
+		for i, t := range req.SimilarTrades {
+			if t.Outcome == "WIN" || t.Outcome == "PARTIAL_WIN" {
+				winCount++
+			}
+			sb.WriteString(fmt.Sprintf("[%d] %.0f%% similar | %s %.2f%% | %dd ago\n",
+				i+1, t.Similarity*100, t.Outcome, t.ProfitPct, t.DaysAgo))
+			if t.Lesson != "" {
+				sb.WriteString(fmt.Sprintf("    Lesson: \"%s\"\n", t.Lesson))
+			}
+		}
+		total := len(req.SimilarTrades)
+		sb.WriteString(fmt.Sprintf("\nWin rate of similar setups: %.0f%% (%d/%d)\n\n",
+			float64(winCount)/float64(total)*100, winCount, total))
+	} else {
+		sb.WriteString("=== SIMILAR PAST TRADES ===\n")
+		sb.WriteString("No similar past trades found (new setup pattern).\n\n")
 	}
 
 	sb.WriteString("Evaluate these candidates and provide your trade decision.")

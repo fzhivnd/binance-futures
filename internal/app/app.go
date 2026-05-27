@@ -19,6 +19,7 @@ import (
 	"futures/internal/intent"
 	"futures/internal/llm"
 	"futures/internal/market"
+	"futures/internal/memory"
 	"futures/internal/risk"
 	"futures/internal/scanner"
 	"futures/internal/scheduler"
@@ -36,23 +37,25 @@ type llmCallState struct {
 }
 
 type App struct {
-	cfg         *config.Config
-	engine      *market.MarketEngine
-	scanner     *scanner.FundingScanner
-	executor    execution.Executor
-	execEng     *execution.ExecutionEngine
-	posMgr      *execution.PositionManager
-	sched       *scheduler.Scheduler
-	wsMarkPx    *exchange.WSConnection
-	wsKlines    *exchange.WSConnection
-	wsUserData  *exchange.WSConnection
-	indEngine   *indicator.Engine
-	scorer      *scoring.Scorer
-	riskEngine  *risk.Engine
-	drawdown    *risk.DrawdownTracker
-	llmEngine   *llm.DecisionEngine
-	intentQueue *intent.Queue
-	lastLLMCall *llmCallState
+	cfg          *config.Config
+	engine       *market.MarketEngine
+	scanner      *scanner.FundingScanner
+	executor     execution.Executor
+	execEng      *execution.ExecutionEngine
+	posMgr       *execution.PositionManager
+	sched        *scheduler.Scheduler
+	wsMarkPx     *exchange.WSConnection
+	wsKlines     *exchange.WSConnection
+	wsUserData   *exchange.WSConnection
+	indEngine    *indicator.Engine
+	scorer       *scoring.Scorer
+	riskEngine   *risk.Engine
+	drawdown     *risk.DrawdownTracker
+	llmEngine    *llm.DecisionEngine
+	intentQueue  *intent.Queue
+	lastLLMCall  *llmCallState
+	memoryEngine *memory.Engine
+	binanceClient *exchange.BinanceClient
 }
 
 func New(cfg *config.Config) (*App, error) {
@@ -76,11 +79,12 @@ func (a *App) Run(
 	a.engine = market.NewMarketEngine()
 
 	// Binance REST client
-	binanceClient := exchange.NewBinanceClient(
+	a.binanceClient = exchange.NewBinanceClient(
 		a.cfg.Binance.APIKey,
 		a.cfg.Binance.APISecret,
 		a.cfg.Binance.BaseURL,
 	)
+	binanceClient := a.binanceClient
 
 	// Exchange info (symbols)
 	slog.Info("fetching exchange info")
@@ -206,8 +210,9 @@ func (a *App) Run(
 	}
 
 	// Phase 3: LLM engine + intent queue
+	var llmClient *llm.Client
 	if a.cfg.LLM.Enabled && a.cfg.LLM.APIKey != "" {
-		llmClient := llm.NewClient(llm.ClientConfig{
+		llmClient = llm.NewClient(llm.ClientConfig{
 			APIKey:     a.cfg.LLM.APIKey,
 			Model:      a.cfg.LLM.Model,
 			Timeout:    time.Duration(a.cfg.LLM.TimeoutSecs) * time.Second,
@@ -219,6 +224,45 @@ func (a *App) Run(
 		slog.Info("LLM engine enabled", "model", a.cfg.LLM.Model)
 	} else {
 		slog.Info("LLM engine disabled, using Phase 2 deterministic scoring")
+	}
+
+	// Phase 4: Memory engine
+	if a.cfg.Memory.Enabled && a.cfg.LLM.APIKey != "" {
+		memClient := llmClient
+		if memClient == nil {
+			// Memory summarizer needs an LLM client even if main LLM is off.
+			memClient = llm.NewClient(llm.ClientConfig{
+				APIKey:     a.cfg.LLM.APIKey,
+				Model:      a.cfg.Memory.SummarizerModel,
+				Timeout:    15 * time.Second,
+				RetryCount: 1,
+				RetryDelay: 500 * time.Millisecond,
+				MaxRPM:     30,
+			})
+		}
+		maxAge := a.cfg.Memory.GetMaxMemoryAge()
+		memRepo := storage.NewPGMemoryRepository(pool, maxAge)
+		a.memoryEngine = memory.NewEngine(memory.EngineConfig{
+			Enabled: true,
+			EmbedderCfg: memory.EmbedderConfig{
+				APIKey:  a.cfg.LLM.APIKey,
+				Model:   a.cfg.Memory.EmbeddingModel,
+				Timeout: 10 * time.Second,
+			},
+			RetrieverCfg: memory.RetrieverConfig{
+				TopSimilar:    a.cfg.Memory.TopSimilar,
+				MinSimilarity: a.cfg.Memory.MinSimilarity,
+				MaxAge:        maxAge,
+			},
+			LLMClient: memClient,
+			Repo:      memRepo,
+		})
+		slog.Info("memory engine enabled",
+			"embedding_model", a.cfg.Memory.EmbeddingModel,
+			"top_similar", a.cfg.Memory.TopSimilar,
+		)
+	} else {
+		a.memoryEngine = memory.NewEngine(memory.EngineConfig{Enabled: false})
 	}
 
 	frontrunInterval := time.Duration(a.cfg.LLM.FrontrunExecIntervalSecs) * time.Second
@@ -369,8 +413,28 @@ func (a *App) Run(
 			return nil
 		}
 
+		// Phase 4: retrieve similar trades for memory-enhanced decision
+		var similarTrades []domain.SimilarTrade
+		if a.memoryEngine != nil && len(top) > 0 {
+			next := scheduler.NextFundingTime(time.Now().UTC())
+			minsToSettle := int(math.Round(time.Until(next).Minutes()))
+			if minsToSettle < 0 {
+				minsToSettle = 0
+			}
+			topSnap := top[0].Indicators
+			similar, serr := a.memoryEngine.RetrieveSimilar(ctx,
+				topSnap, btc, &top[0].Candidate,
+				top[0].CompositeScore, "", minsToSettle,
+			)
+			if serr != nil {
+				slog.Warn("memory retrieval failed, proceeding without", "error", serr)
+			} else {
+				similarTrades = similar
+			}
+		}
+
 		// Call LLM
-		decision, err := a.llmEngine.Evaluate(ctx, top, btc, a.cfg.Execution.TpPct)
+		decision, err := a.llmEngine.Evaluate(ctx, top, btc, a.cfg.Execution.TpPct, similarTrades)
 		if err != nil {
 			slog.Error("LLM engine error", "error", err)
 			return nil
@@ -390,6 +454,15 @@ func (a *App) Run(
 				"reason", decision.SkipReason,
 				"queue_depth", a.intentQueue.PendingCount(),
 			)
+			// Phase 4: record skip asynchronously
+			if a.cfg.Memory.EmbedSkips {
+				go func() {
+					bgCtx := context.Background()
+					if err := a.memoryEngine.RecordSkip(bgCtx, top, btc, decision.SkipReason); err != nil {
+						slog.Error("failed to record skip memory", "error", err)
+					}
+				}()
+			}
 			return nil
 		}
 
@@ -436,6 +509,9 @@ func (a *App) Run(
 	go a.oiPoller(ctx, binanceClient)
 	go a.klineSubscriber(ctx)
 	go a.fundingIntervalRefresher(ctx, binanceClient)
+	if a.cfg.Memory.Enabled {
+		go a.startSkipValidator(ctx)
+	}
 	if a.cfg.App.Mode == "live" {
 		go a.wsUserData.Run(ctx)
 		go a.keepAliveListenKey(ctx, binanceClient, listenKey)
@@ -556,6 +632,31 @@ func confidenceToSize(confidence int) float64 {
 	default:
 		return 0
 	}
+}
+
+func (a *App) startSkipValidator(ctx context.Context) {
+	delay := a.cfg.Memory.GetSkipValidationDelay()
+	ticker := time.NewTicker(delay)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if err := a.memoryEngine.ValidateSkips(ctx, a.checkHistoricalPrice); err != nil {
+				slog.Error("skip validation failed", "error", err)
+			}
+		}
+	}
+}
+
+// checkHistoricalPrice returns the % price change from entryTime to entryTime+2h.
+// Negative return means price dropped (short would have profited).
+func (a *App) checkHistoricalPrice(symbol string, entryTime time.Time) (float64, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	return a.binanceClient.GetPriceChange(ctx, symbol, entryTime, entryTime.Add(2*time.Hour))
 }
 
 func (a *App) updateKlineSubscriptions(ctx context.Context, old, new []string) {
