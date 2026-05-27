@@ -28,11 +28,20 @@ type Trade struct {
 	LLMEntryMode    *string
 	LLMEntryReasons []string
 	LLMWarnings     []string
+
+	// Phase 5: close tracking
+	AvgClosePrice *float64
+	CloseReason   *string
 }
 
+// Phase 5: simplified close record fields on Trade
+// CloseReason: "TP_TRAIL" | "FORCE_SL" | "HARD_SL" | "MANUAL"
+// AvgClosePrice: weighted average exit across all legs
+
 type ExitInfo struct {
-	ExitPrice float64
-	PnL       float64
-	Result    string
-	ClosedAt  time.Time
+	AvgClosePrice float64
+	PnL           float64
+	Result        string   // WIN | LOSS | PARTIAL_WIN | FORCE_SL | BREAKEVEN | MANUAL
+	CloseReason   string   // TP_TRAIL | FORCE_SL | HARD_SL | MANUAL
+	ClosedAt      time.Time
 }

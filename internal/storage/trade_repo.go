@@ -91,9 +91,11 @@ func (r *PGTradeRepository) GetRecent(ctx context.Context, limit int) ([]domain.
 
 func (r *PGTradeRepository) UpdateResult(ctx context.Context, id uuid.UUID, exit domain.ExitInfo) error {
 	_, err := r.pool.Exec(ctx, `
-		UPDATE trades SET exit_price=$1, pnl=$2, result=$3, closed_at=$4
-		WHERE id=$5
-	`, exit.ExitPrice, exit.PnL, exit.Result, exit.ClosedAt, id)
+		UPDATE trades SET
+			exit_price=$1, avg_close_price=$1, pnl=$2, result=$3,
+			close_reason=$4, closed_at=$5
+		WHERE id=$6
+	`, exit.AvgClosePrice, exit.PnL, exit.Result, exit.CloseReason, exit.ClosedAt, id)
 	return err
 }
 

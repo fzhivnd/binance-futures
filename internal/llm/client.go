@@ -37,6 +37,42 @@ func NewClient(cfg ClientConfig) *Client {
 	}
 }
 
+// CallPlain sends a plain chat completion (no JSON schema enforcement) and returns the text response.
+func (c *Client) CallPlain(ctx context.Context, systemPrompt, userMessage string) (string, error) {
+	if !c.limiter.Allow() {
+		return "", errors.New("rate limit exceeded")
+	}
+
+	callCtx, cancel := context.WithTimeout(ctx, c.cfg.Timeout)
+	defer cancel()
+
+	resp, err := c.client.Chat.Completions.New(callCtx, openai.ChatCompletionNewParams{
+		Model: openai.ChatModel(c.cfg.Model),
+		Messages: []openai.ChatCompletionMessageParamUnion{
+			openai.SystemMessage(systemPrompt),
+			openai.UserMessage(userMessage),
+		},
+	})
+	if err != nil && c.cfg.RetryCount > 0 {
+		retryCtx, retryCancel := context.WithTimeout(ctx, c.cfg.Timeout/2)
+		defer retryCancel()
+		resp, err = c.client.Chat.Completions.New(retryCtx, openai.ChatCompletionNewParams{
+			Model: openai.ChatModel(c.cfg.Model),
+			Messages: []openai.ChatCompletionMessageParamUnion{
+				openai.SystemMessage(systemPrompt),
+				openai.UserMessage(userMessage),
+			},
+		})
+	}
+	if err != nil {
+		return "", err
+	}
+	if len(resp.Choices) == 0 {
+		return "", errors.New("empty response from LLM")
+	}
+	return resp.Choices[0].Message.Content, nil
+}
+
 // Call sends a structured chat completion and returns the raw JSON response string.
 func (c *Client) Call(ctx context.Context, systemPrompt, userMessage string) (string, error) {
 	if !c.limiter.Allow() {

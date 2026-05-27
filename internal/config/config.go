@@ -23,6 +23,7 @@ type Config struct {
 	Risk       RiskConfig       `yaml:"risk"`
 	Backtest   BacktestConfig   `yaml:"backtest"`
 	LLM        LLMConfig        `yaml:"llm"`
+	Memory     MemoryConfig     `yaml:"memory"`
 }
 
 type AppConfig struct {
@@ -59,6 +60,19 @@ type ExecutionConfig struct {
 	TrailingActivationPct  float64 `yaml:"trailing_activation_pct"`
 	BreakevenActivationPct float64 `yaml:"breakeven_activation_pct"`
 	SlippageBps            int     `yaml:"slippage_bps"`
+
+	// Phase 5: Split TP + trailing stop
+	TrailingCallbackRate float64 `yaml:"trailing_callback_rate"` // e.g. 0.5 = 0.5%
+	TP1SizePct          float64 `yaml:"tp1_size_pct"`           // e.g. 50 = 50% of position
+
+	// Phase 5: Force stop-loss
+	ForceSLEnabled          bool    `yaml:"force_sl_enabled"`
+	ForceSLStartMin         int     `yaml:"force_sl_start_min"`          // start checking after N minutes
+	ForceSLPnlGatePct       float64 `yaml:"force_sl_pnl_gate_pct"`       // skip if PnL above this (e.g. -0.5)
+	ForceSLEscalatePnlPct   float64 `yaml:"force_sl_escalate_pnl_pct"`  // escalate below this (e.g. -2.0)
+	ForceSLSlowIntervalSec  int     `yaml:"force_sl_slow_interval_sec"` // interval when mild loss (300s)
+	ForceSLFastIntervalSec  int     `yaml:"force_sl_fast_interval_sec"` // interval when severe loss (60s)
+	ForceSLTimeoutSec       int     `yaml:"force_sl_timeout_sec"`        // LLM call timeout (5s)
 }
 
 type SchedulerConfig struct {
@@ -131,6 +145,18 @@ type RiskConfig struct {
 
 type BacktestConfig struct {
 	DataDir string `yaml:"data_dir"`
+}
+
+type MemoryConfig struct {
+	Enabled             bool    `yaml:"enabled"`
+	EmbeddingModel      string  `yaml:"embedding_model"`
+	EmbeddingDimensions int     `yaml:"embedding_dimensions"`
+	TopSimilar          int     `yaml:"top_similar"`
+	MinSimilarity       float64 `yaml:"min_similarity"`
+	EmbedSkips          bool    `yaml:"embed_skips"`
+	SkipValidationDelay string  `yaml:"skip_validation_delay"`
+	MaxMemoryAge        string  `yaml:"max_memory_age"`
+	SummarizerModel     string  `yaml:"summarizer_model"`
 }
 
 type PostgresConfig struct {
@@ -309,6 +335,7 @@ func setDefaults(cfg *Config) {
 	if cfg.LLM.Model == "" {
 		cfg.LLM.Model = "gpt-4.1-mini"
 	}
+
 	if cfg.LLM.TimeoutSecs == 0 {
 		cfg.LLM.TimeoutSecs = 15
 	}
@@ -329,6 +356,55 @@ func setDefaults(cfg *Config) {
 	}
 	if cfg.LLM.CallCooldownSecs == 0 {
 		cfg.LLM.CallCooldownSecs = 300 // 5 minutes
+	}
+
+	// Phase 5: Split TP + force-SL defaults
+	if cfg.Execution.TrailingCallbackRate == 0 {
+		cfg.Execution.TrailingCallbackRate = 0.5
+	}
+	if cfg.Execution.TP1SizePct == 0 {
+		cfg.Execution.TP1SizePct = 50
+	}
+	if cfg.Execution.ForceSLStartMin == 0 {
+		cfg.Execution.ForceSLStartMin = 5
+	}
+	if cfg.Execution.ForceSLPnlGatePct == 0 {
+		cfg.Execution.ForceSLPnlGatePct = -0.5
+	}
+	if cfg.Execution.ForceSLEscalatePnlPct == 0 {
+		cfg.Execution.ForceSLEscalatePnlPct = -2.0
+	}
+	if cfg.Execution.ForceSLSlowIntervalSec == 0 {
+		cfg.Execution.ForceSLSlowIntervalSec = 300
+	}
+	if cfg.Execution.ForceSLFastIntervalSec == 0 {
+		cfg.Execution.ForceSLFastIntervalSec = 60
+	}
+	if cfg.Execution.ForceSLTimeoutSec == 0 {
+		cfg.Execution.ForceSLTimeoutSec = 5
+	}
+
+	// Phase 4: Memory defaults
+	if cfg.Memory.EmbeddingModel == "" {
+		cfg.Memory.EmbeddingModel = "text-embedding-3-small"
+	}
+	if cfg.Memory.EmbeddingDimensions == 0 {
+		cfg.Memory.EmbeddingDimensions = 1536
+	}
+	if cfg.Memory.TopSimilar == 0 {
+		cfg.Memory.TopSimilar = 5
+	}
+	if cfg.Memory.MinSimilarity == 0 {
+		cfg.Memory.MinSimilarity = 0.75
+	}
+	if cfg.Memory.SkipValidationDelay == "" {
+		cfg.Memory.SkipValidationDelay = "2h"
+	}
+	if cfg.Memory.MaxMemoryAge == "" {
+		cfg.Memory.MaxMemoryAge = "90d"
+	}
+	if cfg.Memory.SummarizerModel == "" {
+		cfg.Memory.SummarizerModel = "gpt-4.1-mini"
 	}
 }
 
@@ -397,4 +473,28 @@ func (c *SchedulerConfig) GetScanInterval() time.Duration {
 		}
 	}
 	return time.Minute
+}
+
+// GetMaxMemoryAge parses the max_memory_age string (e.g. "90d", "30d", "24h").
+// Falls back to 90 days if parsing fails.
+func (c *MemoryConfig) GetMaxMemoryAge() time.Duration {
+	s := c.MaxMemoryAge
+	if len(s) > 1 && s[len(s)-1] == 'd' {
+		days := 0
+		if _, err := fmt.Sscanf(s[:len(s)-1], "%d", &days); err == nil {
+			return time.Duration(days) * 24 * time.Hour
+		}
+	}
+	if d, err := time.ParseDuration(s); err == nil {
+		return d
+	}
+	return 90 * 24 * time.Hour
+}
+
+// GetSkipValidationDelay parses the skip_validation_delay string.
+func (c *MemoryConfig) GetSkipValidationDelay() time.Duration {
+	if d, err := time.ParseDuration(c.SkipValidationDelay); err == nil {
+		return d
+	}
+	return 2 * time.Hour
 }

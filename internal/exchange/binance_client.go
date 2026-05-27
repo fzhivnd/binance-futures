@@ -86,6 +86,9 @@ func (c *BinanceClient) NewOrder(ctx context.Context, req NewOrderRequest) (*New
 	if req.ReduceOnly {
 		params.Set("reduceOnly", "true")
 	}
+	if req.CallbackRate != "" {
+		params.Set("callbackRate", req.CallbackRate)
+	}
 	params.Set("timestamp", strconv.FormatInt(time.Now().UnixMilli(), 10))
 
 	sig := c.sign(params.Encode())
@@ -255,6 +258,37 @@ func (c *BinanceClient) GetHistoricalFundingRates(ctx context.Context, symbol st
 	}
 
 	return all, nil
+}
+
+// GetPriceChange returns the percentage price change between from and to for a symbol.
+// Uses 1-minute klines: compares the close at `from` to the close at `to`.
+// A negative return means price dropped (a short would have profited).
+func (c *BinanceClient) GetPriceChange(ctx context.Context, symbol string, from, to time.Time) (float64, error) {
+	// Fetch one 1m candle at `from`
+	fromCandles, err := c.GetHistoricalKlines(ctx, symbol, "1m", from, from.Add(time.Minute))
+	if err != nil {
+		return 0, fmt.Errorf("GetPriceChange from kline: %w", err)
+	}
+	if len(fromCandles) == 0 {
+		return 0, fmt.Errorf("no kline data at entry time for %s", symbol)
+	}
+
+	// Fetch one 1m candle at `to`
+	toCandles, err := c.GetHistoricalKlines(ctx, symbol, "1m", to, to.Add(time.Minute))
+	if err != nil {
+		return 0, fmt.Errorf("GetPriceChange to kline: %w", err)
+	}
+	if len(toCandles) == 0 {
+		return 0, fmt.Errorf("no kline data at exit time for %s", symbol)
+	}
+
+	entryPrice := fromCandles[0].Close
+	exitPrice := toCandles[0].Close
+	if entryPrice == 0 {
+		return 0, fmt.Errorf("zero entry price for %s", symbol)
+	}
+
+	return (exitPrice - entryPrice) / entryPrice * 100, nil
 }
 
 func (c *BinanceClient) CreateListenKey(ctx context.Context) (string, error) {

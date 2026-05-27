@@ -23,14 +23,20 @@ func NewDecisionEngine(client *Client) *DecisionEngine {
 
 // Evaluate takes top scored candidates and returns a trade decision.
 // tpPct is the base take-profit percentage from config (used to compute projected TP1).
+// similarTrades is the Phase 4 memory context; pass nil to behave identically to Phase 3.
 // On any LLM failure it returns a SKIP decision (safe fallback).
 func (e *DecisionEngine) Evaluate(
 	ctx context.Context,
 	candidates []*domain.ScoredCandidate,
 	btc *domain.BTCContext,
 	tpPct float64,
+	similarTrades []domain.SimilarTrade,
 ) (*domain.LLMDecision, error) {
 	req := MapToLLMRequest(candidates, btc, tpPct)
+
+	if len(similarTrades) > 0 {
+		req.SimilarTrades = mapSimilarTrades(similarTrades)
+	}
 
 	systemPrompt := e.prompt.SystemPrompt()
 	userMessage := e.prompt.UserMessage(req)

@@ -81,6 +81,20 @@ func MapToLLMRequest(
 	return req
 }
 
+func mapSimilarTrades(trades []domain.SimilarTrade) []LLMSimilarTrade {
+	out := make([]LLMSimilarTrade, len(trades))
+	for i, t := range trades {
+		out[i] = LLMSimilarTrade{
+			Outcome:    t.Outcome,
+			ProfitPct:  t.ProfitPct,
+			Similarity: math.Round(t.Similarity*100) / 100,
+			Lesson:     t.Lesson,
+			DaysAgo:    t.DaysAgo,
+		}
+	}
+	return out
+}
+
 func mapResponseToDecision(resp LLMResponse, candidates []*domain.ScoredCandidate) *domain.LLMDecision {
 	d := &domain.LLMDecision{
 		Action:       resp.Action,

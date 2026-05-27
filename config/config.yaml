@@ -97,3 +97,14 @@ llm:
   min_confidence: 60
   frontrun_exec_interval_secs: 300  # execute best FRONTRUN intent every 5m
   call_cooldown_secs: 300           # skip LLM call if inputs unchanged within this window
+
+memory:
+  enabled: false
+  embedding_model: "text-embedding-3-small"
+  embedding_dimensions: 1536
+  top_similar: 5
+  min_similarity: 0.75
+  embed_skips: true
+  skip_validation_delay: "2h"
+  max_memory_age: "90d"
+  summarizer_model: "gpt-4.1-mini"

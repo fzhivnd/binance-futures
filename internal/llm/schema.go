@@ -1,10 +1,48 @@
 package llm
 
+// ForceSLRequest is the input for force stop-loss LLM evaluation (Phase 5).
+type ForceSLRequest struct {
+	Symbol             string             `json:"symbol"`
+	EntryPrice         float64            `json:"entry_price"`
+	CurrentPrice       float64            `json:"current_price"`
+	UnrealizedPnlPct   float64            `json:"unrealized_pnl_pct"` // at 20x leverage
+	HoldMinutes        int                `json:"hold_minutes"`
+	HardSLPrice        float64            `json:"hard_sl_price"`
+	HardSLDistancePct  float64            `json:"hard_sl_distance_pct"`
+	EntryMode          string             `json:"entry_mode"`
+	OriginalConfidence int                `json:"original_confidence"`
+	EntryReasons       []string           `json:"entry_reasons"`
+	PriceAction        ForceSLPriceAction `json:"price_action"`
+	BTCContext         LLMBTCContext      `json:"btc_context"`
+}
+
+type ForceSLPriceAction struct {
+	HighSinceEntry   float64 `json:"high_since_entry_pct"`  // max adverse move (price went up = bad for short)
+	LowSinceEntry    float64 `json:"low_since_entry_pct"`   // max favorable move (price went down = good for short)
+	CurrentTrend5m   string  `json:"current_trend_5m"`      // "up" | "down" | "sideways"
+	MomentumShift    bool    `json:"momentum_shift"`        // reversal forming against us
+	VolumeIncreasing bool    `json:"volume_increasing"`     // buying pressure building
+}
+
+type ForceSLResponse struct {
+	Action string `json:"action"` // "HOLD" | "FORCE_CLOSE"
+	Reason string `json:"reason"`
+}
+
 type LLMRequest struct {
-	Timestamp          int64          `json:"timestamp"`
-	MinutesToSettlement int           `json:"minutes_to_settlement"`
-	BTCContext         LLMBTCContext  `json:"btc_context"`
-	Candidates         []LLMCandidate `json:"candidates"`
+	Timestamp           int64             `json:"timestamp"`
+	MinutesToSettlement int               `json:"minutes_to_settlement"`
+	BTCContext          LLMBTCContext     `json:"btc_context"`
+	Candidates          []LLMCandidate    `json:"candidates"`
+	SimilarTrades       []LLMSimilarTrade `json:"similar_past_trades,omitempty"` // Phase 4
+}
+
+type LLMSimilarTrade struct {
+	Outcome    string  `json:"outcome"`
+	ProfitPct  float64 `json:"profit_pct"`
+	Similarity float64 `json:"similarity"`
+	Lesson     string  `json:"lesson"`
+	DaysAgo    int     `json:"days_ago"`
 }
 
 type LLMBTCContext struct {
