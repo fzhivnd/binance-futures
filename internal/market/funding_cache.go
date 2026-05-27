@@ -13,7 +13,7 @@ type fundingEntry struct {
 	nextFunding   time.Time
 	markPrice     float64
 	updatedAt     time.Time
-	intervalHours int // from /fapi/v1/fundingInfo; 0 means unknown (default 8)
+	intervalHours int // from /fapi/v1/fundingInfo; 0 means unknown (default 4)
 }
 
 type FundingCache struct {
@@ -46,6 +46,9 @@ func (c *FundingCache) Update(symbol string, rate float64, nextFunding time.Time
 
 // SetFundingInterval stores the Binance-provided funding interval for a symbol.
 func (c *FundingCache) SetFundingInterval(symbol string, intervalHours int) {
+	if intervalHours == 0 {
+		intervalHours = 4
+	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if e, ok := c.data[symbol]; ok {

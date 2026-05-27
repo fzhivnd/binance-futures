@@ -17,7 +17,7 @@ binance:
   testnet: false
 
 trading:
-  max_positions: 2
+  max_positions: 3
   leverage: 20
   position_size_pct: 5.0
   cooldown_minutes: 15
@@ -29,14 +29,14 @@ funding:
 
 execution:
   sl_pct: 5.0
-  tp_pct: 2.2
-  trailing_enabled: true
+  tp_pct: 2.1
+  trailing_enabled: false
   trailing_activation_pct: 1.5
-  breakeven_activation_pct: 1.0
+  breakeven_activation_pct: 1.5
   slippage_bps: 1
 
 scheduler:
-  scan_interval_early: "5m"
+  scan_interval_early: "1m"
   scan_interval_late: "1m"
   window_start_minutes: 15
 
@@ -50,7 +50,7 @@ websocket:
 database:
   postgres:
     host: "${POSTGRES.HOST}"
-    port: 5432
+    port: "${POSTGRES.PORT}"
     user: "${POSTGRES.USERNAME}"
     password: "${POSTGRES.PASSWORD}"
     dbname: "${POSTGRES.DATABASE}"
@@ -59,4 +59,4 @@ database:
   redis:
     addr: "${REDIS.HOST}:${REDIS.PORT}"
     password: "${REDIS.PASSWORD}"
-    db: "${REDOS.DATABASE}"
+    db: "${REDIS.DATABASE}"

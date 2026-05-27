@@ -22,6 +22,12 @@ type Trade struct {
 	IsPaper     bool
 	CreatedAt   time.Time
 	ClosedAt    *time.Time
+
+	// Phase 3: LLM decision fields (nil/empty when LLM is disabled)
+	LLMConfidence   *int
+	LLMEntryMode    *string
+	LLMEntryReasons []string
+	LLMWarnings     []string
 }
 
 type ExitInfo struct {

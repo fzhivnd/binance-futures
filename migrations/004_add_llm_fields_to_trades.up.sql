@@ -1,0 +1,4 @@
+ALTER TABLE trades ADD COLUMN IF NOT EXISTS llm_confidence INT;
+ALTER TABLE trades ADD COLUMN IF NOT EXISTS llm_entry_mode VARCHAR(16);
+ALTER TABLE trades ADD COLUMN IF NOT EXISTS llm_entry_reasons TEXT[];
+ALTER TABLE trades ADD COLUMN IF NOT EXISTS llm_warnings TEXT[];

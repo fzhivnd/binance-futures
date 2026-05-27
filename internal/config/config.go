@@ -22,6 +22,7 @@ type Config struct {
 	Indicators IndicatorConfig  `yaml:"indicators"`
 	Risk       RiskConfig       `yaml:"risk"`
 	Backtest   BacktestConfig   `yaml:"backtest"`
+	LLM        LLMConfig        `yaml:"llm"`
 }
 
 type AppConfig struct {
@@ -63,7 +64,21 @@ type ExecutionConfig struct {
 type SchedulerConfig struct {
 	ScanIntervalEarly  string `yaml:"scan_interval_early"`
 	ScanIntervalLate   string `yaml:"scan_interval_late"`
+	ScanInterval       string `yaml:"scan_interval"` // Phase 3: uniform interval (overrides early/late when set)
 	WindowStartMinutes int    `yaml:"window_start_minutes"`
+}
+
+type LLMConfig struct {
+	Enabled                  bool   `yaml:"enabled"`
+	APIKey                   string `yaml:"api_key"`
+	Model                    string `yaml:"model"`
+	TimeoutSecs              int    `yaml:"timeout_secs"`
+	MaxRetries               int    `yaml:"max_retries"`
+	MaxRPM                   int    `yaml:"max_rpm"`
+	TopCandidates            int    `yaml:"top_candidates"`
+	MinConfidence            int    `yaml:"min_confidence"`
+	FrontrunExecIntervalSecs int    `yaml:"frontrun_exec_interval_secs"` // how often to execute best FRONTRUN intent (default 300 = 5m)
+	CallCooldownSecs         int    `yaml:"call_cooldown_secs"`          // min gap between LLM calls with similar inputs (default 300 = 5m)
 }
 
 type WebSocketConfig struct {
@@ -289,6 +304,32 @@ func setDefaults(cfg *Config) {
 	if cfg.Backtest.DataDir == "" {
 		cfg.Backtest.DataDir = "./data/backtest"
 	}
+
+	// Phase 3: LLM defaults
+	if cfg.LLM.Model == "" {
+		cfg.LLM.Model = "gpt-4.1-mini"
+	}
+	if cfg.LLM.TimeoutSecs == 0 {
+		cfg.LLM.TimeoutSecs = 15
+	}
+	if cfg.LLM.MaxRetries == 0 {
+		cfg.LLM.MaxRetries = 1
+	}
+	if cfg.LLM.MaxRPM == 0 {
+		cfg.LLM.MaxRPM = 30
+	}
+	if cfg.LLM.TopCandidates == 0 {
+		cfg.LLM.TopCandidates = 5
+	}
+	if cfg.LLM.MinConfidence == 0 {
+		cfg.LLM.MinConfidence = 60
+	}
+	if cfg.LLM.FrontrunExecIntervalSecs == 0 {
+		cfg.LLM.FrontrunExecIntervalSecs = 300 // 5 minutes
+	}
+	if cfg.LLM.CallCooldownSecs == 0 {
+		cfg.LLM.CallCooldownSecs = 300 // 5 minutes
+	}
 }
 
 func (c *WebSocketConfig) GetStaleTimeout() time.Duration {
@@ -324,6 +365,11 @@ func (c *WebSocketConfig) GetReconnectMaxBackoff() time.Duration {
 }
 
 func (c *SchedulerConfig) GetScanIntervalEarly() time.Duration {
+	if c.ScanInterval != "" {
+		if d, err := time.ParseDuration(c.ScanInterval); err == nil {
+			return d
+		}
+	}
 	d, err := time.ParseDuration(c.ScanIntervalEarly)
 	if err != nil {
 		return 5 * time.Minute
@@ -332,9 +378,23 @@ func (c *SchedulerConfig) GetScanIntervalEarly() time.Duration {
 }
 
 func (c *SchedulerConfig) GetScanIntervalLate() time.Duration {
+	if c.ScanInterval != "" {
+		if d, err := time.ParseDuration(c.ScanInterval); err == nil {
+			return d
+		}
+	}
 	d, err := time.ParseDuration(c.ScanIntervalLate)
 	if err != nil {
 		return time.Minute
 	}
 	return d
+}
+
+func (c *SchedulerConfig) GetScanInterval() time.Duration {
+	if c.ScanInterval != "" {
+		if d, err := time.ParseDuration(c.ScanInterval); err == nil {
+			return d
+		}
+	}
+	return time.Minute
 }

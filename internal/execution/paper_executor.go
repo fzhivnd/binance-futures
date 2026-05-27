@@ -78,6 +78,18 @@ func (p *PaperExecutor) PlaceStopLimitOrder(ctx context.Context, req domain.Orde
 	}, nil
 }
 
+func (p *PaperExecutor) PlaceStopMarketOrder(ctx context.Context, req domain.OrderRequest) (*domain.OrderResult, error) {
+	return &domain.OrderResult{
+		OrderID:   uuid.New().String(),
+		Symbol:    req.Symbol,
+		Side:      req.Side,
+		Quantity:  req.Quantity,
+		Status:    "NEW",
+		IsPaper:   true,
+		Timestamp: time.Now(),
+	}, nil
+}
+
 func (p *PaperExecutor) CancelOrder(ctx context.Context, symbol string, orderID string) error {
 	return nil
 }

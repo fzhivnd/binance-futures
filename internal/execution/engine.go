@@ -51,11 +51,38 @@ func (e *ExecutionEngine) ExecuteScored(ctx context.Context, sc *domain.ScoredCa
 	return e.executeInternal(ctx, sc.Candidate, window, sc.PositionSizePct, int(sc.CompositeScore))
 }
 
+// ExecuteScoredWithLLM is the Phase 3 entry point: LLM decision overrides TP strategy.
+func (e *ExecutionEngine) ExecuteScoredWithLLM(ctx context.Context, sc *domain.ScoredCandidate, decision *domain.LLMDecision) error {
+	window := entryModeToWindow(decision.EntryMode)
+	return e.executeInternalLLM(ctx, sc.Candidate, window, sc.PositionSizePct, decision)
+}
+
+func entryModeToWindow(mode domain.EntryMode) scheduler.WindowType {
+	switch mode {
+	case domain.EntryModeFrontrun:
+		return scheduler.WindowFrontrun
+	case domain.EntryModeLastMinute:
+		return scheduler.WindowLastMinute
+	case domain.EntryModeAfter:
+		return scheduler.WindowAfter
+	default:
+		return scheduler.WindowLastMinute
+	}
+}
+
 func (e *ExecutionEngine) Execute(ctx context.Context, candidate domain.Candidate, window scheduler.WindowType) error {
 	return e.executeInternal(ctx, candidate, window, e.cfg.Trading.PositionSizePct, 0)
 }
 
+func (e *ExecutionEngine) executeInternalLLM(ctx context.Context, candidate domain.Candidate, window scheduler.WindowType, positionSizePct float64, decision *domain.LLMDecision) error {
+	return e.executeInternalWithTP(ctx, candidate, window, positionSizePct, decision.Confidence, e.cfg.Execution.TpPct, decision)
+}
+
 func (e *ExecutionEngine) executeInternal(ctx context.Context, candidate domain.Candidate, window scheduler.WindowType, positionSizePct float64, confidence int) error {
+	return e.executeInternalWithTP(ctx, candidate, window, positionSizePct, confidence, e.cfg.Execution.TpPct, nil)
+}
+
+func (e *ExecutionEngine) executeInternalWithTP(ctx context.Context, candidate domain.Candidate, window scheduler.WindowType, positionSizePct float64, confidence int, tpPct float64, llmDecision *domain.LLMDecision) error {
 	// Pre-checks
 	killSwitch, err := e.cache.GetKillSwitch(ctx)
 	if err != nil || killSwitch {
@@ -119,26 +146,27 @@ func (e *ExecutionEngine) executeInternal(ctx context.Context, candidate domain.
 	}
 
 	entryPrice := order.FillPrice
+	if entryPrice == 0 {
+		entryPrice = candidate.MarkPrice
+	}
 
-	// Calculate SL/TP prices
-	slDistance := entryPrice * (e.cfg.Execution.SlPct / 100 / float64(e.cfg.Trading.Leverage))
+	// Calculate SL/TP prices from the actual avg fill price returned by Binance.
+	slDistance := entryPrice * (e.cfg.Execution.SlPct / 100)
 	stopLoss := entryPrice + slDistance // SHORT: SL above entry
 
-	tpDistance := entryPrice * (e.cfg.Execution.TpPct / 100)
+	tpDistance := entryPrice * (tpPct / 100)
 	if window == scheduler.WindowFrontrun || window == scheduler.WindowLastMinute {
 		tpDistance += entryPrice * (-candidate.FundingRate)
 	}
 	takeProfit := entryPrice - tpDistance // SHORT: TP below entry
 
-	// Place SL as STOP (stop-limit): trigger = stopLoss, limit slightly above to ensure fill
-	slLimit := stopLoss * 1.001
-	slOrder, err := e.executor.PlaceStopLimitOrder(ctx, domain.OrderRequest{
+	// Place SL as STOP_MARKET: triggers at stopLoss, fills at market — guaranteed fill.
+	slOrder, err := e.executor.PlaceStopMarketOrder(ctx, domain.OrderRequest{
 		Symbol:     candidate.Symbol,
 		Side:       domain.SideBuy, // close short
-		Type:       domain.OrderTypeStop,
+		Type:       domain.OrderTypeStopMarket,
 		Quantity:   order.Quantity,
 		StopPrice:  stopLoss,
-		Price:      slLimit,
 		ReduceOnly: true,
 	})
 	if err != nil {
@@ -146,7 +174,7 @@ func (e *ExecutionEngine) executeInternal(ctx context.Context, candidate domain.
 	}
 
 	// Place TP as TAKE_PROFIT (stop-limit): trigger = takeProfit, limit slightly below to ensure fill
-	tpLimit := takeProfit * 0.999
+	tpLimit := takeProfit * 0.99
 	tpOrder, err := e.executor.PlaceStopLimitOrder(ctx, domain.OrderRequest{
 		Symbol:     candidate.Symbol,
 		Side:       domain.SideBuy, // close short
@@ -199,6 +227,15 @@ func (e *ExecutionEngine) executeInternal(ctx context.Context, candidate domain.
 		EntryPrice:  entryPrice,
 		IsPaper:     e.cfg.App.Mode == "paper",
 		CreatedAt:   now,
+	}
+
+	if llmDecision != nil {
+		conf := llmDecision.Confidence
+		entryMode := string(llmDecision.EntryMode)
+		trade.LLMConfidence = &conf
+		trade.LLMEntryMode = &entryMode
+		trade.LLMEntryReasons = llmDecision.EntryReasons
+		trade.LLMWarnings = llmDecision.Warnings
 	}
 
 	if err := e.tradeRepo.Insert(ctx, trade); err != nil {

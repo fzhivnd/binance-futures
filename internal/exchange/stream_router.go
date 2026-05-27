@@ -10,6 +10,27 @@ import (
 	"futures/internal/market"
 )
 
+// UserDataRouter dispatches ORDER_TRADE_UPDATE events to a handler.
+type UserDataRouter struct {
+	handler func(UserDataEvent)
+}
+
+func NewUserDataRouter(handler func(UserDataEvent)) *UserDataRouter {
+	return &UserDataRouter{handler: handler}
+}
+
+func (r *UserDataRouter) Handle(msgType string, data []byte) {
+	if msgType != "ORDER_TRADE_UPDATE" {
+		return
+	}
+	var event UserDataEvent
+	if err := json.Unmarshal(data, &event); err != nil {
+		slog.Debug("parse ORDER_TRADE_UPDATE failed", "error", err)
+		return
+	}
+	r.handler(event)
+}
+
 type StreamRouter struct {
 	engine *market.MarketEngine
 }

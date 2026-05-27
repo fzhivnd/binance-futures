@@ -2,7 +2,10 @@ package app
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
+	"math"
+	"sort"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -13,6 +16,8 @@ import (
 	"futures/internal/exchange"
 	"futures/internal/execution"
 	"futures/internal/indicator"
+	"futures/internal/intent"
+	"futures/internal/llm"
 	"futures/internal/market"
 	"futures/internal/risk"
 	"futures/internal/scanner"
@@ -21,20 +26,33 @@ import (
 	"futures/internal/storage"
 )
 
+// llmCallState tracks what we last sent to the LLM so we can skip redundant calls.
+type llmCallState struct {
+	symbol   string
+	score    float64
+	btcTrend string
+	window   scheduler.WindowType
+	calledAt time.Time
+}
+
 type App struct {
-	cfg        *config.Config
-	engine     *market.MarketEngine
-	scanner    *scanner.FundingScanner
-	executor   execution.Executor
-	execEng    *execution.ExecutionEngine
-	posMgr     *execution.PositionManager
-	sched      *scheduler.Scheduler
-	wsMarkPx   *exchange.WSConnection
-	wsKlines   *exchange.WSConnection
-	indEngine  *indicator.Engine
-	scorer     *scoring.Scorer
-	riskEngine *risk.Engine
-	drawdown   *risk.DrawdownTracker
+	cfg         *config.Config
+	engine      *market.MarketEngine
+	scanner     *scanner.FundingScanner
+	executor    execution.Executor
+	execEng     *execution.ExecutionEngine
+	posMgr      *execution.PositionManager
+	sched       *scheduler.Scheduler
+	wsMarkPx    *exchange.WSConnection
+	wsKlines    *exchange.WSConnection
+	wsUserData  *exchange.WSConnection
+	indEngine   *indicator.Engine
+	scorer      *scoring.Scorer
+	riskEngine  *risk.Engine
+	drawdown    *risk.DrawdownTracker
+	llmEngine   *llm.DecisionEngine
+	intentQueue *intent.Queue
+	lastLLMCall *llmCallState
 }
 
 func New(cfg *config.Config) (*App, error) {
@@ -166,7 +184,56 @@ func (a *App) Run(
 		killSwitchFn,
 	)
 
-	// Scheduler scan function (Phase 2 pipeline)
+	// User data stream (live mode only) — delivers ORDER_TRADE_UPDATE for accurate close detection
+	var listenKey string
+	if a.cfg.App.Mode == "live" {
+		listenKey, err = binanceClient.CreateListenKey(ctx)
+		if err != nil {
+			return fmt.Errorf("create listenKey: %w", err)
+		}
+		userDataURL := a.cfg.Binance.WsURL + "/ws/" + listenKey
+		userDataRouter := exchange.NewUserDataRouter(a.posMgr.HandleUserDataEvent)
+		a.wsUserData = exchange.NewWSConnection(
+			userDataURL,
+			userDataRouter.Handle,
+			wsCfg.GetStaleTimeout(),
+			wsCfg.GetPingInterval(),
+			wsCfg.GetReconnectBaseBackoff(),
+			wsCfg.GetReconnectMaxBackoff(),
+			wsCfg.MaxReconnectFailures,
+			killSwitchFn,
+		)
+	}
+
+	// Phase 3: LLM engine + intent queue
+	if a.cfg.LLM.Enabled && a.cfg.LLM.APIKey != "" {
+		llmClient := llm.NewClient(llm.ClientConfig{
+			APIKey:     a.cfg.LLM.APIKey,
+			Model:      a.cfg.LLM.Model,
+			Timeout:    time.Duration(a.cfg.LLM.TimeoutSecs) * time.Second,
+			RetryCount: a.cfg.LLM.MaxRetries,
+			RetryDelay: 500 * time.Millisecond,
+			MaxRPM:     a.cfg.LLM.MaxRPM,
+		})
+		a.llmEngine = llm.NewDecisionEngine(llmClient)
+		slog.Info("LLM engine enabled", "model", a.cfg.LLM.Model)
+	} else {
+		slog.Info("LLM engine disabled, using Phase 2 deterministic scoring")
+	}
+
+	frontrunInterval := time.Duration(a.cfg.LLM.FrontrunExecIntervalSecs) * time.Second
+	a.intentQueue = intent.NewQueue(func(ctx context.Context, sc *domain.ScoredCandidate, decision *domain.LLMDecision) error {
+		// Re-validate risk at fire time — market may have shifted since intent was queued.
+		btcAtFire, _ := a.indEngine.ComputeBTCContext(ctx)
+		if err := a.riskEngine.EvaluateCandidate(ctx, sc, btcAtFire); err != nil {
+			slog.Info("intent rejected by risk engine at fire time",
+				"symbol", sc.Candidate.Symbol, "reason", err)
+			return nil
+		}
+		return a.execEng.ExecuteScoredWithLLM(ctx, sc, decision)
+	}, frontrunInterval)
+
+	// Scheduler scan function
 	scanFn := func(ctx context.Context, window scheduler.WindowType) error {
 		// Phase 1: pre-checks
 		if err := a.riskEngine.PreCheck(ctx); err != nil {
@@ -184,7 +251,7 @@ func (a *App) Run(
 			return nil
 		}
 
-		// Phase 2: ROI filter (24h price pump must be >= threshold)
+		// Phase 2: ROI filter
 		candidates = scanner.FilterByROI(candidates, a.cfg.Filtering.MinDailyROIPct)
 		if len(candidates) == 0 {
 			slog.Info("no candidates after ROI filter", "window", window)
@@ -198,7 +265,7 @@ func (a *App) Run(
 			return nil
 		}
 
-		// Phase 2: BTC context (once per cycle)
+		// Phase 2: BTC context
 		btc, err := a.indEngine.ComputeBTCContext(ctx)
 		if err != nil {
 			slog.Warn("BTC context unavailable, proceeding without it", "error", err)
@@ -226,52 +293,140 @@ func (a *App) Run(
 			<-sem
 		}
 
-		// Find best scored candidate
-		var best *domain.ScoredCandidate
+		// Collect valid scored candidates
+		var scored []*domain.ScoredCandidate
 		for _, res := range results {
-			if res.err != nil || res.sc == nil {
-				continue
-			}
-			if best == nil || res.sc.CompositeScore > best.CompositeScore {
-				best = res.sc
+			if res.err == nil && res.sc != nil {
+				scored = append(scored, res.sc)
 			}
 		}
-		if best == nil {
+		if len(scored) == 0 {
 			slog.Info("no valid scored candidates", "window", window)
 			return nil
 		}
 
-		slog.Info("top scored candidate",
-			"symbol", best.Candidate.Symbol,
-			"score", best.CompositeScore,
-			"confidence", best.Confidence,
-			"funding", best.Candidate.FundingRate,
-		)
+		// Sort by score descending
+		sort.Slice(scored, func(i, j int) bool {
+			return scored[i].CompositeScore > scored[j].CompositeScore
+		})
 
-		// Last-minute window: only allow moderate funding rates (-0.2% to -1%)
-		// Extremely negative rates (< -1%) are too risky at entry — squeeze probability is high
-		if window == scheduler.WindowLastMinute || window == scheduler.WindowFrontrun {
-			rate := best.Candidate.FundingRate
-			if rate < -0.012 || rate > -0.002 {
-				slog.Info("last-minute window: funding rate outside allowed range, skipping",
-					"symbol", best.Candidate.Symbol,
-					"funding", rate,
-					"allowed", "-0.2% to -1.2%",
-				)
+		// ===== PHASE 3: LLM + INTENT QUEUE =====
+		if !a.cfg.LLM.Enabled || a.llmEngine == nil {
+			// Fallback: Phase 2 deterministic — pick best and execute immediately
+			best := scored[0]
+
+			slog.Info("top scored candidate",
+				"symbol", best.Candidate.Symbol,
+				"score", best.CompositeScore,
+				"confidence", best.Confidence,
+				"funding", best.Candidate.FundingRate,
+			)
+
+			// Last-minute window: only allow moderate funding rates (-0.2% to -1%)
+			if window == scheduler.WindowLastMinute {
+				rate := best.Candidate.FundingRate
+				if rate < -0.01 || rate > -0.002 {
+					slog.Info("last-minute window: funding rate outside allowed range, skipping",
+						"symbol", best.Candidate.Symbol,
+						"funding", rate,
+						"allowed", "-0.2% to -1%",
+					)
+					return nil
+				}
+			}
+
+			if err := a.riskEngine.EvaluateCandidate(ctx, best, btc); err != nil {
+				slog.Info("candidate rejected by risk engine", "symbol", best.Candidate.Symbol, "reason", err)
 				return nil
 			}
+			return a.execEng.ExecuteScored(ctx, best, window)
 		}
 
-		// Phase 2: risk evaluation
-		if err := a.riskEngine.EvaluateCandidate(ctx, best, btc); err != nil {
-			slog.Info("candidate rejected by risk engine", "symbol", best.Candidate.Symbol, "reason", err)
+		// Take top N candidates for LLM evaluation
+		topN := a.cfg.LLM.TopCandidates
+		if topN > len(scored) {
+			topN = len(scored)
+		}
+		top := scored[:topN]
+
+		// Skip LLM call if inputs are materially unchanged since the last call.
+		// Window change always triggers a fresh call regardless of other fields.
+		btcTrend := ""
+		if btc != nil {
+			btcTrend = btc.Trend
+		}
+		cooldown := time.Duration(a.cfg.LLM.CallCooldownSecs) * time.Second
+		if lc := a.lastLLMCall; lc != nil &&
+			lc.window == window &&
+			lc.symbol == top[0].Candidate.Symbol &&
+			math.Abs(lc.score-top[0].CompositeScore) < 5 &&
+			lc.btcTrend == btcTrend &&
+			time.Since(lc.calledAt) < cooldown {
+			slog.Debug("skipping LLM call: inputs unchanged",
+				"symbol", top[0].Candidate.Symbol,
+				"age", time.Since(lc.calledAt).Round(time.Second),
+			)
 			return nil
 		}
 
-		return a.execEng.ExecuteScored(ctx, best, window)
+		// Call LLM
+		decision, err := a.llmEngine.Evaluate(ctx, top, btc, a.cfg.Execution.TpPct)
+		if err != nil {
+			slog.Error("LLM engine error", "error", err)
+			return nil
+		}
+
+		a.lastLLMCall = &llmCallState{
+			symbol:   top[0].Candidate.Symbol,
+			score:    top[0].CompositeScore,
+			btcTrend: btcTrend,
+			window:   window,
+			calledAt: time.Now(),
+		}
+
+		if decision.Action == "SKIP" {
+			// A SKIP for today's top symbol doesn't invalidate other queued intents.
+			slog.Info("LLM decided to skip",
+				"reason", decision.SkipReason,
+				"queue_depth", a.intentQueue.PendingCount(),
+			)
+			return nil
+		}
+
+		// Find the LLM-selected candidate
+		var selected *domain.ScoredCandidate
+		for _, sc := range top {
+			if sc.Candidate.Symbol == decision.Symbol {
+				selected = sc
+				break
+			}
+		}
+		if selected == nil {
+			slog.Warn("LLM selected unknown symbol", "symbol", decision.Symbol)
+			return nil
+		}
+
+		// Apply LLM confidence → position sizing
+		selected.PositionSizePct = confidenceToSize(decision.Confidence)
+
+		// Queue the intent; it fires when target window arrives
+		nextSettlement := scheduler.NextFundingTime(time.Now().UTC())
+		ti := &intent.TradeIntent{
+			Symbol:          decision.Symbol,
+			Candidate:       selected,
+			Decision:        decision,
+			TargetEntryMode: decision.EntryMode,
+			CreatedAt:       time.Now(),
+			ExpiresAt:       nextSettlement.Add(1 * time.Minute),
+			Status:          intent.IntentPending,
+		}
+		a.intentQueue.Enqueue(ti)
+
+		return nil
 	}
 
 	a.sched = scheduler.NewScheduler(&a.cfg.Scheduler, cache, scanFn)
+	a.sched.SetIntentQueue(a.intentQueue)
 
 	// Start goroutines
 	go a.wsMarkPx.Run(ctx)
@@ -281,6 +436,10 @@ func (a *App) Run(
 	go a.oiPoller(ctx, binanceClient)
 	go a.klineSubscriber(ctx)
 	go a.fundingIntervalRefresher(ctx, binanceClient)
+	if a.cfg.App.Mode == "live" {
+		go a.wsUserData.Run(ctx)
+		go a.keepAliveListenKey(ctx, binanceClient, listenKey)
+	}
 
 	slog.Info("bot started", "mode", a.cfg.App.Mode)
 
@@ -365,6 +524,37 @@ func (a *App) klineSubscriber(ctx context.Context) {
 			a.updateKlineSubscriptions(ctx, currentSymbols, newSymbols)
 			currentSymbols = newSymbols
 		}
+	}
+}
+
+// keepAliveListenKey pings /fapi/v1/listenKey every 30 minutes to prevent expiry (Binance timeout is 60 min).
+func (a *App) keepAliveListenKey(ctx context.Context, client *exchange.BinanceClient, listenKey string) {
+	ticker := time.NewTicker(30 * time.Minute)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if err := client.KeepAliveListenKey(ctx, listenKey); err != nil {
+				slog.Warn("listenKey keepalive failed", "error", err)
+			}
+		}
+	}
+}
+
+func confidenceToSize(confidence int) float64 {
+	switch {
+	case confidence >= 90:
+		return 5.0
+	case confidence >= 80:
+		return 4.0
+	case confidence >= 70:
+		return 3.0
+	case confidence >= 60:
+		return 2.0
+	default:
+		return 0
 	}
 }
 
