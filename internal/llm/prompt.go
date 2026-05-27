@@ -23,20 +23,17 @@ DECISION FRAMEWORK:
 4. Avoid: low confluence setups, squeeze risk (extreme OI + no reversal signal), BTC breakout environment
 
 ENTRY MODE LOGIC:
-- FRONTRUN: Enter 15-30m before funding settlement. Best when: high confidence, clear reversal forming, want to capture full funding fee. Risk: price can still pump before settlement.
-- LAST_MINUTE: Enter 1-5m before settlement. Best when: moderate confidence, want confirmation of direction before committing. Safer but may miss some funding fee.
-- AFTER: Enter 0-5m after settlement. Best when: want to see actual settlement reaction, lower urgency. Miss funding fee but lowest risk of pre-settlement squeeze.
+- FRONTRUN: Enter 15-30m before funding settlement. Best when: high confidence, clear reversal forming. Captures full funding fee (included in Projected TP1). Risk: price can still pump before settlement.
+- LAST_MINUTE: Enter 1-5m before settlement. Best when: moderate confidence, want direction confirmation. Captures funding fee (included in Projected TP1). Safer than FRONTRUN.
+- AFTER: Enter 0-5m after settlement. Best when: want to see actual settlement reaction. Does NOT capture funding fee — effective TP1 is lower than shown. Lowest squeeze risk.
+
+Note: "Projected TP1" shown per candidate includes the funding fee and applies to FRONTRUN/LAST_MINUTE entries only. For AFTER entries, subtract the funding rate from Projected TP1 to get the effective target.
 
 RISK PARAMETERS:
 - Hard SL: 5% adverse price move triggers stop
 - Base TP: ~2% price move = 40% ROI at 20x
 - Breakeven trigger: move SL to entry after 1% profit
 - Consider: if a coin's ATR ratio is high (>3), normal price swings may trigger our tight SL before the thesis plays out. Reduce confidence for high-volatility setups unless reversal signal is very strong.
-
-TP STRATEGY LOGIC:
-- BASE: Standard 2% take-profit (40% ROI at 20x). For normal confidence setups.
-- AGGRESSIVE: Extended 3-4% take-profit (60-80% ROI). For high-conviction setups with strong reversal signals and room to move.
-- TRAILING: Enable trailing stop after 1.5% profit. For setups with strong momentum reversal potential where the dump may extend.
 
 CONFIDENCE SCORING (0-100):
 - 90-100: Exceptional setup. Multiple strong confluence signals. Very high probability reversal.
@@ -68,7 +65,7 @@ func (p *PromptBuilder) UserMessage(req *LLMRequest) string {
 
 	t := time.Unix(req.Timestamp, 0).UTC()
 	sb.WriteString(fmt.Sprintf("Current time: %s\n", t.Format(time.RFC3339)))
-	sb.WriteString(fmt.Sprintf("Funding window: %s\n\n", req.FundingWindow))
+	sb.WriteString(fmt.Sprintf("Next funding settlement in: %dm\n\n", req.MinutesToSettlement))
 
 	sb.WriteString("=== BTC MARKET CONTEXT ===\n")
 	sb.WriteString(fmt.Sprintf("Trend: %s | Momentum: %d/100 | Volatility: %s\n",
@@ -79,8 +76,8 @@ func (p *PromptBuilder) UserMessage(req *LLMRequest) string {
 	sb.WriteString("=== CANDIDATES (ranked by composite score) ===\n\n")
 	for i, c := range req.Candidates {
 		sb.WriteString(fmt.Sprintf("[%d] %s\n", i+1, c.Symbol))
-		sb.WriteString(fmt.Sprintf("  Funding: %.2f%% | Daily ROI: %.1f%% | Score: %.0f/100\n",
-			c.FundingRate, c.DailyROI, c.CompositeScore))
+		sb.WriteString(fmt.Sprintf("  Funding: %.2f%% | Daily ROI: %.1f%% | Projected TP1: %.2f%% | Score: %.0f/100\n",
+			c.FundingRate, c.DailyROI, c.ProjectedTP1Pct, c.CompositeScore))
 		sb.WriteString(fmt.Sprintf("  Score breakdown: funding=%.1f oi=%.1f btc=%.1f candle=%.1f vol=%.1f roi=%.1f volatility=%.1f\n",
 			c.ScoreBreakdown.Funding, c.ScoreBreakdown.OI, c.ScoreBreakdown.BTC,
 			c.ScoreBreakdown.Candle, c.ScoreBreakdown.Volume, c.ScoreBreakdown.ROI, c.ScoreBreakdown.Volatility))

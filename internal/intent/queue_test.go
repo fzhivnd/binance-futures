@@ -86,59 +86,39 @@ func TestEnqueue_DifferentSymbolSameMode_BothKept(t *testing.T) {
 	}
 }
 
-func TestEnqueue_SameSymbolSameMode_UpgradeOnHigherConfidence(t *testing.T) {
-	q := NewQueue(noopExec, 5*time.Minute)
-	q.Enqueue(newIntent("PEPE", domain.EntryModeFrontrun, 70))
-	q.Enqueue(newIntent("PEPE", domain.EntryModeFrontrun, 85)) // higher → should replace
-
-	if q.PendingCount() != 1 {
-		t.Fatalf("expected 1 pending after upgrade, got %d", q.PendingCount())
-	}
-
-	q.mu.Lock()
-	conf := q.intents[0].Decision.Confidence
-	q.mu.Unlock()
-
-	if conf != 85 {
-		t.Fatalf("expected confidence 85 after upgrade, got %d", conf)
-	}
-}
-
-func TestEnqueue_SameSymbolSameMode_DiscardOnLowerConfidence(t *testing.T) {
+func TestEnqueue_SameSymbol_AlwaysReplaces(t *testing.T) {
 	q := NewQueue(noopExec, 5*time.Minute)
 	q.Enqueue(newIntent("PEPE", domain.EntryModeFrontrun, 85))
-	q.Enqueue(newIntent("PEPE", domain.EntryModeFrontrun, 70)) // lower → discard
+	q.Enqueue(newIntent("PEPE", domain.EntryModeFrontrun, 70)) // lower confidence — still replaces
 
 	if q.PendingCount() != 1 {
-		t.Fatalf("expected 1 pending after discard, got %d", q.PendingCount())
+		t.Fatalf("expected 1 pending after replace, got %d", q.PendingCount())
 	}
 
 	q.mu.Lock()
 	conf := q.intents[0].Decision.Confidence
 	q.mu.Unlock()
 
-	if conf != 85 {
-		t.Fatalf("expected confidence 85 to survive, got %d", conf)
+	if conf != 70 {
+		t.Fatalf("expected confidence 70 (latest), got %d", conf)
 	}
 }
 
-func TestEnqueue_SameSymbolSameMode_DiscardOnEqualConfidence(t *testing.T) {
+func TestEnqueue_SameSymbolDifferentMode_Replaces(t *testing.T) {
 	q := NewQueue(noopExec, 5*time.Minute)
 	q.Enqueue(newIntent("PEPE", domain.EntryModeFrontrun, 80))
-	q.Enqueue(newIntent("PEPE", domain.EntryModeFrontrun, 80)) // equal → discard
+	q.Enqueue(newIntent("PEPE", domain.EntryModeLastMinute, 75)) // different mode — still replaces
 
 	if q.PendingCount() != 1 {
-		t.Fatalf("expected 1 pending (equal confidence discarded), got %d", q.PendingCount())
+		t.Fatalf("expected 1 pending (same symbol always replaces), got %d", q.PendingCount())
 	}
-}
 
-func TestEnqueue_SameSymbolDifferentMode_BothKept(t *testing.T) {
-	q := NewQueue(noopExec, 5*time.Minute)
-	q.Enqueue(newIntent("PEPE", domain.EntryModeFrontrun, 80))
-	q.Enqueue(newIntent("PEPE", domain.EntryModeLastMinute, 75))
+	q.mu.Lock()
+	mode := q.intents[0].TargetEntryMode
+	q.mu.Unlock()
 
-	if q.PendingCount() != 2 {
-		t.Fatalf("expected 2 pending (different modes), got %d", q.PendingCount())
+	if mode != domain.EntryModeLastMinute {
+		t.Fatalf("expected LAST_MINUTE (latest), got %v", mode)
 	}
 }
 

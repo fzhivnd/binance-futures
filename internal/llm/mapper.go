@@ -1,6 +1,7 @@
 package llm
 
 import (
+	"math"
 	"time"
 
 	"futures/internal/domain"
@@ -10,12 +11,18 @@ import (
 func MapToLLMRequest(
 	candidates []*domain.ScoredCandidate,
 	btc *domain.BTCContext,
-	window scheduler.WindowType,
+	tpPct float64,
 ) *LLMRequest {
+	next := scheduler.NextFundingTime(time.Now().UTC())
+	minutesTo := int(math.Round(time.Until(next).Minutes()))
+	if minutesTo < 0 {
+		minutesTo = 0
+	}
+
 	req := &LLMRequest{
-		Timestamp:     time.Now().UTC().Unix(),
-		FundingWindow: string(window),
-		Candidates:    make([]LLMCandidate, 0, len(candidates)),
+		Timestamp:           time.Now().UTC().Unix(),
+		MinutesToSettlement: minutesTo,
+		Candidates:          make([]LLMCandidate, 0, len(candidates)),
 	}
 
 	if btc != nil {
@@ -30,11 +37,17 @@ func MapToLLMRequest(
 	}
 
 	for _, sc := range candidates {
+		fundingRatePct := sc.Candidate.FundingRate * 100
+		// Projected TP1 for pre-settlement entry: base TP + funding fee captured.
+		// AFTER entries only get tpPct (no funding bonus) — stated in the system prompt.
+		projectedTP1 := tpPct + math.Abs(fundingRatePct)
+
 		c := LLMCandidate{
-			Symbol:         sc.Candidate.Symbol,
-			FundingRate:    sc.Candidate.FundingRate * 100,
-			DailyROI:       sc.Candidate.DailyROI,
-			CompositeScore: sc.CompositeScore,
+			Symbol:          sc.Candidate.Symbol,
+			FundingRate:     fundingRatePct,
+			DailyROI:        sc.Candidate.DailyROI,
+			ProjectedTP1Pct: math.Round(projectedTP1*100) / 100,
+			CompositeScore:  sc.CompositeScore,
 			ScoreBreakdown: LLMBreakdown{
 				Funding:    sc.Breakdown.FundingScore,
 				OI:         sc.Breakdown.OIScore,
@@ -73,7 +86,6 @@ func mapResponseToDecision(resp LLMResponse, candidates []*domain.ScoredCandidat
 		Action:       resp.Action,
 		Symbol:       resp.Symbol,
 		Confidence:   resp.Confidence,
-		TPStrategy:   resp.TPStrategy,
 		EntryReasons: resp.EntryReasons,
 		Warnings:     resp.Warnings,
 		SkipReason:   resp.SkipReason,

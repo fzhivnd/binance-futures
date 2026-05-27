@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"futures/internal/domain"
-	"futures/internal/scheduler"
 )
 
 type DecisionEngine struct {
@@ -23,14 +22,15 @@ func NewDecisionEngine(client *Client) *DecisionEngine {
 }
 
 // Evaluate takes top scored candidates and returns a trade decision.
+// tpPct is the base take-profit percentage from config (used to compute projected TP1).
 // On any LLM failure it returns a SKIP decision (safe fallback).
 func (e *DecisionEngine) Evaluate(
 	ctx context.Context,
 	candidates []*domain.ScoredCandidate,
 	btc *domain.BTCContext,
-	window scheduler.WindowType,
+	tpPct float64,
 ) (*domain.LLMDecision, error) {
-	req := MapToLLMRequest(candidates, btc, window)
+	req := MapToLLMRequest(candidates, btc, tpPct)
 
 	systemPrompt := e.prompt.SystemPrompt()
 	userMessage := e.prompt.UserMessage(req)
@@ -71,21 +71,18 @@ func (e *DecisionEngine) Evaluate(
 
 	if decision.Action == "SKIP" {
 		slog.Info("llm_skip",
-			"window", window,
 			"reason", decision.SkipReason,
 			"candidates", candidateSymbols,
 			"latency_ms", elapsed.Milliseconds(),
 		)
 	} else {
 		slog.Info("llm_call",
-			"window", window,
 			"candidates_count", len(candidates),
 			"latency_ms", elapsed.Milliseconds(),
 			"action", decision.Action,
 			"symbol", decision.Symbol,
 			"confidence", decision.Confidence,
 			"entry_mode", decision.EntryMode,
-			"tp_strategy", decision.TPStrategy,
 		)
 	}
 

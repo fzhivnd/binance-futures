@@ -156,9 +156,9 @@ migrations/
 2. Each scan: funding filter → ROI/volume filter → indicator compute → scoring
 3. Take top N candidates (configurable, default 5)
 4. LLM call cooldown check: skip if same symbol/score/BTC/window within call_cooldown_secs
-5. Call LLM with candidates + BTC context + current window info
-6. LLM returns: OPEN_SHORT (symbol, confidence, entry_mode, tp_strategy) or SKIP
-7. If OPEN_SHORT → add/upgrade intent in ranked queue (dedup per symbol+mode)
+5. Call LLM with candidates + BTC context + minutes to settlement + projected TP1
+6. LLM returns: OPEN_SHORT (symbol, confidence, entry_mode) or SKIP
+7. If OPEN_SHORT → add/replace intent in ranked queue (always replaces by symbol)
    - A SKIP does NOT cancel existing queued intents
 8. Intent Queue ticks every 1s:
    - FRONTRUN window: fire highest-confidence eligible intent every frontrun_exec_interval_secs
@@ -173,8 +173,8 @@ migrations/
 ```
                     ┌─────────────────────────┐
                     │       PENDING           │
-                    │  waiting for its        │◄──── upgrade: higher-confidence
-                    │  target window          │      same (symbol, mode) replaces
+                    │  waiting for its        │◄──── always replaced when new
+                    │  target window          │      intent arrives for same symbol
                     └────────────┬────────────┘
                                  │ windowReady(current >= target)
                                  │ AND firedInWindow[window] == false
@@ -197,7 +197,7 @@ migrations/
 | LLM says entry_mode | Current Window = FRONTRUN | Current Window = LAST_MINUTE | Current Window = AFTER |
 |---------------------|---------------------------|------------------------------|------------------------|
 | FRONTRUN            | Fire immediately          | Fire immediately (late OK)   | Fire immediately       |
-| LAST_MINUTE         | Hold → wait for T-5m      | Fire immediately             | Fire immediately       |
+| LAST_MINUTE         | Hold → wait for T-5m (scan stops at T-3m) | Fire immediately | Fire immediately  |
 | AFTER               | Hold → wait for T+0       | Hold → wait for T+0          | Fire immediately       |
 
 Rule: intent fires when current window >= target window (later is always OK, we don't go backward).
@@ -229,10 +229,10 @@ A window transition always triggers a fresh LLM call regardless of other conditi
 // internal/llm/schema.go
 
 type LLMRequest struct {
-    Timestamp     int64            `json:"timestamp"`
-    FundingWindow string           `json:"funding_window"` // "FRONTRUN" | "LAST_MINUTE" | "AFTER"
-    BTCContext    LLMBTCContext    `json:"btc_context"`
-    Candidates    []LLMCandidate   `json:"candidates"`
+    Timestamp           int64          `json:"timestamp"`
+    MinutesToSettlement int            `json:"minutes_to_settlement"` // remaining minutes; LLM picks entry_mode
+    BTCContext          LLMBTCContext  `json:"btc_context"`
+    Candidates          []LLMCandidate `json:"candidates"`
     // Phase 4: SimilarTrades []LLMSimilarTrade `json:"similar_past_trades,omitempty"`
 }
 
@@ -249,6 +249,7 @@ type LLMCandidate struct {
     Symbol          string          `json:"symbol"`
     FundingRate     float64         `json:"funding_rate_pct"`    // e.g. -0.85 means -0.85%
     DailyROI        float64         `json:"daily_roi_pct"`       // e.g. 34.5 means 34.5%
+    ProjectedTP1Pct float64         `json:"projected_tp1_pct"`   // base TP + funding fee (FRONTRUN/LAST_MINUTE only)
     CompositeScore  float64         `json:"composite_score"`     // 0-100
     ScoreBreakdown  LLMBreakdown    `json:"score_breakdown"`
     RSI14_15m       float64         `json:"rsi_14_15m"`          // setup context (~3.5h lookback)
@@ -293,14 +294,13 @@ type LLMSimilarTrade struct {
 // internal/llm/schema.go
 
 type LLMResponse struct {
-    Action       string            `json:"action"`        // "OPEN_SHORT" | "SKIP"
-    Symbol       string            `json:"symbol"`        // selected candidate symbol (if OPEN_SHORT)
-    Confidence   int               `json:"confidence"`    // 0-100
-    EntryMode    string            `json:"entry_mode"`    // "FRONTRUN" | "LAST_MINUTE" | "AFTER"
-    TPStrategy   string            `json:"tp_strategy"`   // "BASE" | "AGGRESSIVE" | "TRAILING"
-    EntryReasons []string          `json:"entry_reasons"` // 2-4 concise reasons
-    Warnings     []string          `json:"warnings"`      // 0-3 risk warnings
-    SkipReason   string            `json:"skip_reason"`   // only if action=SKIP
+    Action       string   `json:"action"`        // "OPEN_SHORT" | "SKIP"
+    Symbol       string   `json:"symbol"`        // selected candidate symbol (if OPEN_SHORT)
+    Confidence   int      `json:"confidence"`    // 0-100
+    EntryMode    string   `json:"entry_mode"`    // "FRONTRUN" | "LAST_MINUTE" | "AFTER" — LLM decides
+    EntryReasons []string `json:"entry_reasons"` // 2-4 concise reasons
+    Warnings     []string `json:"warnings"`      // 0-3 risk warnings
+    SkipReason   string   `json:"skip_reason"`   // only if action=SKIP
 }
 ```
 
@@ -314,7 +314,6 @@ type LLMDecision struct {
     Symbol       string
     Confidence   int
     EntryMode    EntryMode
-    TPStrategy   string
     EntryReasons []string
     Warnings     []string
     SkipReason   string
@@ -345,20 +344,17 @@ DECISION FRAMEWORK:
 4. Avoid: low confluence setups, squeeze risk (extreme OI + no reversal signal), BTC breakout environment
 
 ENTRY MODE LOGIC:
-- FRONTRUN: Enter 15-30m before funding settlement. Best when: high confidence, clear reversal forming, want to capture full funding fee. Risk: price can still pump before settlement.
-- LAST_MINUTE: Enter 1-5m before settlement. Best when: moderate confidence, want confirmation of direction before committing. Safer but may miss some funding fee.
-- AFTER: Enter 0-5m after settlement. Best when: want to see actual settlement reaction, lower urgency. Miss funding fee but lowest risk of pre-settlement squeeze.
+- FRONTRUN: Enter 15-30m before funding settlement. Best when: high confidence, clear reversal forming. Captures full funding fee (included in Projected TP1). Risk: price can still pump before settlement.
+- LAST_MINUTE: Enter 1-5m before settlement. Best when: moderate confidence, want direction confirmation. Captures funding fee (included in Projected TP1). Safer than FRONTRUN.
+- AFTER: Enter 0-5m after settlement. Best when: want to see actual settlement reaction. Does NOT capture funding fee — effective TP1 is lower than shown. Lowest squeeze risk.
+
+Note: "Projected TP1" shown per candidate includes the funding fee and applies to FRONTRUN/LAST_MINUTE entries only. For AFTER entries, subtract the funding rate from Projected TP1 to get the effective target.
 
 RISK PARAMETERS:
 - Hard SL: 5% adverse price move triggers stop
 - Base TP: ~2% price move = 40% ROI at 20x
 - Breakeven trigger: move SL to entry after 1% profit
 - Consider: if a coin's ATR ratio is high (>3), normal price swings may trigger our tight SL before the thesis plays out. Reduce confidence for high-volatility setups unless reversal signal is very strong.
-
-TP STRATEGY LOGIC:
-- BASE: Standard 2% take-profit (40% ROI at 20x). For normal confidence setups.
-- AGGRESSIVE: Extended 3-4% take-profit (60-80% ROI). For high-conviction setups with strong reversal signals and room to move.
-- TRAILING: Enable trailing stop after 1.5% profit. For setups with strong momentum reversal potential where the dump may extend.
 
 CONFIDENCE SCORING (0-100):
 - 90-100: Exceptional setup. Multiple strong confluence signals. Very high probability reversal.
@@ -380,7 +376,7 @@ RULES:
 
 ```
 Current time: {{timestamp_utc}}
-Funding window: {{window_type}} (next settlement in {{minutes_to_settlement}}m)
+Next funding settlement in: {{minutes_to_settlement}}m
 
 === BTC MARKET CONTEXT ===
 Trend: {{btc_trend}} | Momentum: {{btc_momentum}}/100 | Volatility: {{btc_volatility}}
@@ -390,7 +386,7 @@ Breakout: {{btc_breakout}} | RSI(14): {{btc_rsi}} | 1h change: {{btc_1h_pct}}%
 
 {{#each candidates}}
 [{{index}}] {{symbol}}
-  Funding: {{funding_rate_pct}}% | Daily ROI: {{daily_roi_pct}}% | Score: {{composite_score}}/100
+  Funding: {{funding_rate_pct}}% | Daily ROI: {{daily_roi_pct}}% | Projected TP1: {{projected_tp1_pct}}% | Score: {{composite_score}}/100
   Score breakdown: funding={{breakdown.funding}} oi={{breakdown.oi}} btc={{breakdown.btc}} candle={{breakdown.candle}} vol={{breakdown.volume}} roi={{breakdown.roi}} volatility={{breakdown.volatility}}
   RSI(14,15m): {{rsi_14_15m}} | RSI(7,5m): {{rsi_7_5m}} | OI delta 1h: +{{oi_delta_1h_pct}}% | OI delta 15m: +{{oi_delta_15m_pct}}%
   ATR ratio: {{atr_ratio}} | Vol change 5m: {{vol_change_5m_pct}}% | Volume spike: {{volume_spike}} | Momentum loss: {{momentum_loss}}
@@ -404,7 +400,7 @@ Evaluate these candidates and provide your trade decision.
 
 ```
 Current time: 2024-03-15T15:30:00Z
-Funding window: LAST_MINUTE (next settlement in 4m)
+Next funding settlement in: 4m
 
 === BTC MARKET CONTEXT ===
 Trend: neutral | Momentum: 55/100 | Volatility: medium
@@ -413,21 +409,21 @@ Breakout: false | RSI(14): 52.3 | 1h change: -0.3%
 === CANDIDATES (ranked by composite score) ===
 
 [1] 1000PEPEUSDT
-  Funding: -0.85% | Daily ROI: 34.5% | Score: 78/100
+  Funding: -0.85% | Daily ROI: 34.5% | Projected TP1: 2.95% | Score: 78/100
   Score breakdown: funding=21.3 oi=15.0 btc=7.0 candle=18.5 vol=10.0 roi=15.0 volatility=5.0
   RSI(14,15m): 71.2 | RSI(7,5m): 74.8 | OI delta 1h: +18.3% | OI delta 15m: +6.2%
   ATR ratio: 2.8 | Vol change 5m: 3.1% | Volume spike: true | Momentum loss: true
   Candle patterns: [1h:SHOOTING_STAR(STRONG)] [30m:BEARISH_ENGULFING(STRONG)] [15m:DOJI_AFTER_PUMP(MEDIUM)]
 
 [2] WIFUSDT
-  Funding: -0.62% | Daily ROI: 28.1% | Score: 71/100
+  Funding: -0.62% | Daily ROI: 28.1% | Projected TP1: 2.72% | Score: 71/100
   Score breakdown: funding=18.5 oi=11.2 btc=7.0 candle=14.2 vol=5.0 roi=15.0 volatility=3.0
   RSI(14,15m): 65.8 | RSI(7,5m): 68.1 | OI delta 1h: +12.1% | OI delta 15m: +3.4%
   ATR ratio: 3.1 | Vol change 5m: 1.2% | Volume spike: false | Momentum loss: false
   Candle patterns: [1h:UPPER_WICK_REJECTION(MEDIUM)] [5m:FAILED_BREAKOUT(WEAK)]
 
 [3] DOGEUSDT
-  Funding: -0.41% | Daily ROI: 22.3% | Score: 64/100
+  Funding: -0.41% | Daily ROI: 22.3% | Projected TP1: 2.51% | Score: 64/100
   Score breakdown: funding=15.2 oi=7.5 btc=7.0 candle=12.0 vol=5.0 roi=15.0 volatility=3.0
   RSI(14,15m): 58.2 | RSI(7,5m): 55.9 | OI delta 1h: +5.2% | OI delta 15m: +1.1%
   ATR ratio: 1.9 | Vol change 5m: 0.4% | Volume spike: false | Momentum loss: false
@@ -444,7 +440,6 @@ Evaluate these candidates and provide your trade decision.
   "symbol": "1000PEPEUSDT",
   "confidence": 82,
   "entry_mode": "LAST_MINUTE",
-  "tp_strategy": "TRAILING",
   "entry_reasons": [
     "Extreme funding -0.85% with OI still rising +18% indicates overleveraged longs about to face settlement pressure",
     "Strong bearish candle confluence across 1h/30m/15m with shooting star + engulfing pattern",
@@ -618,7 +613,7 @@ func (p *PromptBuilder) UserMessage(req *LLMRequest) string {
     // Header
     t := time.Unix(req.Timestamp, 0).UTC()
     sb.WriteString(fmt.Sprintf("Current time: %s\n", t.Format(time.RFC3339)))
-    sb.WriteString(fmt.Sprintf("Funding window: %s\n\n", req.FundingWindow))
+    sb.WriteString(fmt.Sprintf("Next funding settlement in: %dm\n\n", req.MinutesToSettlement))
 
     // BTC context
     sb.WriteString("=== BTC MARKET CONTEXT ===\n")
@@ -631,8 +626,8 @@ func (p *PromptBuilder) UserMessage(req *LLMRequest) string {
     sb.WriteString("=== CANDIDATES (ranked by composite score) ===\n\n")
     for i, c := range req.Candidates {
         sb.WriteString(fmt.Sprintf("[%d] %s\n", i+1, c.Symbol))
-        sb.WriteString(fmt.Sprintf("  Funding: %.2f%% | Daily ROI: %.1f%% | Score: %.0f/100\n",
-            c.FundingRate, c.DailyROI, c.CompositeScore))
+        sb.WriteString(fmt.Sprintf("  Funding: %.2f%% | Daily ROI: %.1f%% | Projected TP1: %.2f%% | Score: %.0f/100\n",
+            c.FundingRate, c.DailyROI, c.ProjectedTP1Pct, c.CompositeScore))
         sb.WriteString(fmt.Sprintf("  Score breakdown: funding=%.1f oi=%.1f btc=%.1f candle=%.1f vol=%.1f roi=%.1f volatility=%.1f\n",
             c.ScoreBreakdown.Funding, c.ScoreBreakdown.OI, c.ScoreBreakdown.BTC,
             c.ScoreBreakdown.Candle, c.ScoreBreakdown.Volume, c.ScoreBreakdown.ROI, c.ScoreBreakdown.Volatility))
@@ -661,6 +656,7 @@ func (p *PromptBuilder) UserMessage(req *LLMRequest) string {
 package llm
 
 import (
+    "math"
     "time"
 
     "futures/internal/domain"
@@ -670,12 +666,17 @@ import (
 func MapToLLMRequest(
     candidates []*domain.ScoredCandidate,
     btc *domain.BTCContext,
-    window scheduler.WindowType,
+    tpPct float64,
 ) *LLMRequest {
+    next := scheduler.NextFundingTime(time.Now().UTC())
+    minutesTo := int(math.Round(time.Until(next).Minutes()))
+    if minutesTo < 0 {
+        minutesTo = 0
+    }
     req := &LLMRequest{
-        Timestamp:     time.Now().UTC().Unix(),
-        FundingWindow: window.String(), // "FRONTRUN" | "LAST_MINUTE" | "AFTER"
-        Candidates:    make([]LLMCandidate, 0, len(candidates)),
+        Timestamp:           time.Now().UTC().Unix(),
+        MinutesToSettlement: minutesTo,
+        Candidates:          make([]LLMCandidate, 0, len(candidates)),
     }
 
     // Map BTC context
@@ -692,11 +693,15 @@ func MapToLLMRequest(
 
     // Map candidates
     for _, sc := range candidates {
+        fundingRatePct := sc.Candidate.FundingRate * 100
+        projectedTP1 := math.Round((tpPct+math.Abs(fundingRatePct))*100) / 100
+
         c := LLMCandidate{
-            Symbol:         sc.Candidate.Symbol,
-            FundingRate:    sc.Candidate.FundingRate * 100, // convert to percentage
-            DailyROI:       sc.Candidate.DailyROI,
-            CompositeScore: sc.CompositeScore,
+            Symbol:          sc.Candidate.Symbol,
+            FundingRate:     fundingRatePct,
+            DailyROI:        sc.Candidate.DailyROI,
+            ProjectedTP1Pct: projectedTP1,
+            CompositeScore:  sc.CompositeScore,
             ScoreBreakdown: LLMBreakdown{
                 Funding:    sc.Breakdown.FundingScore,
                 OI:         sc.Breakdown.OIScore,
@@ -752,8 +757,6 @@ func mapResponseToDecision(resp LLMResponse, candidates []*domain.ScoredCandidat
     default:
         d.EntryMode = domain.EntryModeLastMinute
     }
-
-    d.TPStrategy = resp.TPStrategy
 
     // Validate symbol exists in candidates
     if d.Action == "OPEN_SHORT" {
@@ -1008,8 +1011,8 @@ if lc := a.lastLLMCall; lc != nil &&
     return nil // inputs unchanged, existing queue intents still valid
 }
 
-// Call LLM
-decision, err := a.llmEngine.Evaluate(ctx, top, btc, window)
+// Call LLM — passes base tpPct; LLM decides entry_mode independently
+decision, err := a.llmEngine.Evaluate(ctx, top, btc, a.cfg.Execution.TpPct)
 if err != nil {
     slog.Error("LLM engine error", "error", err)
     return nil
@@ -1092,13 +1095,6 @@ func (e *ExecutionEngine) ExecuteScoredWithLLM(
     decision *domain.LLMDecision,
 ) error {
     windowType := entryModeToWindow(decision.EntryMode)
-    tpPct := e.cfg.Execution.TpPct
-    switch decision.TPStrategy {
-    case "AGGRESSIVE":
-        tpPct = e.cfg.Execution.TpPct * 1.5
-    case "TRAILING":
-        tpPct = e.cfg.Execution.TpPct // base TP; trailing stop extends it
-    }
     return e.executeInternalLLM(ctx, sc.Candidate, windowType, sc.PositionSizePct, decision)
 }
 ```
@@ -1112,19 +1108,21 @@ T-30m: Scan #1 → LLM called → OPEN_SHORT PEPE (LAST_MINUTE, conf=82), OPEN_S
 T-29m: Scan #2 → cooldown active (same symbol/score/BTC/window) → skip LLM, queue unchanged
 
 T-25m: Scan #6 → BTC trend changed to bullish → cooldown bypassed → LLM called
-        → LLM: OPEN_SHORT PEPE (LAST_MINUTE, conf=78) [lower than 82, discarded]
-        → LLM: OPEN_SHORT DOGE (FRONTRUN, conf=70) [new symbol/mode, added]
-        → Queue: [{PEPE,LM,82}, {WIF,AFTER,75}, {DOGE,FR,70}]
+        → LLM: OPEN_SHORT PEPE (LAST_MINUTE, conf=78) [same symbol → always replaces]
+        → LLM: OPEN_SHORT DOGE (FRONTRUN, conf=70) [new symbol, added]
+        → Queue: [{PEPE,LM,78}, {WIF,AFTER,75}, {DOGE,FR,70}]
 
 T-15m: FRONTRUN interval (5m) elapsed
         → Queue tick fires DOGE (conf=70, highest FRONTRUN-eligible)
         → Risk check → execute DOGE short
         → firedInWindow[FRONTRUN] = true
 
-T-5m:  Window → LAST_MINUTE
-        → Queue tick fires PEPE (conf=82, highest LAST_MINUTE-eligible)
+T-5m:  Window → LAST_MINUTE  (scans continue down to T-3m, then stop)
+        → Queue tick fires PEPE (conf=78, highest LAST_MINUTE-eligible)
         → Risk check → execute PEPE short
         → firedInWindow[LAST_MINUTE] = true
+
+T-3m:  Scan gate: scheduler skips scanFn; intent queue still ticks
 
 T+0:   Window → AFTER
         → Queue tick fires WIF (conf=75, highest AFTER-eligible)

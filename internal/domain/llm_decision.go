@@ -5,7 +5,6 @@ type LLMDecision struct {
 	Symbol       string
 	Confidence   int
 	EntryMode    EntryMode
-	TPStrategy   string
 	EntryReasons []string
 	Warnings     []string
 	SkipReason   string

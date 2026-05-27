@@ -106,10 +106,6 @@ func tradeDecisionSchema() map[string]any {
 				"type": "string",
 				"enum": []string{"FRONTRUN", "LAST_MINUTE", "AFTER"},
 			},
-			"tp_strategy": map[string]any{
-				"type": "string",
-				"enum": []string{"BASE", "AGGRESSIVE", "TRAILING"},
-			},
 			"entry_reasons": map[string]any{
 				"type":        "array",
 				"items":       map[string]any{"type": "string"},
@@ -125,7 +121,7 @@ func tradeDecisionSchema() map[string]any {
 				"description": "Reason for skipping. Empty string if OPEN_SHORT.",
 			},
 		},
-		"required":             []string{"action", "symbol", "confidence", "entry_mode", "tp_strategy", "entry_reasons", "warnings", "skip_reason"},
+		"required":             []string{"action", "symbol", "confidence", "entry_mode", "entry_reasons", "warnings", "skip_reason"},
 		"additionalProperties": false,
 	}
 }

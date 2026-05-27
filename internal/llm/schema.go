@@ -1,10 +1,10 @@
 package llm
 
 type LLMRequest struct {
-	Timestamp     int64          `json:"timestamp"`
-	FundingWindow string         `json:"funding_window"`
-	BTCContext    LLMBTCContext  `json:"btc_context"`
-	Candidates    []LLMCandidate `json:"candidates"`
+	Timestamp          int64          `json:"timestamp"`
+	MinutesToSettlement int           `json:"minutes_to_settlement"`
+	BTCContext         LLMBTCContext  `json:"btc_context"`
+	Candidates         []LLMCandidate `json:"candidates"`
 }
 
 type LLMBTCContext struct {
@@ -17,20 +17,21 @@ type LLMBTCContext struct {
 }
 
 type LLMCandidate struct {
-	Symbol          string          `json:"symbol"`
-	FundingRate     float64         `json:"funding_rate_pct"`
-	DailyROI        float64         `json:"daily_roi_pct"`
-	CompositeScore  float64         `json:"composite_score"`
-	ScoreBreakdown  LLMBreakdown    `json:"score_breakdown"`
-	RSI14_15m       float64         `json:"rsi_14_15m"`
-	RSI7_5m         float64         `json:"rsi_7_5m"`
-	OIDelta1h       float64         `json:"oi_delta_1h_pct"`
-	OIDelta15m      float64         `json:"oi_delta_15m_pct"`
-	ATRRatio        float64         `json:"atr_ratio"`
-	VolChange5m     float64         `json:"vol_change_5m_pct"`
-	VolumeSpikeFlag bool            `json:"volume_spike"`
-	MomentumLoss    bool            `json:"momentum_loss"`
-	CandlePatterns  []LLMCandleInfo `json:"candle_patterns"`
+	Symbol           string          `json:"symbol"`
+	FundingRate      float64         `json:"funding_rate_pct"`
+	DailyROI         float64         `json:"daily_roi_pct"`
+	ProjectedTP1Pct  float64         `json:"projected_tp1_pct"` // base TP + funding fee for pre-settlement entry
+	CompositeScore   float64         `json:"composite_score"`
+	ScoreBreakdown   LLMBreakdown    `json:"score_breakdown"`
+	RSI14_15m        float64         `json:"rsi_14_15m"`
+	RSI7_5m          float64         `json:"rsi_7_5m"`
+	OIDelta1h        float64         `json:"oi_delta_1h_pct"`
+	OIDelta15m       float64         `json:"oi_delta_15m_pct"`
+	ATRRatio         float64         `json:"atr_ratio"`
+	VolChange5m      float64         `json:"vol_change_5m_pct"`
+	VolumeSpikeFlag  bool            `json:"volume_spike"`
+	MomentumLoss     bool            `json:"momentum_loss"`
+	CandlePatterns   []LLMCandleInfo `json:"candle_patterns"`
 }
 
 type LLMBreakdown struct {
@@ -54,7 +55,6 @@ type LLMResponse struct {
 	Symbol       string   `json:"symbol"`
 	Confidence   int      `json:"confidence"`
 	EntryMode    string   `json:"entry_mode"`
-	TPStrategy   string   `json:"tp_strategy"`
 	EntryReasons []string `json:"entry_reasons"`
 	Warnings     []string `json:"warnings"`
 	SkipReason   string   `json:"skip_reason"`

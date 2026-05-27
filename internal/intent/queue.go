@@ -21,9 +21,8 @@ type ExecuteFn func(ctx context.Context, sc *domain.ScoredCandidate, decision *d
 //   - LAST_MINUTE window: fire the highest-confidence eligible intent exactly once on window entry.
 //   - AFTER window: fire the highest-confidence eligible intent exactly once on window entry.
 //
-// Enqueue deduplicates per (symbol, targetEntryMode): a new intent replaces an existing one for
-// the same pair only when its confidence is strictly higher. This keeps the best seen recommendation
-// for each symbol/mode combination while discarding inferior repeats.
+// Enqueue always replaces an existing pending intent for the same symbol with the latest
+// LLM recommendation, regardless of confidence or entry mode.
 type Queue struct {
 	mu               sync.Mutex
 	intents          []*TradeIntent // sorted by confidence descending
@@ -42,35 +41,23 @@ func NewQueue(execFn ExecuteFn, frontrunInterval time.Duration) *Queue {
 }
 
 // Enqueue adds the intent to the ranked pool.
-// If an intent for the same (symbol, targetEntryMode) already exists:
-//   - replace it when the new confidence is strictly higher
-//   - discard the new one otherwise
+// If a pending intent for the same symbol already exists it is always replaced —
+// the latest LLM recommendation for a symbol is always the most current one.
 func (q *Queue) Enqueue(intent *TradeIntent) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 
-	// Look for an existing intent with the same symbol + target mode.
 	for i, existing := range q.intents {
-		if existing.Status == IntentPending &&
-			existing.Symbol == intent.Symbol &&
-			existing.TargetEntryMode == intent.TargetEntryMode {
-
-			if intent.Decision.Confidence > existing.Decision.Confidence {
-				slog.Info("intent upgraded",
-					"symbol", intent.Symbol,
-					"mode", intent.TargetEntryMode,
-					"old_confidence", existing.Decision.Confidence,
-					"new_confidence", intent.Decision.Confidence,
-				)
-				q.intents[i] = intent
-				q.sortLocked()
-			} else {
-				slog.Debug("intent discarded: existing has equal or higher confidence",
-					"symbol", intent.Symbol,
-					"existing_confidence", existing.Decision.Confidence,
-					"new_confidence", intent.Decision.Confidence,
-				)
-			}
+		if existing.Status == IntentPending && existing.Symbol == intent.Symbol {
+			slog.Info("intent replaced",
+				"symbol", intent.Symbol,
+				"old_mode", existing.TargetEntryMode,
+				"new_mode", intent.TargetEntryMode,
+				"old_confidence", existing.Decision.Confidence,
+				"new_confidence", intent.Decision.Confidence,
+			)
+			q.intents[i] = intent
+			q.sortLocked()
 			return
 		}
 	}

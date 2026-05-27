@@ -113,11 +113,29 @@ func (m *PositionManager) check(ctx context.Context, pos domain.Position) {
 }
 
 // HandleUserDataEvent is called by the user data stream router on every ORDER_TRADE_UPDATE.
-// It detects when a SL or TP reduce-only order is FILLED and records the close with the
-// actual fill price from Binance rather than an approximated mark price.
+// It detects when a SL (STOP_MARKET) or TP (TAKE_PROFIT) reduce-only order is FILLED and
+// records the close with the actual fill price from Binance.
 func (m *PositionManager) HandleUserDataEvent(event exchange.UserDataEvent) {
 	o := event.Order
-	if o.OrderStatus != "FILLED" || !o.ReduceOnly {
+	if o.OrderStatus != "FILLED" {
+		return
+	}
+
+	// Only act on the specific order types we place as SL/TP.
+	// STOP_MARKET  → stop-loss triggered at market
+	// TAKE_PROFIT  → take-profit stop-limit triggered
+	// Ignore MARKET, LIMIT, and anything else (e.g. manual closes, liquidations).
+	switch o.OrderType {
+	case string(domain.OrderTypeStopMarket), string(domain.OrderTypeTakeProfit), string(domain.OrderTypeLimit):
+		// expected close order types — proceed
+	default:
+		if o.ReduceOnly {
+			slog.Warn("unexpected reduce-only fill ignored",
+				"symbol", o.Symbol,
+				"order_type", o.OrderType,
+				"order_id", o.OrderID,
+			)
+		}
 		return
 	}
 

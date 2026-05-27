@@ -370,7 +370,7 @@ func (a *App) Run(
 		}
 
 		// Call LLM
-		decision, err := a.llmEngine.Evaluate(ctx, top, btc, window)
+		decision, err := a.llmEngine.Evaluate(ctx, top, btc, a.cfg.Execution.TpPct)
 		if err != nil {
 			slog.Error("LLM engine error", "error", err)
 			return nil

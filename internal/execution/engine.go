@@ -75,15 +75,7 @@ func (e *ExecutionEngine) Execute(ctx context.Context, candidate domain.Candidat
 }
 
 func (e *ExecutionEngine) executeInternalLLM(ctx context.Context, candidate domain.Candidate, window scheduler.WindowType, positionSizePct float64, decision *domain.LLMDecision) error {
-	tpPct := e.cfg.Execution.TpPct
-	switch decision.TPStrategy {
-	case "AGGRESSIVE":
-		tpPct = e.cfg.Execution.TpPct * 1.5
-	case "TRAILING":
-		// base TP; trailing extension handled by position manager
-	}
-
-	return e.executeInternalWithTP(ctx, candidate, window, positionSizePct, decision.Confidence, tpPct, decision)
+	return e.executeInternalWithTP(ctx, candidate, window, positionSizePct, decision.Confidence, e.cfg.Execution.TpPct, decision)
 }
 
 func (e *ExecutionEngine) executeInternal(ctx context.Context, candidate domain.Candidate, window scheduler.WindowType, positionSizePct float64, confidence int) error {
@@ -240,16 +232,10 @@ func (e *ExecutionEngine) executeInternalWithTP(ctx context.Context, candidate d
 	if llmDecision != nil {
 		conf := llmDecision.Confidence
 		entryMode := string(llmDecision.EntryMode)
-		tpStrat := llmDecision.TPStrategy
 		trade.LLMConfidence = &conf
 		trade.LLMEntryMode = &entryMode
-		trade.LLMTPStrategy = &tpStrat
 		trade.LLMEntryReasons = llmDecision.EntryReasons
 		trade.LLMWarnings = llmDecision.Warnings
-		if llmDecision.SkipReason != "" {
-			s := llmDecision.SkipReason
-			trade.LLMSkipReason = &s
-		}
 	}
 
 	if err := e.tradeRepo.Insert(ctx, trade); err != nil {
