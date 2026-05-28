@@ -24,6 +24,19 @@ type Config struct {
 	Backtest   BacktestConfig   `yaml:"backtest"`
 	LLM        LLMConfig        `yaml:"llm"`
 	Memory     MemoryConfig     `yaml:"memory"`
+	Telegram   TelegramConfig   `yaml:"telegram"`
+	Summary    SummaryConfig    `yaml:"summary"`
+}
+
+type TelegramConfig struct {
+	Enabled     bool   `yaml:"enabled"`
+	BotToken    string `yaml:"bot_token"`
+	ChatID      string `yaml:"chat_id"`
+	TimeoutSecs int    `yaml:"timeout_secs"`
+}
+
+type SummaryConfig struct {
+	Enabled bool `yaml:"enabled"`
 }
 
 type AppConfig struct {
@@ -382,6 +395,14 @@ func setDefaults(cfg *Config) {
 	}
 	if cfg.Execution.ForceSLTimeoutSec == 0 {
 		cfg.Execution.ForceSLTimeoutSec = 5
+	}
+
+	// Phase 6: Telegram defaults
+	if cfg.Telegram.TimeoutSecs == 0 {
+		cfg.Telegram.TimeoutSecs = 10
+	}
+	if !cfg.Summary.Enabled {
+		cfg.Summary.Enabled = true
 	}
 
 	// Phase 4: Memory defaults

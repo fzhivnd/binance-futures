@@ -6,10 +6,9 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/google/uuid"
-
 	"futures/internal/config"
 	"futures/internal/domain"
+	"futures/internal/notify"
 	"futures/internal/scheduler"
 	"futures/internal/storage"
 )
@@ -26,6 +25,8 @@ type ExecutionEngine struct {
 	tradeRepo storage.TradeRepository
 	riskRepo  *storage.PGRiskRepository
 	cfg       *config.Config
+	notifier  *notify.Notifier
+	posMgr    *PositionManager // used for paper mode immediate finalization
 }
 
 func NewExecutionEngine(
@@ -35,6 +36,7 @@ func NewExecutionEngine(
 	tradeRepo storage.TradeRepository,
 	riskRepo *storage.PGRiskRepository,
 	cfg *config.Config,
+	notifier *notify.Notifier,
 ) *ExecutionEngine {
 	return &ExecutionEngine{
 		executor:  exec,
@@ -43,18 +45,29 @@ func NewExecutionEngine(
 		tradeRepo: tradeRepo,
 		riskRepo:  riskRepo,
 		cfg:       cfg,
+		notifier:  notifier,
 	}
 }
 
-// ExecuteScored is the Phase 2 entry point: uses confidence-based position sizing from a ScoredCandidate.
-func (e *ExecutionEngine) ExecuteScored(ctx context.Context, sc *domain.ScoredCandidate, window scheduler.WindowType) error {
-	return e.executeInternal(ctx, sc.Candidate, window, sc.PositionSizePct, int(sc.CompositeScore))
+// SetPositionManager wires the PositionManager so that paper mode can
+// call finalizeSLTP immediately (paper fills are synchronous).
+func (e *ExecutionEngine) SetPositionManager(pm *PositionManager) {
+	e.posMgr = pm
 }
 
-// ExecuteScoredWithLLM is the Phase 3 entry point: LLM decision overrides TP strategy.
+// ExecuteScored is the Phase 2 entry point.
+func (e *ExecutionEngine) ExecuteScored(ctx context.Context, sc *domain.ScoredCandidate, window scheduler.WindowType) error {
+	return e.executeInternal(ctx, sc.Candidate, window, sc.PositionSizePct, int(sc.CompositeScore), nil)
+}
+
+// ExecuteScoredWithLLM is the Phase 3 entry point.
 func (e *ExecutionEngine) ExecuteScoredWithLLM(ctx context.Context, sc *domain.ScoredCandidate, decision *domain.LLMDecision) error {
 	window := entryModeToWindow(decision.EntryMode)
-	return e.executeInternalLLM(ctx, sc.Candidate, window, sc.PositionSizePct, decision)
+	return e.executeInternal(ctx, sc.Candidate, window, sc.PositionSizePct, decision.Confidence, decision)
+}
+
+func (e *ExecutionEngine) Execute(ctx context.Context, candidate domain.Candidate, window scheduler.WindowType) error {
+	return e.executeInternal(ctx, candidate, window, e.cfg.Trading.PositionSizePct, 0, nil)
 }
 
 func entryModeToWindow(mode domain.EntryMode) scheduler.WindowType {
@@ -70,19 +83,14 @@ func entryModeToWindow(mode domain.EntryMode) scheduler.WindowType {
 	}
 }
 
-func (e *ExecutionEngine) Execute(ctx context.Context, candidate domain.Candidate, window scheduler.WindowType) error {
-	return e.executeInternal(ctx, candidate, window, e.cfg.Trading.PositionSizePct, 0)
-}
-
-func (e *ExecutionEngine) executeInternalLLM(ctx context.Context, candidate domain.Candidate, window scheduler.WindowType, positionSizePct float64, decision *domain.LLMDecision) error {
-	return e.executeInternalWithTP(ctx, candidate, window, positionSizePct, decision.Confidence, e.cfg.Execution.TpPct, decision)
-}
-
-func (e *ExecutionEngine) executeInternal(ctx context.Context, candidate domain.Candidate, window scheduler.WindowType, positionSizePct float64, confidence int) error {
-	return e.executeInternalWithTP(ctx, candidate, window, positionSizePct, confidence, e.cfg.Execution.TpPct, nil)
-}
-
-func (e *ExecutionEngine) executeInternalWithTP(ctx context.Context, candidate domain.Candidate, window scheduler.WindowType, positionSizePct float64, confidence int, tpPct float64, llmDecision *domain.LLMDecision) error {
+func (e *ExecutionEngine) executeInternal(
+	ctx context.Context,
+	candidate domain.Candidate,
+	window scheduler.WindowType,
+	positionSizePct float64,
+	confidence int,
+	llmDecision *domain.LLMDecision,
+) error {
 	// Pre-checks
 	killSwitch, err := e.cache.GetKillSwitch(ctx)
 	if err != nil || killSwitch {
@@ -108,14 +116,12 @@ func (e *ExecutionEngine) executeInternalWithTP(ctx context.Context, candidate d
 		}
 	}
 
-	// Daily loss check
 	lossCount, err := e.tradeRepo.GetDailyLossCount(ctx, time.Now().UTC())
 	if err == nil && lossCount >= 2 {
 		slog.Warn("daily loss limit reached, skipping", "symbol", candidate.Symbol)
 		return nil
 	}
 
-	// Get balance
 	balance, err := e.executor.GetAccountBalance(ctx)
 	if err != nil {
 		return fmt.Errorf("get balance: %w", err)
@@ -125,16 +131,13 @@ func (e *ExecutionEngine) executeInternalWithTP(ctx context.Context, candidate d
 	}
 	balance.AvailableBalance = 100 // TODO: REMOVED
 
-	// Calculate position size using the provided percentage (confidence-based in Phase 2)
 	margin := balance.AvailableBalance * positionSizePct / 100
 	qty := margin * float64(e.cfg.Trading.Leverage) / candidate.MarkPrice
 
-	// Set leverage
 	if err := e.executor.SetLeverage(ctx, candidate.Symbol, e.cfg.Trading.Leverage); err != nil {
 		slog.Warn("set leverage failed, continuing", "symbol", candidate.Symbol, "error", err)
 	}
 
-	// Place order
 	order, err := e.executor.PlaceMarketOrder(ctx, domain.OrderRequest{
 		Symbol:   candidate.Symbol,
 		Side:     domain.SideSell,
@@ -145,129 +148,46 @@ func (e *ExecutionEngine) executeInternalWithTP(ctx context.Context, candidate d
 		return fmt.Errorf("place order: %w", err)
 	}
 
-	entryPrice := order.FillPrice
-	if entryPrice == 0 {
-		entryPrice = candidate.MarkPrice
-	}
-
-	// Calculate SL/TP prices from the actual avg fill price returned by Binance.
-	slDistance := entryPrice * (e.cfg.Execution.SlPct / 100)
-	stopLoss := entryPrice + slDistance // SHORT: SL above entry
-
-	tpDistance := entryPrice * (tpPct / 100)
-	if window == scheduler.WindowFrontrun || window == scheduler.WindowLastMinute {
-		tpDistance += entryPrice * (-candidate.FundingRate)
-	}
-	takeProfit := entryPrice - tpDistance // SHORT: TP below entry
-
-	// SL: 100% quantity — always the backstop
-	slOrder, err := e.executor.PlaceStopMarketOrder(ctx, domain.OrderRequest{
-		Symbol:     candidate.Symbol,
-		Side:       domain.SideBuy,
-		Type:       domain.OrderTypeStopMarket,
-		Quantity:   order.Quantity,
-		StopPrice:  stopLoss,
-		ReduceOnly: true,
-	})
-	if err != nil {
-		slog.Error("place SL order failed", "symbol", candidate.Symbol, "error", err)
-	}
-
-	// TP1: 50% quantity (partial take-profit — trailing handles the rest)
-	tp1SizePct := e.cfg.Execution.TP1SizePct / 100
-	tp1Qty := order.Quantity * tp1SizePct
-
-	tpLimit := takeProfit * 0.99
-	tpOrder, err := e.executor.PlaceStopLimitOrder(ctx, domain.OrderRequest{
-		Symbol:     candidate.Symbol,
-		Side:       domain.SideBuy,
-		Type:       domain.OrderTypeTakeProfit,
-		Quantity:   tp1Qty,
-		StopPrice:  takeProfit,
-		Price:      tpLimit,
-		ReduceOnly: true,
-	})
-	if err != nil {
-		slog.Error("place TP1 order failed", "symbol", candidate.Symbol, "error", err)
-	}
-
-	var slOrderID, tpOrderID string
-	if slOrder != nil {
-		slOrderID = slOrder.OrderID
-	}
-	if tpOrder != nil {
-		tpOrderID = tpOrder.OrderID
-	}
-
-	tradeID := uuid.New()
-	now := time.Now()
-
-	pos := domain.Position{
-		Symbol:             candidate.Symbol,
-		Side:               domain.SideSell,
-		EntryPrice:         entryPrice,
-		Quantity:           order.Quantity,
-		OriginalQty:        order.Quantity,
-		Leverage:           e.cfg.Trading.Leverage,
-		EntryMode:          domain.EntryMode(window.ToEntryMode()),
-		StopLoss:           stopLoss,
-		TakeProfit:         takeProfit,
-		SLOrderID:          slOrderID,
-		TPOrderID:          tpOrderID,
-		TradeID:            tradeID,
-		OpenedAt:           now,
-		IsPaper:            e.cfg.App.Mode == "paper",
-		HighSinceEntry:     entryPrice,
-		LowSinceEntry:      entryPrice,
-		OriginalConfidence: confidence,
-	}
-	if llmDecision != nil {
-		pos.LLMEntryReasons = llmDecision.EntryReasons
-		pos.OriginalConfidence = llmDecision.Confidence
-	}
-
-	trade := &domain.Trade{
-		ID:          tradeID,
-		Symbol:      candidate.Symbol,
-		Side:        domain.SideSell,
-		EntryMode:   domain.EntryMode(window.ToEntryMode()),
-		Leverage:    e.cfg.Trading.Leverage,
-		Confidence:  confidence,
-		FundingRate: candidate.FundingRate,
-		DailyROI:    candidate.DailyROI,
-		EntryPrice:  entryPrice,
-		IsPaper:     e.cfg.App.Mode == "paper",
-		CreatedAt:   now,
-	}
-
-	if llmDecision != nil {
-		conf := llmDecision.Confidence
-		entryMode := string(llmDecision.EntryMode)
-		trade.LLMConfidence = &conf
-		trade.LLMEntryMode = &entryMode
-		trade.LLMEntryReasons = llmDecision.EntryReasons
-		trade.LLMWarnings = llmDecision.Warnings
-	}
-
-	if err := e.tradeRepo.Insert(ctx, trade); err != nil {
-		slog.Error("insert trade record", "symbol", candidate.Symbol, "error", err)
-	}
-	if err := e.cache.SetActivePosition(ctx, pos); err != nil {
-		slog.Error("set active position", "symbol", candidate.Symbol, "error", err)
-	}
-
-	slog.Info("position opened (split TP)",
+	slog.Info("market order placed, awaiting WS fill confirmation",
 		"symbol", candidate.Symbol,
-		"entry", entryPrice,
-		"sl", stopLoss,
-		"sl_order", slOrderID,
-		"tp1", takeProfit,
-		"tp1_order", tpOrderID,
-		"qty_total", order.Quantity,
-		"qty_tp1", tp1Qty,
-		"qty_trail", order.Quantity-tp1Qty,
-		"window", window,
-		"paper", e.cfg.App.Mode == "paper",
+		"order_id", order.OrderID,
+		"qty", order.Quantity,
 	)
+
+	now := time.Now()
+	pending := domain.PendingEntry{
+		OrderID:         order.OrderID,
+		Symbol:          candidate.Symbol,
+		Quantity:        order.Quantity,
+		PositionSizePct: positionSizePct,
+		Confidence:      confidence,
+		Window:          string(window.ToEntryMode()),
+		TpPct:           e.cfg.Execution.TpPct,
+		LLMDecision:     llmDecision,
+		CreatedAt:       now,
+		ExpiresAt:       now.Add(60 * time.Second),
+	}
+
+	// Store funding-adjusted tpPct so finalizeSLTP can use it.
+	if window == scheduler.WindowFrontrun || window == scheduler.WindowLastMinute {
+		extra := -candidate.FundingRate // e.g. 0.002 for -0.2% funding
+		pending.TpPct = e.cfg.Execution.TpPct + extra*100
+	}
+
+	if err := e.cache.SetPendingEntry(ctx, pending); err != nil {
+		slog.Error("failed to store pending entry", "symbol", candidate.Symbol, "error", err)
+		// Non-fatal: reconciler will catch this on next startup if WS misses the fill.
+	}
+
+	// Paper mode: executor fills synchronously — the user-data WS doesn't exist in paper mode.
+	// Finalize SL/TP immediately using the order fill price.
+	if e.cfg.App.Mode == "paper" && e.posMgr != nil {
+		fillPrice := order.FillPrice
+		if fillPrice == 0 {
+			fillPrice = candidate.MarkPrice
+		}
+		e.posMgr.finalizeSLTP(ctx, &pending, fillPrice, order.Quantity)
+	}
+
 	return nil
 }

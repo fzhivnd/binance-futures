@@ -21,6 +21,17 @@ type StateCache interface {
 	AcquireSchedulerLock(ctx context.Context, window string, ttl time.Duration) (bool, error)
 	SetFundingSnapshot(ctx context.Context, rates map[string]float64) error
 	GetFundingSnapshot(ctx context.Context) (map[string]float64, error)
+
+	// Phase 7: market order placed, waiting for WS fill confirmation before placing SL/TP
+	SetPendingEntry(ctx context.Context, entry domain.PendingEntry) error
+	GetPendingEntry(ctx context.Context, orderID string) (*domain.PendingEntry, error)
+	RemovePendingEntry(ctx context.Context, orderID string) error
+	GetAllPendingEntries(ctx context.Context) ([]domain.PendingEntry, error)
+
+	// Phase 7: position open but SL/TP placement failed, needs retry
+	SetPendingProtection(ctx context.Context, p domain.PendingProtection) error
+	GetPendingProtection(ctx context.Context, symbol string) (*domain.PendingProtection, error)
+	RemovePendingProtection(ctx context.Context, symbol string) error
 }
 
 type TradeRepository interface {
@@ -29,6 +40,7 @@ type TradeRepository interface {
 	GetRecent(ctx context.Context, limit int) ([]domain.Trade, error)
 	UpdateResult(ctx context.Context, id uuid.UUID, exit domain.ExitInfo) error
 	GetDailyLossCount(ctx context.Context, date time.Time) (int, error)
+	FindByOpenTimeRange(ctx context.Context, from, to time.Time, isPaper bool) ([]domain.Trade, error)
 }
 
 type MemorySearchResult struct {

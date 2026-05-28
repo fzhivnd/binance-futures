@@ -153,6 +153,40 @@ func (c *BinanceClient) GetPositionRisk(ctx context.Context, symbol string) (*Po
 	return &resp[0], nil
 }
 
+// GetOpenOrders returns all open orders across all symbols.
+func (c *BinanceClient) GetOpenOrders(ctx context.Context) ([]OpenOrderResponse, error) {
+	params := url.Values{}
+	params.Set("timestamp", strconv.FormatInt(time.Now().UnixMilli(), 10))
+	params.Set("signature", c.sign(params.Encode()))
+
+	body, err := c.get(ctx, "/fapi/v1/openOrders", params, true)
+	if err != nil {
+		return nil, err
+	}
+	var resp []OpenOrderResponse
+	if err := json.Unmarshal(body, &resp); err != nil {
+		return nil, fmt.Errorf("parse openOrders: %w", err)
+	}
+	return resp, nil
+}
+
+// GetAllPositionRisk returns all positions with non-zero positionAmt.
+func (c *BinanceClient) GetAllPositionRisk(ctx context.Context) ([]PositionRiskResponse, error) {
+	params := url.Values{}
+	params.Set("timestamp", strconv.FormatInt(time.Now().UnixMilli(), 10))
+	params.Set("signature", c.sign(params.Encode()))
+
+	body, err := c.get(ctx, "/fapi/v2/positionRisk", params, true)
+	if err != nil {
+		return nil, err
+	}
+	var resp []PositionRiskResponse
+	if err := json.Unmarshal(body, &resp); err != nil {
+		return nil, fmt.Errorf("parse positionRisk: %w", err)
+	}
+	return resp, nil
+}
+
 // GetHistoricalKlines fetches historical klines for a symbol and interval over a date range.
 func (c *BinanceClient) GetHistoricalKlines(ctx context.Context, symbol, interval string, start, end time.Time) ([]domain.Candle, error) {
 	var all []domain.Candle

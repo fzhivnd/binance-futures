@@ -99,6 +99,37 @@ func (r *PGTradeRepository) UpdateResult(ctx context.Context, id uuid.UUID, exit
 	return err
 }
 
+func (r *PGTradeRepository) FindByOpenTimeRange(ctx context.Context, from, to time.Time, isPaper bool) ([]domain.Trade, error) {
+	rows, err := r.pool.Query(ctx, `
+		SELECT id, symbol, side, entry_price, avg_close_price, pnl, result, close_reason, is_paper, created_at, closed_at
+		FROM trades
+		WHERE created_at >= $1 AND created_at < $2 AND is_paper = $3
+		ORDER BY created_at ASC
+	`, from, to, isPaper)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var trades []domain.Trade
+	for rows.Next() {
+		var t domain.Trade
+		var pnl *float64
+		var result *string
+		if err := rows.Scan(&t.ID, &t.Symbol, &t.Side, &t.EntryPrice, &t.AvgClosePrice, &pnl, &result, &t.CloseReason, &t.IsPaper, &t.CreatedAt, &t.ClosedAt); err != nil {
+			return nil, err
+		}
+		if pnl != nil {
+			t.PnL = *pnl
+		}
+		if result != nil {
+			t.Result = *result
+		}
+		trades = append(trades, t)
+	}
+	return trades, nil
+}
+
 func (r *PGTradeRepository) GetDailyLossCount(ctx context.Context, date time.Time) (int, error) {
 	var count int
 	err := r.pool.QueryRow(ctx, `

@@ -14,6 +14,7 @@ import (
 	"futures/internal/exchange"
 	"futures/internal/indicator"
 	"futures/internal/llm"
+	"futures/internal/notify"
 	"futures/internal/storage"
 )
 
@@ -32,6 +33,7 @@ type PositionManager struct {
 	cfg           *config.Config
 	forceSLEngine *llm.ForceSLEngine
 	indEngine     *indicator.Engine
+	notifier      *notify.Notifier
 }
 
 func NewPositionManager(
@@ -41,6 +43,7 @@ func NewPositionManager(
 	tradeRepo storage.TradeRepository,
 	riskRepo *storage.PGRiskRepository,
 	cfg *config.Config,
+	notifier *notify.Notifier,
 ) *PositionManager {
 	return &PositionManager{
 		executor:  exec,
@@ -49,6 +52,7 @@ func NewPositionManager(
 		tradeRepo: tradeRepo,
 		riskRepo:  riskRepo,
 		cfg:       cfg,
+		notifier:  notifier,
 	}
 }
 
@@ -98,6 +102,20 @@ func (m *PositionManager) check(ctx context.Context, pos domain.Position) {
 	}
 
 	updated := false
+
+	// Phase 7: retry missing SL/TP orders before other checks.
+	if pp, _ := m.cache.GetPendingProtection(ctx, pos.Symbol); pp != nil {
+		m.retryProtection(ctx, pos, pp)
+		// Reload position in case retryProtection updated order IDs.
+		if updated, err := m.cache.GetActivePositions(ctx); err == nil {
+			for _, u := range updated {
+				if u.Symbol == pos.Symbol {
+					pos = u
+					break
+				}
+			}
+		}
+	}
 
 	// Track high/low since entry for force-SL context
 	if currentPrice > pos.HighSinceEntry {
@@ -308,6 +326,33 @@ func (m *PositionManager) HandleUserDataEvent(event exchange.UserDataEvent) {
 		return
 	}
 
+	ctx := context.Background()
+	orderIDStr := orderIDToString(o.OrderID)
+
+	// Phase 7: detect entry fills by looking up the PendingEntry — keyed by order ID.
+	// We don't rely on ReduceOnly=false because close orders can't match a pending entry
+	// (they're placed after finalizeSLTP runs), so the lookup is the correct discriminator.
+	if o.OrderType == "MARKET" && o.Side == "SELL" {
+		pending, err := m.cache.GetPendingEntry(ctx, orderIDStr)
+		if err != nil {
+			slog.Error("HandleUserDataEvent: get pending entry", "error", err)
+			return
+		}
+		if pending != nil {
+			fillPrice := o.AvgPrice
+			if fillPrice == 0 {
+				slog.Warn("WS fill has zero AvgPrice, skipping finalize",
+					"symbol", o.Symbol, "order_id", orderIDStr)
+				return
+			}
+			m.finalizeSLTP(ctx, pending, fillPrice, o.FilledQty)
+			return
+		}
+		// No pending entry → not our order; fall through to ignore.
+		return
+	}
+
+	// Close-side order fills (SL, TP, trailing) — existing logic unchanged.
 	switch o.OrderType {
 	case string(domain.OrderTypeStopMarket),
 		string(domain.OrderTypeTakeProfit),
@@ -325,7 +370,6 @@ func (m *PositionManager) HandleUserDataEvent(event exchange.UserDataEvent) {
 		return
 	}
 
-	ctx := context.Background()
 	positions, err := m.cache.GetActivePositions(ctx)
 	if err != nil {
 		slog.Error("HandleUserDataEvent: get active positions", "error", err)
@@ -343,8 +387,6 @@ func (m *PositionManager) HandleUserDataEvent(event exchange.UserDataEvent) {
 		return
 	}
 
-	orderIDStr := orderIDToString(o.OrderID)
-
 	switch orderIDStr {
 	case pos.TPOrderID:
 		if !pos.TP1Filled {
@@ -357,8 +399,6 @@ func (m *PositionManager) HandleUserDataEvent(event exchange.UserDataEvent) {
 	case pos.SLOrderID:
 		m.handleHardSLFill(ctx, pos, o)
 	default:
-		// Not one of our tracked orders — could be a manual close.
-		// Detect by checking if the position is now flat.
 		if o.ReduceOnly {
 			slog.Info("untracked reduce-only fill, treating as manual close",
 				"symbol", o.Symbol, "order_id", o.OrderID)
@@ -372,6 +412,273 @@ func orderIDToString(id int64) string {
 		return ""
 	}
 	return fmt.Sprintf("%d", id)
+}
+
+// ——————————————————————————————————————————————————————————
+// Phase 7: WS-confirmed SL/TP placement
+// ——————————————————————————————————————————————————————————
+
+const (
+	maxProtectionRetries    = 5
+	protectionRetryInterval = 5 * time.Second
+)
+
+// finalizeSLTP is called when the entry MARKET SELL fill is confirmed via WS.
+// It places SL and TP using the real fill price, writes the trade record, and
+// activates the position in Redis.
+func (m *PositionManager) finalizeSLTP(
+	ctx context.Context,
+	pending *domain.PendingEntry,
+	avgFillPrice float64,
+	filledQty float64,
+) {
+	if filledQty == 0 {
+		filledQty = pending.Quantity
+	}
+
+	slDistance := avgFillPrice * (m.cfg.Execution.SlPct / 100)
+	stopLoss := avgFillPrice + slDistance // SHORT: SL above entry
+
+	tpDistance := avgFillPrice * (pending.TpPct / 100)
+	takeProfit := avgFillPrice - tpDistance // SHORT: TP below entry
+
+	tp1SizePct := m.cfg.Execution.TP1SizePct / 100
+	tp1Qty := filledQty * tp1SizePct
+	tpLimit := takeProfit * 0.99
+
+	needsSL := true
+	needsTP := true
+
+	slOrder, err := m.executor.PlaceStopMarketOrder(ctx, domain.OrderRequest{
+		Symbol:     pending.Symbol,
+		Side:       domain.SideBuy,
+		Type:       domain.OrderTypeStopMarket,
+		Quantity:   filledQty,
+		StopPrice:  stopLoss,
+		ReduceOnly: true,
+	})
+	if err != nil {
+		slog.Error("finalizeSLTP: place SL failed", "symbol", pending.Symbol, "error", err)
+	} else {
+		needsSL = false
+	}
+
+	tpOrder, err := m.executor.PlaceStopLimitOrder(ctx, domain.OrderRequest{
+		Symbol:     pending.Symbol,
+		Side:       domain.SideBuy,
+		Type:       domain.OrderTypeTakeProfit,
+		Quantity:   tp1Qty,
+		StopPrice:  takeProfit,
+		Price:      tpLimit,
+		ReduceOnly: true,
+	})
+	if err != nil {
+		slog.Error("finalizeSLTP: place TP1 failed", "symbol", pending.Symbol, "error", err)
+	} else {
+		needsTP = false
+	}
+
+	var slOrderID, tpOrderID string
+	if slOrder != nil {
+		slOrderID = slOrder.OrderID
+	}
+	if tpOrder != nil {
+		tpOrderID = tpOrder.OrderID
+	}
+
+	tradeID := uuid.New()
+	now := time.Now()
+	isPaper := m.cfg.App.Mode == "paper"
+
+	pos := domain.Position{
+		Symbol:             pending.Symbol,
+		Side:               domain.SideSell,
+		EntryPrice:         avgFillPrice,
+		Quantity:           filledQty,
+		OriginalQty:        filledQty,
+		Leverage:           m.cfg.Trading.Leverage,
+		EntryMode:          domain.EntryMode(pending.Window),
+		StopLoss:           stopLoss,
+		TakeProfit:         takeProfit,
+		SLOrderID:          slOrderID,
+		TPOrderID:          tpOrderID,
+		TradeID:            tradeID,
+		OpenedAt:           now,
+		IsPaper:            isPaper,
+		HighSinceEntry:     avgFillPrice,
+		LowSinceEntry:      avgFillPrice,
+		OriginalConfidence: pending.Confidence,
+	}
+	if pending.LLMDecision != nil {
+		pos.LLMEntryReasons = pending.LLMDecision.EntryReasons
+		pos.OriginalConfidence = pending.LLMDecision.Confidence
+	}
+
+	trade := &domain.Trade{
+		ID:         tradeID,
+		Symbol:     pending.Symbol,
+		Side:       domain.SideSell,
+		EntryMode:  domain.EntryMode(pending.Window),
+		Leverage:   m.cfg.Trading.Leverage,
+		Confidence: pending.Confidence,
+		EntryPrice: avgFillPrice,
+		IsPaper:    isPaper,
+		CreatedAt:  now,
+	}
+	if pending.LLMDecision != nil {
+		d := pending.LLMDecision
+		conf := d.Confidence
+		mode := string(d.EntryMode)
+		trade.LLMConfidence = &conf
+		trade.LLMEntryMode = &mode
+		trade.LLMEntryReasons = d.EntryReasons
+		trade.LLMWarnings = d.Warnings
+	}
+
+	if err := m.tradeRepo.Insert(ctx, trade); err != nil {
+		slog.Error("finalizeSLTP: insert trade record", "symbol", pending.Symbol, "error", err)
+	}
+	if err := m.cache.SetActivePosition(ctx, pos); err != nil {
+		slog.Error("finalizeSLTP: set active position", "symbol", pending.Symbol, "error", err)
+	}
+	if err := m.cache.RemovePendingEntry(ctx, pending.OrderID); err != nil {
+		slog.Warn("finalizeSLTP: remove pending entry", "symbol", pending.Symbol, "error", err)
+	}
+
+	slog.Info("position opened (WS-confirmed)",
+		"symbol", pending.Symbol,
+		"entry", avgFillPrice,
+		"sl", stopLoss,
+		"sl_order", slOrderID,
+		"tp1", takeProfit,
+		"tp1_order", tpOrderID,
+		"qty_total", filledQty,
+		"qty_tp1", tp1Qty,
+		"qty_trail", filledQty-tp1Qty,
+	)
+
+	if m.notifier != nil {
+		m.notifier.NotifyTradeOpened(ctx, notify.TradeOpenedEvent{
+			Symbol:     pending.Symbol,
+			Side:       "SHORT",
+			EntryPrice: avgFillPrice,
+			Quantity:   filledQty,
+			Leverage:   m.cfg.Trading.Leverage,
+			StopLoss:   stopLoss,
+			TakeProfit: takeProfit,
+			EntryMode:  pending.Window,
+			Confidence: pending.Confidence,
+			IsPaper:    isPaper,
+		})
+	}
+
+	// If either order failed, schedule a retry via PendingProtection.
+	if needsSL || needsTP {
+		pp := domain.PendingProtection{
+			Symbol:     pending.Symbol,
+			NeedsSL:    needsSL,
+			NeedsTP:    needsTP,
+			EntryPrice: avgFillPrice,
+			Quantity:   filledQty,
+			TP1Qty:     tp1Qty,
+			StopLoss:   stopLoss,
+			TakeProfit: takeProfit,
+		}
+		if err := m.cache.SetPendingProtection(ctx, pp); err != nil {
+			slog.Error("finalizeSLTP: set pending protection", "symbol", pending.Symbol, "error", err)
+		}
+	}
+}
+
+// retryProtection attempts to place missing SL/TP orders for an unprotected position.
+// It is called from check() every second and enforces a 5-second interval between retries.
+// After maxProtectionRetries failures it performs an emergency market close.
+func (m *PositionManager) retryProtection(ctx context.Context, pos domain.Position, pp *domain.PendingProtection) {
+	if time.Since(pp.LastAttempt) < protectionRetryInterval {
+		return
+	}
+
+	if pp.Retries >= maxProtectionRetries {
+		slog.Error("protection retry exhausted, emergency close",
+			"symbol", pos.Symbol, "retries", pp.Retries)
+		currentPrice, ok := m.market.GetPrice(pos.Symbol)
+		if !ok || currentPrice == 0 {
+			currentPrice = pos.EntryPrice
+		}
+		m.forceClose(ctx, pos, currentPrice, "protection retry exhausted")
+		_ = m.cache.RemovePendingProtection(ctx, pos.Symbol)
+		if m.notifier != nil {
+			m.notifier.NotifyRiskEvent(ctx, notify.RiskEvent{
+				Type:    "kill_switch",
+				Message: fmt.Sprintf("Emergency close on %s: SL/TP placement failed after %d retries", pos.Symbol, maxProtectionRetries),
+			})
+		}
+		return
+	}
+
+	slog.Warn("retrying protection orders",
+		"symbol", pos.Symbol,
+		"needs_sl", pp.NeedsSL,
+		"needs_tp", pp.NeedsTP,
+		"attempt", pp.Retries+1,
+	)
+
+	if pp.NeedsSL {
+		slOrder, err := m.executor.PlaceStopMarketOrder(ctx, domain.OrderRequest{
+			Symbol:     pos.Symbol,
+			Side:       domain.SideBuy,
+			Type:       domain.OrderTypeStopMarket,
+			Quantity:   pp.Quantity,
+			StopPrice:  pp.StopLoss,
+			ReduceOnly: true,
+		})
+		if err != nil {
+			slog.Error("retryProtection: SL still failing", "symbol", pos.Symbol, "error", err)
+		} else {
+			pp.NeedsSL = false
+			pos.SLOrderID = slOrder.OrderID
+			pos.StopLoss = pp.StopLoss
+			if err := m.cache.SetActivePosition(ctx, pos); err != nil {
+				slog.Error("retryProtection: update position", "symbol", pos.Symbol, "error", err)
+			}
+		}
+	}
+
+	if pp.NeedsTP {
+		tpLimit := pp.TakeProfit * 0.99
+		tpOrder, err := m.executor.PlaceStopLimitOrder(ctx, domain.OrderRequest{
+			Symbol:     pos.Symbol,
+			Side:       domain.SideBuy,
+			Type:       domain.OrderTypeTakeProfit,
+			Quantity:   pp.TP1Qty,
+			StopPrice:  pp.TakeProfit,
+			Price:      tpLimit,
+			ReduceOnly: true,
+		})
+		if err != nil {
+			slog.Error("retryProtection: TP still failing", "symbol", pos.Symbol, "error", err)
+		} else {
+			pp.NeedsTP = false
+			pos.TPOrderID = tpOrder.OrderID
+			pos.TakeProfit = pp.TakeProfit
+			if err := m.cache.SetActivePosition(ctx, pos); err != nil {
+				slog.Error("retryProtection: update position", "symbol", pos.Symbol, "error", err)
+			}
+		}
+	}
+
+	if !pp.NeedsSL && !pp.NeedsTP {
+		// Both orders placed — clear the protection record.
+		_ = m.cache.RemovePendingProtection(ctx, pos.Symbol)
+		slog.Info("protection orders placed successfully", "symbol", pos.Symbol)
+		return
+	}
+
+	pp.Retries++
+	pp.LastAttempt = time.Now()
+	if err := m.cache.SetPendingProtection(ctx, *pp); err != nil {
+		slog.Error("retryProtection: update pending protection", "symbol", pos.Symbol, "error", err)
+	}
 }
 
 // handleTP1Fill fires when TP1 (50% qty) fills. Places trailing stop + breakeven SL on the remainder.
@@ -540,6 +847,22 @@ func (m *PositionManager) persistClose(ctx context.Context, pos domain.Position,
 		"avg_close", avgClose,
 		"pnl", pnl,
 	)
+
+	if m.notifier != nil {
+		leveragedPnlPct := pnl / (pos.EntryPrice * pos.OriginalQty) * float64(pos.Leverage) * 100
+		m.notifier.NotifyTradeClosed(ctx, notify.TradeClosedEvent{
+			Symbol:       pos.Symbol,
+			Side:         "SHORT",
+			EntryPrice:   pos.EntryPrice,
+			ExitPrice:    avgClose,
+			PnL:          pnl,
+			PnLPct:       leveragedPnlPct,
+			Result:       result,
+			CloseReason:  closeReason,
+			HoldDuration: now.Sub(pos.OpenedAt).Round(time.Second).String(),
+			IsPaper:      pos.IsPaper,
+		})
+	}
 }
 
 // computeAvgClosePrice calculates weighted average exit price for split-leg closes.
