@@ -151,6 +151,7 @@ func (a *App) Run(
 		a.executor, a.engine, cache, tradeRepo, riskRepo, a.cfg, notifier,
 	)
 	a.posMgr.SetIndicatorEngine(a.indEngine)
+	a.execEng.SetPositionManager(a.posMgr)
 
 	killSwitchFn := func() {
 		_ = cache.SetKillSwitch(context.Background(), true)
@@ -279,6 +280,13 @@ func (a *App) Run(
 
 	a.sched = scheduler.NewScheduler(&a.cfg.Scheduler, cache, a.scanFn)
 	a.sched.SetIntentQueue(a.intentQueue)
+
+	// Phase 7: startup reconciliation (live mode only, non-fatal)
+	if a.cfg.App.Mode == "live" {
+		if err := execution.Reconcile(ctx, binanceClient, a.executor, cache, tradeRepo, a.cfg, notifier); err != nil {
+			slog.Warn("startup reconciliation failed", "error", err)
+		}
+	}
 
 	// Phase 6: daily summary service
 	summaryRepo := storage.NewPGSummaryRepository(pool)

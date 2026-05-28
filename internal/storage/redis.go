@@ -13,11 +13,13 @@ import (
 )
 
 const (
-	keyPositions     = "positions:active"
-	keyCooldown      = "state:cooldown"
-	keyKillSwitch    = "state:kill_switch"
-	keyFundingSnap   = "market:funding_snapshot"
-	keyLastWSMessage = "meta:last_ws_message"
+	keyPositions          = "positions:active"
+	keyCooldown           = "state:cooldown"
+	keyKillSwitch         = "state:kill_switch"
+	keyFundingSnap        = "market:funding_snapshot"
+	keyLastWSMessage      = "meta:last_ws_message"
+	keyPendingEntryPrefix = "pending_entry:"
+	keyPendingProtPrefix  = "pending_prot:"
 )
 
 type RedisStateCache struct {
@@ -130,4 +132,93 @@ func (r *RedisStateCache) GetFundingSnapshot(ctx context.Context) (map[string]fl
 
 func (r *RedisStateCache) SetLastWSMessage(ctx context.Context, t time.Time) error {
 	return r.client.Set(ctx, keyLastWSMessage, t.UnixMilli(), 0).Err()
+}
+
+// — Phase 7: PendingEntry ——————————————————————————————————————————
+
+func (r *RedisStateCache) SetPendingEntry(ctx context.Context, entry domain.PendingEntry) error {
+	data, err := json.Marshal(entry)
+	if err != nil {
+		return err
+	}
+	key := keyPendingEntryPrefix + entry.OrderID
+	ttl := time.Until(entry.ExpiresAt)
+	if ttl <= 0 {
+		ttl = 60 * time.Second
+	}
+	return r.client.Set(ctx, key, data, ttl).Err()
+}
+
+func (r *RedisStateCache) GetPendingEntry(ctx context.Context, orderID string) (*domain.PendingEntry, error) {
+	val, err := r.client.Get(ctx, keyPendingEntryPrefix+orderID).Result()
+	if err == redis.Nil {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var entry domain.PendingEntry
+	if err := json.Unmarshal([]byte(val), &entry); err != nil {
+		return nil, err
+	}
+	return &entry, nil
+}
+
+func (r *RedisStateCache) RemovePendingEntry(ctx context.Context, orderID string) error {
+	return r.client.Del(ctx, keyPendingEntryPrefix+orderID).Err()
+}
+
+func (r *RedisStateCache) GetAllPendingEntries(ctx context.Context) ([]domain.PendingEntry, error) {
+	keys, err := r.client.Keys(ctx, keyPendingEntryPrefix+"*").Result()
+	if err != nil {
+		return nil, err
+	}
+	if len(keys) == 0 {
+		return nil, nil
+	}
+	vals, err := r.client.MGet(ctx, keys...).Result()
+	if err != nil {
+		return nil, err
+	}
+	var entries []domain.PendingEntry
+	for _, v := range vals {
+		if v == nil {
+			continue
+		}
+		var entry domain.PendingEntry
+		if err := json.Unmarshal([]byte(v.(string)), &entry); err != nil {
+			continue
+		}
+		entries = append(entries, entry)
+	}
+	return entries, nil
+}
+
+// — Phase 7: PendingProtection ————————————————————————————————————
+
+func (r *RedisStateCache) SetPendingProtection(ctx context.Context, p domain.PendingProtection) error {
+	data, err := json.Marshal(p)
+	if err != nil {
+		return err
+	}
+	return r.client.Set(ctx, keyPendingProtPrefix+p.Symbol, data, 0).Err()
+}
+
+func (r *RedisStateCache) GetPendingProtection(ctx context.Context, symbol string) (*domain.PendingProtection, error) {
+	val, err := r.client.Get(ctx, keyPendingProtPrefix+symbol).Result()
+	if err == redis.Nil {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var p domain.PendingProtection
+	if err := json.Unmarshal([]byte(val), &p); err != nil {
+		return nil, err
+	}
+	return &p, nil
+}
+
+func (r *RedisStateCache) RemovePendingProtection(ctx context.Context, symbol string) error {
+	return r.client.Del(ctx, keyPendingProtPrefix+symbol).Err()
 }
