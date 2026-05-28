@@ -18,13 +18,18 @@ func (a *App) oiPoller(ctx context.Context, client *exchange.BinanceClient) {
 			return
 		case <-ticker.C:
 			symbols := a.engine.GetTopNegativeFundingSymbols(20)
+			slog.Info("oi poller cycle started", "symbols", len(symbols))
+			updated := 0
 			for _, sym := range symbols {
 				oi, err := client.GetOpenInterest(ctx, sym)
 				if err != nil {
+					slog.Warn("oi fetch failed", "symbol", sym, "error", err)
 					continue
 				}
 				a.engine.UpdateOI(sym, oi.OpenInterest)
+				updated++
 			}
+			slog.Info("oi poller cycle done", "updated", updated, "total", len(symbols))
 		}
 	}
 }

@@ -91,6 +91,24 @@ func (e *ExecutionEngine) executeInternal(
 	confidence int,
 	llmDecision *domain.LLMDecision,
 ) error {
+	err := e.execute(ctx, candidate, window, positionSizePct, confidence, llmDecision)
+	if err != nil {
+		e.notifier.NotifyRiskEvent(ctx, notify.RiskEvent{
+			Type:    "execution_error",
+			Message: fmt.Sprintf("symbol: %s window: %s error: %s", candidate.Symbol, window, err.Error()),
+		})
+	}
+	return err
+}
+
+func (e *ExecutionEngine) execute(
+	ctx context.Context,
+	candidate domain.Candidate,
+	window scheduler.WindowType,
+	positionSizePct float64,
+	confidence int,
+	llmDecision *domain.LLMDecision,
+) error {
 	// Pre-checks
 	killSwitch, err := e.cache.GetKillSwitch(ctx)
 	if err != nil || killSwitch {
@@ -133,10 +151,6 @@ func (e *ExecutionEngine) executeInternal(
 	margin := balance.AvailableBalance * positionSizePct / 100
 	qty := margin * float64(e.cfg.Trading.Leverage) / candidate.MarkPrice
 
-	if err := e.executor.SetLeverage(ctx, candidate.Symbol, e.cfg.Trading.Leverage); err != nil {
-		slog.Warn("set leverage failed, continuing", "symbol", candidate.Symbol, "error", err)
-	}
-
 	order, err := e.executor.PlaceMarketOrder(ctx, domain.OrderRequest{
 		Symbol:   candidate.Symbol,
 		Side:     domain.SideSell,
@@ -155,16 +169,7 @@ func (e *ExecutionEngine) executeInternal(
 
 	now := time.Now()
 
-	// Phase 8: capture funding context for fee-tracking and pre-settlement check.
 	fundingRate, _ := e.market.GetFundingRate(candidate.Symbol)
-	var nextFundingAt time.Time
-	if fi, ok := e.market.(interface {
-		GetFundingInfo(string) (*domain.FundingRate, bool)
-	}); ok {
-		if info, found := fi.GetFundingInfo(candidate.Symbol); found && info != nil {
-			nextFundingAt = info.NextFunding
-		}
-	}
 
 	pending := domain.PendingEntry{
 		OrderID:            order.OrderID,
@@ -178,7 +183,6 @@ func (e *ExecutionEngine) executeInternal(
 		CreatedAt:          now,
 		ExpiresAt:          now.Add(60 * time.Second),
 		FundingRateAtEntry: fundingRate,
-		NextFundingAt:      nextFundingAt,
 	}
 
 	if err := e.cache.SetPendingEntry(ctx, pending); err != nil {

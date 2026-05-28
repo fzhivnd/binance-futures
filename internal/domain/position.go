@@ -73,8 +73,7 @@ type PendingEntry struct {
 	LLMDecision        *LLMDecision // nil if Phase 2 path
 	CreatedAt          time.Time
 	ExpiresAt          time.Time // CreatedAt + 60s
-	FundingRateAtEntry float64   // Phase 8: funding rate at time of entry
-	NextFundingAt      time.Time // Phase 8: next settlement time at entry
+	FundingRateAtEntry float64
 }
 
 // PendingProtection represents a position that is open but whose SL/TP

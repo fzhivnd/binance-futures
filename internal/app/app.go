@@ -287,6 +287,9 @@ func (a *App) Run(
 				"symbol", sc.Candidate.Symbol, "reason", err)
 			return nil
 		}
+		if err := a.executor.SetLeverage(ctx, sc.Candidate.Symbol, a.cfg.Trading.Leverage); err != nil {
+			slog.Warn("set leverage failed before execution, continuing", "symbol", sc.Candidate.Symbol, "error", err)
+		}
 		return a.execEng.ExecuteScoredWithLLM(ctx, sc, decision)
 	}, frontrunInterval)
 
@@ -303,6 +306,7 @@ func (a *App) Run(
 		a.wsKlines, // subscribe @bookTicker on the combined stream
 		a.binanceClient,
 		a.engine,
+		a.executor,
 		a.cfg,
 	)
 

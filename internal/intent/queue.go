@@ -147,6 +147,20 @@ func (q *Queue) ClaimAfterIntent() *TradeIntent {
 	return intent
 }
 
+// PeekAfterSymbol returns the symbol of the best pending AFTER intent without claiming it.
+func (q *Queue) PeekAfterSymbol() (string, bool) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	if q.firedInWindow[scheduler.WindowAfter] {
+		return "", false
+	}
+	intent := q.bestEligibleLocked(scheduler.WindowAfter)
+	if intent == nil {
+		return "", false
+	}
+	return intent.Symbol, true
+}
+
 // HasAfterIntent returns true if there is at least one pending AFTER-eligible intent.
 func (q *Queue) HasAfterIntent() bool {
 	q.mu.Lock()
