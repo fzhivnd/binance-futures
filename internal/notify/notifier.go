@@ -3,6 +3,7 @@ package notify
 import (
 	"context"
 	"log/slog"
+	"time"
 
 	"futures/internal/domain"
 )
@@ -19,6 +20,7 @@ type TradeOpenedEvent struct {
 	Confidence int
 	Score      float64
 	IsPaper    bool
+	OpenedAt   time.Time
 }
 
 type TradeClosedEvent struct {

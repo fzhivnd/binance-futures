@@ -460,7 +460,13 @@ func (m *PositionManager) HandleUserDataEvent(event exchange.UserDataEvent) {
 					"symbol", o.Symbol, "order_id", orderIDStr)
 				return
 			}
-			m.finalizeSLTP(ctx, pending, fillPrice, o.FilledQty)
+			var tradeTime time.Time
+			if o.TradeTime > 0 {
+				tradeTime = time.UnixMilli(o.TradeTime).UTC()
+			} else {
+				tradeTime = time.Now()
+			}
+			m.finalizeSLTP(ctx, pending, fillPrice, o.FilledQty, tradeTime)
 			return
 		}
 		// No pending entry → not our order; fall through to ignore.
@@ -546,6 +552,7 @@ func (m *PositionManager) finalizeSLTP(
 	pending *domain.PendingEntry,
 	avgFillPrice float64,
 	filledQty float64,
+	openedAt time.Time,
 ) {
 	if filledQty == 0 {
 		filledQty = pending.Quantity
@@ -602,7 +609,6 @@ func (m *PositionManager) finalizeSLTP(
 	}
 
 	tradeID := uuid.New()
-	now := time.Now()
 	isPaper := m.cfg.App.Mode == "paper"
 
 	pos := domain.Position{
@@ -618,7 +624,7 @@ func (m *PositionManager) finalizeSLTP(
 		SLOrderID:          slOrderID,
 		TPOrderID:          tpOrderID,
 		TradeID:            tradeID,
-		OpenedAt:           now,
+		OpenedAt:           openedAt,
 		IsPaper:            isPaper,
 		HighSinceEntry:     avgFillPrice,
 		LowSinceEntry:      avgFillPrice,
@@ -640,7 +646,7 @@ func (m *PositionManager) finalizeSLTP(
 		Confidence: pending.Confidence,
 		EntryPrice: avgFillPrice,
 		IsPaper:    isPaper,
-		CreatedAt:  now,
+		CreatedAt:  openedAt,
 	}
 	if pending.LLMDecision != nil {
 		d := pending.LLMDecision
@@ -686,6 +692,7 @@ func (m *PositionManager) finalizeSLTP(
 			EntryMode:  pending.Window,
 			Confidence: pending.Confidence,
 			IsPaper:    isPaper,
+			OpenedAt:   openedAt,
 		})
 	}
 
@@ -1145,7 +1152,7 @@ func (m *PositionManager) checkSettlementPassed(ctx context.Context, pos domain.
 	}
 
 	// If next funding is > 7 hours away, a settlement must have just occurred.
-	if time.Until(fi.NextFunding) > 7*time.Hour {
+	if time.Until(fi.NextFunding) > 50*time.Minute {
 		m.onSettlementPassed(ctx, pos)
 	}
 }

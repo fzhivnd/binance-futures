@@ -154,12 +154,12 @@ type OpenOrderResponse struct {
 
 // BookTickerEvent is one update from <symbol>@bookTicker stream.
 type BookTickerEvent struct {
-	Symbol   string `json:"s"`
-	BidPrice string `json:"b"`
-	BidQty   string `json:"B"`
-	AskPrice string `json:"a"`
-	AskQty   string `json:"A"`
-	UpdateTime int64 `json:"T"`
+	Symbol     string `json:"s"`
+	BidPrice   string `json:"b"`
+	BidQty     string `json:"B"`
+	AskPrice   string `json:"a"`
+	AskQty     string `json:"A"`
+	UpdateTime int64  `json:"T"`
 }
 
 // UserDataEvent wraps ORDER_TRADE_UPDATE from the user data stream.
@@ -181,4 +181,5 @@ type OrderTradeUpdate struct {
 	Quantity      float64 `json:"q,string"`
 	FilledQty     float64 `json:"z,string"`
 	ReduceOnly    bool    `json:"R"`
+	TradeTime     int64   `json:"T"` // trade/fill time in milliseconds
 }

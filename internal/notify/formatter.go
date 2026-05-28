@@ -23,6 +23,7 @@ func FormatTradeOpened(e TradeOpenedEvent) string {
 	if e.IsPaper {
 		mode = "PAPER"
 	}
+	openedAt := e.OpenedAt.UTC().Format("2006-01-02 15:04:05 UTC")
 
 	return fmt.Sprintf(
 		"*SHORT OPENED* \\[%s\\]\n\n"+
@@ -31,7 +32,8 @@ func FormatTradeOpened(e TradeOpenedEvent) string {
 			"Leverage: `%dx`\n"+
 			"SL: `$%s` \\| TP: `$%s`\n"+
 			"Mode: `%s` \\| Confidence: `%d`\n"+
-			"Score: `%.1f` \\| Entry Mode: `%s`",
+			"Score: `%.1f` \\| Entry Mode: `%s`\n"+
+			"Opened: `%s`",
 		escapeMarkdownV2(e.Symbol),
 		escapeMarkdownV2(e.Symbol),
 		escapeMarkdownV2(fmt.Sprintf("%.8g", e.EntryPrice)),
@@ -42,6 +44,7 @@ func FormatTradeOpened(e TradeOpenedEvent) string {
 		e.Confidence,
 		e.Score,
 		escapeMarkdownV2(e.EntryMode),
+		escapeMarkdownV2(openedAt),
 	)
 }
 
