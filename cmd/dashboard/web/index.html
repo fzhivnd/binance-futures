@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Futures Bot Dashboard</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Segoe UI', system-ui, sans-serif; background: #0f1117; color: #e2e8f0; font-size: 14px; }
+  header { background: #1a1d27; border-bottom: 1px solid #2d3148; padding: 14px 24px; display: flex; align-items: center; gap: 16px; }
+  header h1 { font-size: 16px; font-weight: 600; letter-spacing: 0.5px; color: #a5b4fc; }
+  nav { display: flex; gap: 4px; margin-left: auto; }
+  nav button { background: none; border: none; color: #94a3b8; cursor: pointer; padding: 6px 14px; border-radius: 6px; font-size: 13px; }
+  nav button.active { background: #2d3148; color: #e2e8f0; }
+  nav button:hover:not(.active) { background: #1e2035; }
+
+  main { padding: 20px 24px; }
+
+  /* Stats bar */
+  .stats-bar { display: flex; gap: 12px; margin-bottom: 20px; flex-wrap: wrap; }
+  .stat-card { background: #1a1d27; border: 1px solid #2d3148; border-radius: 8px; padding: 14px 18px; min-width: 140px; }
+  .stat-card .label { font-size: 11px; color: #64748b; text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 6px; }
+  .stat-card .value { font-size: 20px; font-weight: 700; }
+  .stat-card .value.green { color: #4ade80; }
+  .stat-card .value.red { color: #f87171; }
+  .stat-card .value.neutral { color: #94a3b8; }
+
+  /* Filters */
+  .filters { display: flex; gap: 10px; margin-bottom: 16px; flex-wrap: wrap; align-items: center; }
+  .filters label { font-size: 12px; color: #64748b; margin-right: 4px; }
+  .filters input, .filters select { background: #1a1d27; border: 1px solid #2d3148; color: #e2e8f0; padding: 6px 10px; border-radius: 6px; font-size: 13px; }
+  .filters input:focus, .filters select:focus { outline: 1px solid #4f46e5; }
+  .filters button { background: #4f46e5; color: #fff; border: none; padding: 6px 14px; border-radius: 6px; cursor: pointer; font-size: 13px; }
+  .filters button:hover { background: #4338ca; }
+
+  /* Table */
+  .table-wrap { overflow-x: auto; border-radius: 8px; border: 1px solid #2d3148; }
+  table { width: 100%; border-collapse: collapse; }
+  thead tr { background: #1a1d27; }
+  th { padding: 10px 12px; text-align: left; font-size: 11px; color: #64748b; text-transform: uppercase; letter-spacing: 0.6px; white-space: nowrap; }
+  td { padding: 9px 12px; border-top: 1px solid #1e2035; white-space: nowrap; }
+  tr:hover td { background: #1a1d27; }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; }
+  .badge.WIN       { background: #14532d; color: #4ade80; }
+  .badge.LOSS      { background: #450a0a; color: #f87171; }
+  .badge.PARTIAL_WIN { background: #1c3a1c; color: #86efac; }
+  .badge.FORCE_SL  { background: #431407; color: #fb923c; }
+  .badge.BREAKEVEN { background: #1e1e3a; color: #818cf8; }
+  .badge.MANUAL    { background: #1e293b; color: #94a3b8; }
+  .badge.OPEN      { background: #1e293b; color: #60a5fa; }
+  .badge.paper  { background: #1e293b; color: #94a3b8; }
+  .badge.live   { background: #14532d; color: #4ade80; }
+  .pnl.pos { color: #4ade80; }
+  .pnl.neg { color: #f87171; }
+  .pnl.zero { color: #94a3b8; }
+
+  .empty { text-align: center; color: #475569; padding: 40px; }
+  .loading { text-align: center; color: #475569; padding: 40px; }
+  .error-msg { color: #f87171; padding: 12px; background: #450a0a; border-radius: 6px; margin-bottom: 12px; }
+
+  /* Tab pages */
+  .page { display: none; }
+  .page.active { display: block; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Futures Bot</h1>
+  <nav>
+    <button class="active" onclick="showPage('trades', this)">Trade History</button>
+    <button onclick="showPage('summary', this)">Daily Summary</button>
+  </nav>
+</header>
+
+<main>
+
+<!-- ===== STATS BAR ===== -->
+<div class="stats-bar" id="stats-bar">
+  <div class="stat-card"><div class="label">Total Trades</div><div class="value neutral" id="s-total">—</div></div>
+  <div class="stat-card"><div class="label">Win Rate</div><div class="value neutral" id="s-wr">—</div></div>
+  <div class="stat-card"><div class="label">Total PnL</div><div class="value neutral" id="s-pnl">—</div></div>
+  <div class="stat-card"><div class="label">Best Day</div><div class="value neutral" id="s-best">—</div></div>
+  <div class="stat-card" style="margin-left:auto">
+    <div class="label">Mode</div>
+    <div style="display:flex;gap:8px;margin-top:4px">
+      <button class="badge paper" id="mode-paper" onclick="setMode(true)" style="cursor:pointer;border:none">Paper</button>
+      <button class="badge live"  id="mode-live"  onclick="setMode(false)" style="cursor:pointer;border:none">Live</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== TRADES PAGE ===== -->
+<div class="page active" id="page-trades">
+  <div class="filters">
+    <div><label>From</label><input type="date" id="f-from"></div>
+    <div><label>To</label><input type="date" id="f-to"></div>
+    <div>
+      <label>Result</label>
+      <select id="f-result">
+        <option value="">All</option>
+        <option value="WIN">WIN</option>
+        <option value="LOSS">LOSS</option>
+        <option value="PARTIAL_WIN">PARTIAL_WIN</option>
+        <option value="FORCE_SL">FORCE_SL</option>
+        <option value="BREAKEVEN">BREAKEVEN</option>
+        <option value="MANUAL">MANUAL</option>
+      </select>
+    </div>
+    <div><label>Limit</label><input type="number" id="f-limit" value="200" min="1" max="1000" style="width:80px"></div>
+    <button onclick="loadTrades()">Apply</button>
+  </div>
+  <div id="trades-error"></div>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Time</th><th>Symbol</th><th>Side</th><th>Mode</th>
+          <th>Lev</th><th>Conf</th><th>LLM</th>
+          <th>Funding</th><th>ROI%</th>
+          <th>Entry</th><th>Exit</th><th>PnL</th>
+          <th>Result</th><th>Close</th><th>Type</th>
+        </tr>
+      </thead>
+      <tbody id="trades-body">
+        <tr><td colspan="15" class="loading">Loading…</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- ===== SUMMARY PAGE ===== -->
+<div class="page" id="page-summary">
+  <div class="filters">
+    <div><label>Days</label><input type="number" id="s-limit" value="90" min="1" max="365" style="width:80px"></div>
+    <button onclick="loadSummary()">Apply</button>
+  </div>
+  <div id="summary-error"></div>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Date</th><th>Trades</th><th>Wins</th><th>Losses</th><th>Win Rate</th><th>Total PnL</th><th>Type</th>
+        </tr>
+      </thead>
+      <tbody id="summary-body">
+        <tr><td colspan="7" class="loading">Loading…</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+</main>
+
+<script>
+  let currentPaper = true;
+
+  // ---- Init ----
+  const today = new Date();
+  const monthAgo = new Date(today); monthAgo.setMonth(today.getMonth() - 1);
+  document.getElementById('f-from').value = fmtDate(monthAgo);
+  document.getElementById('f-to').value = fmtDate(today);
+
+  function fmtDate(d) {
+    return d.toISOString().slice(0, 10);
+  }
+
+  function showPage(name, btn) {
+    document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+    document.querySelectorAll('nav button').forEach(b => b.classList.remove('active'));
+    document.getElementById('page-' + name).classList.add('active');
+    btn.classList.add('active');
+    if (name === 'trades') loadTrades();
+    if (name === 'summary') loadSummary();
+  }
+
+  function setMode(paper) {
+    currentPaper = paper;
+    document.getElementById('mode-paper').style.opacity = paper ? '1' : '0.4';
+    document.getElementById('mode-live').style.opacity = paper ? '0.4' : '1';
+    loadStats();
+    const active = document.querySelector('.page.active');
+    if (active.id === 'page-trades') loadTrades();
+    if (active.id === 'page-summary') loadSummary();
+  }
+
+  // ---- Stats ----
+  async function loadStats() {
+    try {
+      const res = await fetch(`/api/stats?paper=${currentPaper}`);
+      const data = await res.json();
+      const row = data.find(r => r.IsPaper === currentPaper);
+      if (!row) { clearStats(); return; }
+      const pnl = (row.TotalPnL || 0).toFixed(2);
+      const best = (row.BestDayPnL || 0).toFixed(2);
+      set('s-total', row.TotalTrades, 'neutral');
+      set('s-wr', (row.WinRate || 0).toFixed(1) + '%', row.WinRate >= 50 ? 'green' : 'red');
+      set('s-pnl', (pnl >= 0 ? '+' : '') + pnl, pnl >= 0 ? 'green' : 'red');
+      set('s-best', (best >= 0 ? '+' : '') + best, best >= 0 ? 'green' : 'red');
+    } catch(e) { clearStats(); }
+  }
+
+  function clearStats() {
+    ['s-total','s-wr','s-pnl','s-best'].forEach(id => set(id, '—', 'neutral'));
+  }
+
+  function set(id, val, cls) {
+    const el = document.getElementById(id);
+    el.textContent = val;
+    el.className = 'value ' + cls;
+  }
+
+  // ---- Trades ----
+  async function loadTrades() {
+    const from    = document.getElementById('f-from').value;
+    const to      = document.getElementById('f-to').value;
+    const result  = document.getElementById('f-result').value;
+    const limit   = document.getElementById('f-limit').value;
+    const errEl   = document.getElementById('trades-error');
+    const tbody   = document.getElementById('trades-body');
+
+    tbody.innerHTML = '<tr><td colspan="15" class="loading">Loading…</td></tr>';
+    errEl.innerHTML = '';
+
+    const params = new URLSearchParams({ from, to, limit, paper: currentPaper });
+    if (result) params.set('result', result);
+
+    try {
+      const res = await fetch('/api/trades?' + params);
+      if (!res.ok) { errEl.innerHTML = `<div class="error-msg">${await res.text()}</div>`; tbody.innerHTML = ''; return; }
+      const trades = await res.json();
+      if (!trades.length) { tbody.innerHTML = '<tr><td colspan="15" class="empty">No trades found</td></tr>'; return; }
+      tbody.innerHTML = trades.map(t => {
+        const result = t.Result || 'OPEN';
+        const pnl    = t.PnL != null ? parseFloat(t.PnL) : null;
+        const pnlStr = pnl != null ? (pnl >= 0 ? '+' : '') + pnl.toFixed(4) : '—';
+        const pnlCls = pnl == null ? 'zero' : pnl > 0 ? 'pos' : pnl < 0 ? 'neg' : 'zero';
+        return `<tr>
+          <td>${fmtTs(t.CreatedAt)}</td>
+          <td><strong>${t.Symbol}</strong></td>
+          <td>${t.Side}</td>
+          <td>${t.EntryMode}</td>
+          <td>${t.Leverage}x</td>
+          <td>${t.Confidence}</td>
+          <td>${t.LLMConfidence != null ? t.LLMConfidence : '—'}</td>
+          <td>${(t.FundingRate * 100).toFixed(4)}%</td>
+          <td>${t.DailyROI.toFixed(1)}%</td>
+          <td>${fmt8(t.EntryPrice)}</td>
+          <td>${t.AvgClosePrice != null ? fmt8(t.AvgClosePrice) : '—'}</td>
+          <td class="pnl ${pnlCls}">${pnlStr}</td>
+          <td><span class="badge ${result}">${result}</span></td>
+          <td>${t.CloseReason || '—'}</td>
+          <td><span class="badge ${t.IsPaper ? 'paper' : 'live'}">${t.IsPaper ? 'paper' : 'live'}</span></td>
+        </tr>`;
+      }).join('');
+    } catch(e) {
+      errEl.innerHTML = `<div class="error-msg">Fetch error: ${e.message}</div>`;
+      tbody.innerHTML = '';
+    }
+  }
+
+  // ---- Summary ----
+  async function loadSummary() {
+    const limit  = document.getElementById('s-limit').value;
+    const errEl  = document.getElementById('summary-error');
+    const tbody  = document.getElementById('summary-body');
+
+    tbody.innerHTML = '<tr><td colspan="7" class="loading">Loading…</td></tr>';
+    errEl.innerHTML = '';
+
+    try {
+      const res = await fetch(`/api/summary?paper=${currentPaper}&limit=${limit}`);
+      if (!res.ok) { errEl.innerHTML = `<div class="error-msg">${await res.text()}</div>`; tbody.innerHTML = ''; return; }
+      const rows = await res.json();
+      if (!rows.length) { tbody.innerHTML = '<tr><td colspan="7" class="empty">No summaries found</td></tr>'; return; }
+      tbody.innerHTML = rows.map(s => {
+        const pnl = parseFloat(s.TotalPnL);
+        const pnlStr = (pnl >= 0 ? '+' : '') + pnl.toFixed(4);
+        const pnlCls = pnl > 0 ? 'pos' : pnl < 0 ? 'neg' : 'zero';
+        return `<tr>
+          <td>${s.TradeDate.slice(0, 10)}</td>
+          <td>${s.TradeCount}</td>
+          <td style="color:#4ade80">${s.WinCount}</td>
+          <td style="color:#f87171">${s.LossCount}</td>
+          <td>${parseFloat(s.WinRate).toFixed(1)}%</td>
+          <td class="pnl ${pnlCls}">${pnlStr}</td>
+          <td><span class="badge ${s.IsPaper ? 'paper' : 'live'}">${s.IsPaper ? 'paper' : 'live'}</span></td>
+        </tr>`;
+      }).join('');
+    } catch(e) {
+      errEl.innerHTML = `<div class="error-msg">Fetch error: ${e.message}</div>`;
+      tbody.innerHTML = '';
+    }
+  }
+
+  // ---- Helpers ----
+  function fmtTs(ts) {
+    if (!ts) return '—';
+    const d = new Date(ts);
+    return d.toLocaleDateString() + ' ' + d.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
+  }
+
+  function fmt8(v) {
+    if (v == null) return '—';
+    const f = parseFloat(v);
+    return f >= 1000 ? f.toFixed(2) : f >= 1 ? f.toFixed(4) : f.toFixed(6);
+  }
+
+  // ---- Boot ----
+  setMode(true);
+  loadTrades();
+</script>
+</body>
+</html>

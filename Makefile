@@ -1,10 +1,16 @@
-.PHONY: build run test migrate-up migrate-down docker-up docker-down lint
+.PHONY: build run build-dashboard run-dashboard test migrate-up migrate-down docker-up docker-up-all docker-down lint
 
 build:
 	go build -o bin/bot ./cmd/bot
 
 run: build
 	./bin/bot -config config/config.yaml
+
+build-dashboard:
+	go build -o bin/dashboard ./cmd/dashboard
+
+run-dashboard: build-dashboard
+	./bin/dashboard
 
 test:
 	go test ./internal/... -v -race
@@ -17,6 +23,9 @@ migrate-down:
 
 docker-up:
 	docker compose up -d postgres redis
+
+docker-up-all:
+	docker compose up -d
 
 docker-down:
 	docker compose down

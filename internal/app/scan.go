@@ -32,6 +32,9 @@ func (a *App) scanFn(ctx context.Context, window scheduler.WindowType) error {
 		slog.Info("no candidates after funding filter", "window", window)
 		return nil
 	}
+	for _, c := range candidates {
+		slog.Info("candidate", "symbol", c.Symbol, "funding", c.FundingRate, "roi_1d", c.ROI1D, "score", c.Score)
+	}
 
 	candidates = scanner.FilterByROI(candidates, a.cfg.Filtering.MinDailyROIPct)
 	if len(candidates) == 0 {

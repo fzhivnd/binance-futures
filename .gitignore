@@ -1,0 +1,13 @@
+# secrets
+.env
+
+# build output
+bin/
+
+# IDE
+.idea/
+.vscode/
+
+# test artifacts
+*.test
+*.out

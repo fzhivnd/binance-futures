@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"log/slog"
 )
 
 func (a *App) updateKlineSubscriptions(ctx context.Context, old, new []string) {
@@ -38,11 +39,51 @@ func (a *App) updateKlineSubscriptions(ctx context.Context, old, new []string) {
 		_ = a.wsKlines.Unsubscribe(ctx, toUnsub)
 	}
 	if len(toSub) > 0 {
+		a.backfillCandles(ctx, new, oldSet)
 		_ = a.wsKlines.Subscribe(ctx, toSub)
 	}
 
 	for _, sym := range removed {
 		a.engine.PurgeSymbol(sym)
+	}
+}
+
+// backfillCandles seeds the candle store for newly added symbols by fetching
+// recent history from the REST API. Failure is non-fatal — indicators degrade
+// gracefully and the WS stream fills in data going forward.
+func (a *App) backfillCandles(ctx context.Context, symbols []string, existing map[string]bool) {
+	// Per-timeframe limits derived from indicator requirements:
+	//   5m  → RSI-7 (20) + VolumeAnomaly (25 baseline) = 25
+	//   15m → RSI-14 (40 for Wilder accuracy)           = 40
+	//   30m → DetectPatterns (3 min)                    = 5
+	//   1h  → ATR-14 (20) + BTC context (40 for RSI)   = 40
+	//   4h  → calcPriceROI (2 closed)                   = 5
+	//   1d  → calcPriceROI (2 closed)                   = 5
+	backfillPlan := []struct {
+		interval string
+		limit    int
+	}{
+		{"5m", 25},
+		{"15m", 40},
+		{"30m", 5},
+		{"1h", 40},
+		{"4h", 5},
+		{"1d", 5},
+	}
+
+	for _, sym := range symbols {
+		if existing[sym] {
+			continue
+		}
+		for _, p := range backfillPlan {
+			candles, err := a.binanceClient.FetchKlines(ctx, sym, p.interval, p.limit)
+			if err != nil {
+				slog.Warn("candle backfill failed", "symbol", sym, "interval", p.interval, "error", err)
+				continue
+			}
+			a.engine.SeedCandles(candles)
+		}
+		slog.Debug("candle backfill done", "symbol", sym)
 	}
 }
 
