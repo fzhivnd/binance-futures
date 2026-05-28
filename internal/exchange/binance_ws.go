@@ -82,6 +82,7 @@ func (w *WSConnection) connect(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("dial: %w", err)
 	}
+	conn.SetReadLimit(4 * 1024 * 1024) // 4MB — all-market mark price array can exceed 32KB default
 
 	w.mu.Lock()
 	w.conn = conn
@@ -105,6 +106,9 @@ func (w *WSConnection) connect(ctx context.Context) error {
 func (w *WSConnection) readLoop(ctx context.Context, conn *websocket.Conn) error {
 	staleTicker := time.NewTicker(w.staleTimeout / 2)
 	defer staleTicker.Stop()
+
+	pingTicker := time.NewTicker(w.pingInterval)
+	defer pingTicker.Stop()
 
 	readCh := make(chan []byte, 64)
 	errCh := make(chan error, 1)
@@ -134,6 +138,11 @@ func (w *WSConnection) readLoop(ctx context.Context, conn *websocket.Conn) error
 			w.lastMessage = time.Now()
 			w.mu.Unlock()
 			w.dispatch(msg)
+
+		case <-pingTicker.C:
+			if err := conn.Ping(ctx); err != nil {
+				return fmt.Errorf("ping: %w", err)
+			}
 
 		case <-staleTicker.C:
 			w.mu.Lock()
