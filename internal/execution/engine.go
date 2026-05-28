@@ -197,7 +197,7 @@ func (e *ExecutionEngine) execute(
 		if fillPrice == 0 {
 			fillPrice = candidate.MarkPrice
 		}
-		e.posMgr.finalizeSLTP(ctx, &pending, fillPrice, order.Quantity)
+		e.posMgr.finalizeSLTP(ctx, &pending, fillPrice, order.Quantity, time.Now())
 	}
 
 	return nil
