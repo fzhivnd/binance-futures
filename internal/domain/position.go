@@ -54,6 +54,9 @@ type Position struct {
 	FundingFeePaidPct  float64    // absolute fee paid (e.g. 0.008)
 	SettlementPassedAt *time.Time // when settlement occurred (nil if not yet)
 	TPWidened          bool       // true after T-2m TP widen was applied
+
+	// Paper mode: trailing stop simulation
+	TrailingPeak float64 // lowest mark price seen after TP1 fill (SHORT)
 }
 
 // PendingEntry represents a market order that has been placed but whose fill

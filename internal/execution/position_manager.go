@@ -191,11 +191,95 @@ func (m *PositionManager) check(ctx context.Context, pos domain.Position) {
 		}
 	}
 
+	// Paper mode: simulate TP1/SL/trailing fills via price-level crossing.
+	if pos.IsPaper {
+		if m.checkPaperFills(ctx, &pos, currentPrice) {
+			return // position closed — no further updates
+		}
+	}
+
 	if updated {
 		if err := m.cache.SetActivePosition(ctx, pos); err != nil {
 			slog.Error("update position state", "symbol", pos.Symbol, "error", err)
 		}
 	}
+}
+
+// checkPaperFills simulates order fills for paper-mode positions by comparing mark price
+// against stored price levels. Calls the same handlers as live WS fill events.
+// Returns true if the position was closed (caller should return immediately).
+func (m *PositionManager) checkPaperFills(ctx context.Context, pos *domain.Position, currentPrice float64) bool {
+	fakeOrder := func(_ string, avgPrice, qty float64) exchange.OrderTradeUpdate {
+		return exchange.OrderTradeUpdate{
+			Symbol:      pos.Symbol,
+			OrderID:     0,
+			OrderStatus: "FILLED",
+			AvgPrice:    avgPrice,
+			FilledQty:   qty,
+			ReduceOnly:  true,
+		}
+	}
+
+	if !pos.TP1Filled {
+		// Hard SL: price rose above stop loss (SHORT loses when price goes up).
+		if currentPrice >= pos.StopLoss {
+			slog.Info("paper_sl_hit", "symbol", pos.Symbol, "price", currentPrice, "sl", pos.StopLoss)
+			m.handleHardSLFill(ctx, pos, fakeOrder(pos.SLOrderID, pos.StopLoss, pos.Quantity))
+			return true
+		}
+
+		// TP1: price fell to or below take profit level.
+		if currentPrice <= pos.TakeProfit {
+			slog.Info("paper_tp1_hit", "symbol", pos.Symbol, "price", currentPrice, "tp1", pos.TakeProfit)
+			o := fakeOrder(pos.TPOrderID, pos.TakeProfit, pos.OriginalQty*tp1SizeFraction)
+			o.FilledQty = pos.OriginalQty * tp1SizeFraction
+			m.handleTP1Fill(ctx, pos, o)
+			// handleTP1Fill sets pos.TP1Filled and updates TrailingPeak via cache;
+			// initialise TrailingPeak to the TP1 fill price (best price so far).
+			pos.TrailingPeak = pos.TakeProfit
+			if err := m.cache.SetActivePosition(ctx, *pos); err != nil {
+				slog.Error("paper_tp1: update trailing peak", "symbol", pos.Symbol, "error", err)
+			}
+			return false // position still open (trailing portion remains)
+		}
+		return false
+	}
+
+	// TP1 already filled — manage the trailing portion.
+	remainingQty := pos.OriginalQty - pos.OriginalQty*tp1SizeFraction
+
+	// Update trailing peak (track the lowest price seen — best for a SHORT).
+	if pos.TrailingPeak == 0 || currentPrice < pos.TrailingPeak {
+		pos.TrailingPeak = currentPrice
+		if err := m.cache.SetActivePosition(ctx, *pos); err != nil {
+			slog.Error("paper_trailing: update peak", "symbol", pos.Symbol, "error", err)
+		}
+	}
+
+	// Breakeven SL: price rose back to or above entry price.
+	if currentPrice >= pos.EntryPrice {
+		slog.Info("paper_bep_hit", "symbol", pos.Symbol, "price", currentPrice, "entry", pos.EntryPrice)
+		m.handleTrailingSLFill(ctx, pos, fakeOrder(pos.TrailingSLOrderID, pos.EntryPrice, remainingQty))
+		return true
+	}
+
+	// Trailing stop: price bounced CallbackRate% off the trailing peak.
+	callbackRate := m.cfg.Execution.TrailingCallbackRate / 100
+	if callbackRate > 0 && pos.TrailingPeak > 0 {
+		trailingTrigger := pos.TrailingPeak * (1 + callbackRate)
+		if currentPrice >= trailingTrigger {
+			slog.Info("paper_trailing_hit",
+				"symbol", pos.Symbol,
+				"price", currentPrice,
+				"peak", pos.TrailingPeak,
+				"trigger", trailingTrigger,
+			)
+			m.handleTrailingFill(ctx, pos, fakeOrder(pos.TrailingOrderID, currentPrice, remainingQty))
+			return true
+		}
+	}
+
+	return false
 }
 
 // shouldCheckForceSL implements the PnL-gated + escalating interval logic.
