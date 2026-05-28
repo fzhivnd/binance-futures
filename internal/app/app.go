@@ -161,11 +161,17 @@ func (a *App) Run(
 	killSwitchFn := func() {
 		_ = cache.SetKillSwitch(context.Background(), true)
 		slog.Error("kill switch activated")
+		if notifier != nil {
+			notifier.NotifyRiskEvent(context.Background(), notify.RiskEvent{
+				Type:    "kill_switch",
+				Message: "Kill switch activated: WebSocket max failures reached. Bot is halted.",
+			})
+		}
 	}
 
 	wsCfg := &a.cfg.WebSocket
 
-	markPriceURL := a.cfg.Binance.WsURL + "/ws/!markPrice@arr@1s"
+	markPriceURL := a.cfg.Binance.WsURL + "/market/ws/!markPrice@arr@1s"
 	router := exchange.NewStreamRouter(a.engine)
 	router.SetBookTickerCache(a.bookTickerCache) // Phase 8: route @bookTicker events
 	a.wsMarkPx = exchange.NewWSConnection(
@@ -179,16 +185,16 @@ func (a *App) Run(
 		killSwitchFn,
 	)
 
-	klineURL := a.cfg.Binance.WsURL + "/stream"
+	klineURL := a.cfg.Binance.WsURL + "/market/stream"
 	a.wsKlines = exchange.NewWSConnection(
 		klineURL,
 		router.Handle,
-		wsCfg.GetStaleTimeout()*2,
+		10*time.Minute, // kline stream starts empty — long stale timeout until symbols are subscribed
 		wsCfg.GetPingInterval(),
 		wsCfg.GetReconnectBaseBackoff(),
 		wsCfg.GetReconnectMaxBackoff(),
 		wsCfg.MaxReconnectFailures,
-		killSwitchFn,
+		nil, // kline stream is non-critical — don't trigger kill switch on failure
 	)
 
 	var listenKey string
@@ -197,7 +203,7 @@ func (a *App) Run(
 		if err != nil {
 			return fmt.Errorf("create listenKey: %w", err)
 		}
-		userDataURL := a.cfg.Binance.WsURL + "/ws/" + listenKey
+		userDataURL := a.cfg.Binance.WsURL + "/private/ws/" + listenKey
 		userDataRouter := exchange.NewUserDataRouter(a.posMgr.HandleUserDataEvent)
 		a.wsUserData = exchange.NewWSConnection(
 			userDataURL,
