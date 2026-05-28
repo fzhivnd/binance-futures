@@ -4,8 +4,8 @@ app:
   paper_balance: 1000.0
 
 binance:
-  api_key: "${BINANCE.API_KEY}"
-  api_secret: "${BINANCE.API_SECRET}"
+  api_key: "${BINANCE_API_KEY}"
+  api_secret: "${BINANCE_API_SECRET}"
   base_url: "https://fapi.binance.com"
   ws_url: "wss://fstream.binance.com"
   testnet: false
@@ -43,16 +43,16 @@ websocket:
 
 database:
   postgres:
-    host: "${POSTGRES.HOST}"
+    host: "${POSTGRES_HOST}"
     port: 5432
-    user: "${POSTGRES.USERNAME}"
-    password: "${POSTGRES.PASSWORD}"
-    dbname: "${POSTGRES.DATABASE}"
+    user: "${POSTGRES_USER}"
+    password: "${POSTGRES_PASSWORD}"
+    dbname: "${POSTGRES_DB}"
     sslmode: "disable"
     max_conns: 10
   redis:
-    addr: "${REDIS.HOST}:6379"
-    password: "${REDIS.PASSWORD}"
+    addr: "${REDIS_HOST}:6379"
+    password: "${REDIS_PASSWORD}"
     db: 0
 
 filtering:
@@ -88,7 +88,7 @@ backtest:
 
 llm:
   enabled: true
-  api_key: "${OPENAI.API_KEY}"
+  api_key: "${OPENAI_API_KEY}"
   model: "gpt-5-mini"
   timeout_secs: 15
   max_retries: 1
@@ -100,8 +100,8 @@ llm:
 
 telegram:
   enabled: true
-  bot_token: "${TELEGRAM.BOT_TOKEN}"
-  chat_id: "${TELEGRAM.CHAT_ID}"
+  bot_token: "${TELEGRAM_BOT_TOKEN}"
+  chat_id: "${TELEGRAM_CHAT_ID}"
   timeout_secs: 10
 
 memory:
