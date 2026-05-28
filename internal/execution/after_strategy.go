@@ -10,23 +10,27 @@ import (
 	"futures/internal/config"
 	"futures/internal/intent"
 	"futures/internal/market"
+	"futures/internal/notify"
 )
 
 // AfterExecutionStrategy places a bid-depth-aware market order for AFTER-mode intents.
 type AfterExecutionStrategy struct {
 	bookTicker *market.BookTickerCache
 	execEng    *ExecutionEngine
+	notifier   *notify.Notifier
 	cfg        *config.Config
 }
 
 func NewAfterExecutionStrategy(
 	bookTicker *market.BookTickerCache,
 	execEng *ExecutionEngine,
+	notifier *notify.Notifier,
 	cfg *config.Config,
 ) *AfterExecutionStrategy {
 	return &AfterExecutionStrategy{
 		bookTicker: bookTicker,
 		execEng:    execEng,
+		notifier:   notifier,
 		cfg:        cfg,
 	}
 }
@@ -52,6 +56,15 @@ func (s *AfterExecutionStrategy) Execute(ctx context.Context, ti *intent.TradeIn
 	positionSizePct := ti.Candidate.PositionSizePct
 	adjustedSizePct := s.adjustSizeForDepth(ctx, candidate.Symbol, positionSizePct, currentPrice)
 	if adjustedSizePct == 0 {
+		slog.Info("after_entry_skipped",
+			"symbol", candidate.Symbol,
+			"reason", "thin_book",
+			"window", "AFTER",
+		)
+		s.notifier.NotifyRiskEvent(ctx, notify.RiskEvent{
+			Type:    "after_entry_skipped",
+			Message: fmt.Sprintf("symbol: %s reason: thin_book", candidate.Symbol),
+		})
 		return nil
 	}
 
