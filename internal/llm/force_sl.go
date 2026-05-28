@@ -12,32 +12,77 @@ import (
 	openai "github.com/openai/openai-go"
 )
 
-const forceSLSystemPrompt = `You are a position management AI for a Binance Futures funding-rate shorting bot. Your ONLY job is to decide whether to force-close an open SHORT position early (before the hard stop-loss is hit) or hold.
+const forceSLSystemPrompt = `You are a position management AI for a Binance Futures funding-rate shorting bot.
+Your ONLY job: decide whether to force-close an open SHORT position early or hold.
 
 CONTEXT:
 - We are SHORT (profit when price goes down)
-- Hard SL is set at 5% adverse price move (will trigger automatically if reached)
+- Hard SL is set at 5% adverse price move (triggers automatically if reached)
 - Your job: detect when the trade thesis has INVALIDATED and close early to limit loss
-- Force-closing at -2% is much better than waiting for -5% hard SL if the setup is dead
+- Force-closing at -2% is better than waiting for -5% if the setup is dead
+
+FUNDING FEE MECHANICS:
+- We short on NEGATIVE funding. Shorts PAY longs at settlement.
+- If we held through settlement → we PAID the funding fee (added cost on top of any loss)
+- "Effective loss" = unrealized PnL + funding fee paid. This is the TRUE damage.
+- A position showing -1.5% raw loss that also paid 0.8% fee = -2.3% effective loss.
+
+═══════════════════════════════════════════════════════════════════════════════════
+THESIS INVALIDATION PER ENTRY MODE:
+═══════════════════════════════════════════════════════════════════════════════════
+
+FRONTRUN entry thesis: "Price will dump BEFORE settlement due to pre-settlement selling."
+  Invalidation signals:
+  • Settlement has passed and we're still losing → thesis partially failed (pre-dump didn't happen) AND we paid the fee. Very strong cut signal.
+  • If post-settlement AND losing: the pre-dump didn't happen and fee was paid. Cut unless strong delayed reversal signs.
+  • If pre-settlement AND losing: still within thesis window. More lenient on hold.
+
+LAST_MINUTE entry thesis: "Dump is starting near settlement, momentum carries through."
+  Invalidation signals:
+  • Settlement passed + price ABOVE entry → dump didn't materialize, we paid the fee. Lower bar for FORCE_CLOSE.
+  • Price consolidating above entry with no downward momentum post-settlement → buyers absorbed selling. Thesis dead.
+  • >15 minutes post-settlement with no progress toward TP → momentum exhausted.
+
+AFTER entry thesis: "Post-settlement panic dump pushes price down 2% from entry."
+  Invalidation signals:
+  • >10 minutes post-entry with price flat or rising → panic dump didn't happen. Lower bar for cut.
+  • >30 minutes with < 0.5% favorable move → dump momentum fully exhausted. Strong FORCE_CLOSE signal.
+  • Price made higher high after entry → buyers absorbed the panic selling.
+  • NOTE: AFTER has NO fee overhead. Raw loss IS the true loss. Slightly more lenient on small losses.
+
+═══════════════════════════════════════════════════════════════════════════════════
+GENERAL RULES (apply to all modes):
+═══════════════════════════════════════════════════════════════════════════════════
 
 WHEN TO FORCE_CLOSE:
 - Strong momentum building AGAINST us (sustained buying, not just a wick)
 - BTC has started a breakout that will drag the alt up
-- Price has consolidated above entry with increasing volume (buyers absorbing sells)
-- The original entry thesis (funding reversal, exhaustion) has clearly failed
+- Price consolidated above entry with increasing volume (buyers absorbing sells)
+- The original entry thesis has clearly failed (see mode-specific signals above)
 - Price made a higher high after entry and is holding above it
+- Effective loss (raw + fee) exceeds -3% → thesis deeply underwater, don't wait for -5%
 
 WHEN TO HOLD:
-- Price is just ranging/consolidating around entry (normal noise)
+- Price is just ranging/consolidating near entry (normal noise)
 - Temporary wick above entry but price returned
-- We are already in profit (price below entry)
-- The original thesis is still intact (no momentum shift)
-- Current loss is small (<1% unrealized) and no clear directional signal
+- We are in profit (price below entry) — thesis working
+- The mode-specific thesis is still intact
+- Current loss is small AND no clear directional signal against us
 - BTC is not in breakout mode
+- For AFTER entries: still within first 10 minutes (thesis needs time to play out)
 
-BIAS: Lean toward HOLD unless the evidence for thesis invalidation is clear. Forcing a close on noise is expensive (fees + missed recovery). But don't stubbornly hold into a -3% loss when momentum is clearly against us — the hard SL at -5% is the absolute worst case, not the target.
+AGGRESSION CALIBRATION:
+- Effective loss > -3%: Be more aggressive about cutting.
+- Fee paid + losing: Extra reason to cut (fee is sunk cost, but holding risks more).
+- AFTER entry + flat after 30min: Strong cut signal. The dump window is gone.
+- FRONTRUN post-settlement + losing: Cut aggressively. Original thesis window passed.
+- Low original confidence (60-69): Lower bar for FORCE_CLOSE.
 
-CRITICAL: You are evaluating at 20x leverage. A 2% price move = 40% account impact on this position.`
+BIAS: Lean toward HOLD when thesis is intact. Lean toward FORCE_CLOSE when:
+(a) thesis time window has expired, (b) fee was paid on top of loss, or
+(c) effective loss > -3%. The hard SL at -5% is the WORST case, not the target.
+
+CRITICAL: You are evaluating at 20x leverage. A 2% price move = 40% account impact.`
 
 type ForceSLEngine struct {
 	client *Client
@@ -139,10 +184,30 @@ func buildForceSLUserMessage(req *ForceSLRequest) string {
 
 	sb.WriteString(fmt.Sprintf("Position: %s SHORT\n", req.Symbol))
 	sb.WriteString(fmt.Sprintf("Entry: $%.8g | Current: $%.8g\n", req.EntryPrice, req.CurrentPrice))
-	sb.WriteString(fmt.Sprintf("Unrealized PnL: %.2f%% (at 20x leverage)\n", req.UnrealizedPnlPct))
+	sb.WriteString(fmt.Sprintf("Unrealized PnL: %.2f%% (raw price move at 20x)\n", req.UnrealizedPnlPct))
+
+	// Phase 8: funding fee context
+	if req.FundingFeePaid {
+		sb.WriteString(fmt.Sprintf("Funding fee PAID: %.2f%% (held through settlement)\n", req.FundingFeePaidPct))
+		sb.WriteString(fmt.Sprintf("Effective loss: %.2f%% (PnL + fee paid)\n", req.EffectiveLossPct))
+	} else {
+		sb.WriteString(fmt.Sprintf("Funding rate at entry: %.2f%% | Fee: NOT yet paid\n", req.FundingRatePct))
+	}
+
 	sb.WriteString(fmt.Sprintf("Hold time: %d minutes\n", req.HoldMinutes))
 	sb.WriteString(fmt.Sprintf("Hard SL at: $%.8g (%.2f%% away)\n", req.HardSLPrice, req.HardSLDistancePct))
-	sb.WriteString(fmt.Sprintf("Entry mode: %s | Original confidence: %d/100\n\n", req.EntryMode, req.OriginalConfidence))
+	sb.WriteString(fmt.Sprintf("Entry mode: %s | Original confidence: %d/100\n", req.EntryMode, req.OriginalConfidence))
+
+	// Phase 8: settlement context
+	if req.SettlementPassed {
+		sb.WriteString(fmt.Sprintf("Settlement: PASSED (%d minutes ago)\n", req.MinutesSinceSettle))
+	} else {
+		sb.WriteString("Settlement: NOT YET PASSED (still in pre-settlement window)\n")
+	}
+	if req.TPWidened {
+		sb.WriteString("TP status: WIDENED at T-2m (adjusted to cover funding fee)\n")
+	}
+	sb.WriteString("\n")
 
 	if len(req.EntryReasons) > 0 {
 		sb.WriteString("Original entry reasons:\n")

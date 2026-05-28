@@ -23,6 +23,11 @@ import (
 // use in pure-math helpers that have no config reference.
 const tp1SizeFraction = 0.5
 
+// fundingInfoGetter is the subset of MarketEngine needed for pre-settlement checks.
+type fundingInfoGetter interface {
+	GetFundingInfo(symbol string) (*domain.FundingRate, bool)
+}
+
 type PositionManager struct {
 	executor      Executor
 	market        MarketDataProvider
@@ -34,6 +39,7 @@ type PositionManager struct {
 	forceSLEngine *llm.ForceSLEngine
 	indEngine     *indicator.Engine
 	notifier      *notify.Notifier
+	fundingInfo   fundingInfoGetter // Phase 8: for pre-settlement check
 }
 
 func NewPositionManager(
@@ -69,6 +75,11 @@ func (m *PositionManager) SetIndicatorEngine(engine *indicator.Engine) {
 // SetMemoryRepo attaches the memory repository for recording trade outcomes.
 func (m *PositionManager) SetMemoryRepo(repo storage.MemoryRepository) {
 	m.memoryRepo = repo
+}
+
+// SetFundingInfoGetter wires the funding info source for pre-settlement checks (Phase 8).
+func (m *PositionManager) SetFundingInfoGetter(fi fundingInfoGetter) {
+	m.fundingInfo = fi
 }
 
 func (m *PositionManager) Run(ctx context.Context) {
@@ -180,11 +191,95 @@ func (m *PositionManager) check(ctx context.Context, pos domain.Position) {
 		}
 	}
 
+	// Paper mode: simulate TP1/SL/trailing fills via price-level crossing.
+	if pos.IsPaper {
+		if m.checkPaperFills(ctx, &pos, currentPrice) {
+			return // position closed — no further updates
+		}
+	}
+
 	if updated {
 		if err := m.cache.SetActivePosition(ctx, pos); err != nil {
 			slog.Error("update position state", "symbol", pos.Symbol, "error", err)
 		}
 	}
+}
+
+// checkPaperFills simulates order fills for paper-mode positions by comparing mark price
+// against stored price levels. Calls the same handlers as live WS fill events.
+// Returns true if the position was closed (caller should return immediately).
+func (m *PositionManager) checkPaperFills(ctx context.Context, pos *domain.Position, currentPrice float64) bool {
+	fakeOrder := func(_ string, avgPrice, qty float64) exchange.OrderTradeUpdate {
+		return exchange.OrderTradeUpdate{
+			Symbol:      pos.Symbol,
+			OrderID:     0,
+			OrderStatus: "FILLED",
+			AvgPrice:    avgPrice,
+			FilledQty:   qty,
+			ReduceOnly:  true,
+		}
+	}
+
+	if !pos.TP1Filled {
+		// Hard SL: price rose above stop loss (SHORT loses when price goes up).
+		if currentPrice >= pos.StopLoss {
+			slog.Info("paper_sl_hit", "symbol", pos.Symbol, "price", currentPrice, "sl", pos.StopLoss)
+			m.handleHardSLFill(ctx, pos, fakeOrder(pos.SLOrderID, pos.StopLoss, pos.Quantity))
+			return true
+		}
+
+		// TP1: price fell to or below take profit level.
+		if currentPrice <= pos.TakeProfit {
+			slog.Info("paper_tp1_hit", "symbol", pos.Symbol, "price", currentPrice, "tp1", pos.TakeProfit)
+			o := fakeOrder(pos.TPOrderID, pos.TakeProfit, pos.OriginalQty*tp1SizeFraction)
+			o.FilledQty = pos.OriginalQty * tp1SizeFraction
+			m.handleTP1Fill(ctx, pos, o)
+			// handleTP1Fill sets pos.TP1Filled and updates TrailingPeak via cache;
+			// initialise TrailingPeak to the TP1 fill price (best price so far).
+			pos.TrailingPeak = pos.TakeProfit
+			if err := m.cache.SetActivePosition(ctx, *pos); err != nil {
+				slog.Error("paper_tp1: update trailing peak", "symbol", pos.Symbol, "error", err)
+			}
+			return false // position still open (trailing portion remains)
+		}
+		return false
+	}
+
+	// TP1 already filled — manage the trailing portion.
+	remainingQty := pos.OriginalQty - pos.OriginalQty*tp1SizeFraction
+
+	// Update trailing peak (track the lowest price seen — best for a SHORT).
+	if pos.TrailingPeak == 0 || currentPrice < pos.TrailingPeak {
+		pos.TrailingPeak = currentPrice
+		if err := m.cache.SetActivePosition(ctx, *pos); err != nil {
+			slog.Error("paper_trailing: update peak", "symbol", pos.Symbol, "error", err)
+		}
+	}
+
+	// Breakeven SL: price rose back to or above entry price.
+	if currentPrice >= pos.EntryPrice {
+		slog.Info("paper_bep_hit", "symbol", pos.Symbol, "price", currentPrice, "entry", pos.EntryPrice)
+		m.handleTrailingSLFill(ctx, pos, fakeOrder(pos.TrailingSLOrderID, pos.EntryPrice, remainingQty))
+		return true
+	}
+
+	// Trailing stop: price bounced CallbackRate% off the trailing peak.
+	callbackRate := m.cfg.Execution.TrailingCallbackRate / 100
+	if callbackRate > 0 && pos.TrailingPeak > 0 {
+		trailingTrigger := pos.TrailingPeak * (1 + callbackRate)
+		if currentPrice >= trailingTrigger {
+			slog.Info("paper_trailing_hit",
+				"symbol", pos.Symbol,
+				"price", currentPrice,
+				"peak", pos.TrailingPeak,
+				"trigger", trailingTrigger,
+			)
+			m.handleTrailingFill(ctx, pos, fakeOrder(pos.TrailingOrderID, currentPrice, remainingQty))
+			return true
+		}
+	}
+
+	return false
 }
 
 // shouldCheckForceSL implements the PnL-gated + escalating interval logic.
@@ -244,11 +339,23 @@ func (m *PositionManager) checkForceSL(
 		slDistancePct = (pos.StopLoss - currentPrice) / currentPrice * 100
 	}
 
+	// Phase 8: effective loss = raw PnL + funding fee if paid
+	leveragedPnlPct := rawPnlPct * float64(pos.Leverage)
+	effectiveLossPct := leveragedPnlPct
+	if pos.FundingFeePaid {
+		effectiveLossPct -= pos.FundingFeePaidPct * 100
+	}
+
+	minutesSinceSettle := 0
+	if pos.SettlementPassedAt != nil {
+		minutesSinceSettle = int(time.Since(*pos.SettlementPassedAt).Minutes())
+	}
+
 	req := &llm.ForceSLRequest{
 		Symbol:             pos.Symbol,
 		EntryPrice:         pos.EntryPrice,
 		CurrentPrice:       currentPrice,
-		UnrealizedPnlPct:   rawPnlPct * float64(pos.Leverage),
+		UnrealizedPnlPct:   leveragedPnlPct,
 		HoldMinutes:        int(time.Since(pos.OpenedAt).Minutes()),
 		HardSLPrice:        pos.StopLoss,
 		HardSLDistancePct:  slDistancePct,
@@ -263,6 +370,14 @@ func (m *PositionManager) checkForceSL(
 			VolumeIncreasing: btcContext.MomentumScore > 60,
 		},
 		BTCContext: btcContext,
+		// Phase 8 fields
+		FundingRatePct:     pos.FundingRateAtEntry * 100,
+		FundingFeePaid:     pos.FundingFeePaid,
+		FundingFeePaidPct:  pos.FundingFeePaidPct * 100,
+		EffectiveLossPct:   effectiveLossPct,
+		SettlementPassed:   pos.SettlementPassedAt != nil,
+		MinutesSinceSettle: minutesSinceSettle,
+		TPWidened:          pos.TPWidened,
 	}
 
 	resp, err := m.forceSLEngine.EvaluatePosition(ctx, req, m.cfg.Execution.ForceSLTimeoutSec)
@@ -508,6 +623,8 @@ func (m *PositionManager) finalizeSLTP(
 		HighSinceEntry:     avgFillPrice,
 		LowSinceEntry:      avgFillPrice,
 		OriginalConfidence: pending.Confidence,
+		// Phase 8: funding fee tracking
+		FundingRateAtEntry: pending.FundingRateAtEntry,
 	}
 	if pending.LLMDecision != nil {
 		pos.LLMEntryReasons = pending.LLMDecision.EntryReasons
@@ -865,6 +982,189 @@ func (m *PositionManager) persistClose(ctx context.Context, pos domain.Position,
 			HoldDuration: now.Sub(pos.OpenedAt).Round(time.Second).String(),
 			IsPaper:      pos.IsPaper,
 		})
+	}
+}
+
+// ——————————————————————————————————————————————————————————
+// Phase 8: Pre-settlement T-2m check + funding fee tracking
+// ——————————————————————————————————————————————————————————
+
+// RunPreSettlementChecker starts a goroutine that checks FRONTRUN/LASTMINUTE positions
+// at T-2m before each funding settlement for emergency close or TP widen.
+func (m *PositionManager) RunPreSettlementChecker(ctx context.Context) {
+	if !m.cfg.PreSettlement.Enabled {
+		slog.Info("pre-settlement checker disabled by config")
+		return
+	}
+	go m.preSettlementLoop(ctx)
+}
+
+func (m *PositionManager) preSettlementLoop(ctx context.Context) {
+	ticker := time.NewTicker(10 * time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			m.checkPreSettlementAll(ctx)
+		}
+	}
+}
+
+func (m *PositionManager) checkPreSettlementAll(ctx context.Context) {
+	if m.fundingInfo == nil {
+		return
+	}
+	positions, err := m.cache.GetActivePositions(ctx)
+	if err != nil {
+		return
+	}
+	for _, pos := range positions {
+		m.checkPreSettlement(ctx, pos)
+		m.checkSettlementPassed(ctx, pos)
+	}
+}
+
+// checkPreSettlement fires the T-2m check for a FRONTRUN or LASTMINUTE position.
+func (m *PositionManager) checkPreSettlement(ctx context.Context, pos domain.Position) {
+	if pos.EntryMode != domain.EntryModeFrontrun && pos.EntryMode != domain.EntryModeLastMinute {
+		return
+	}
+	if pos.TP1Filled {
+		slog.Debug("pre_settlement_skipped_tp1_filled", "symbol", pos.Symbol)
+		return
+	}
+
+	fi, ok := m.fundingInfo.GetFundingInfo(pos.Symbol)
+	if !ok || fi.NextFunding.IsZero() {
+		return
+	}
+
+	checkBefore := time.Duration(m.cfg.PreSettlement.CheckBeforeMinutes) * time.Minute
+	timeUntil := time.Until(fi.NextFunding)
+	if timeUntil > checkBefore || timeUntil < 0 {
+		return // not in the check window yet, or already past settlement
+	}
+
+	currentPrice, ok := m.market.GetPrice(pos.Symbol)
+	if !ok || currentPrice == 0 {
+		return
+	}
+
+	// raw price move against us (positive = price went up = bad for short)
+	rawMoveAgainst := (currentPrice - pos.EntryPrice) / pos.EntryPrice
+
+	threshold := m.cfg.PreSettlement.EmergencyCloseThreshold * math.Abs(pos.FundingRateAtEntry)
+
+	if rawMoveAgainst > threshold {
+		// Rule 1: emergency close to avoid paying funding fee on a losing position.
+		slog.Warn("pre_settlement_emergency_close",
+			"symbol", pos.Symbol,
+			"loss_pct", rawMoveAgainst*100,
+			"funding_rate", pos.FundingRateAtEntry*100,
+			"threshold_pct", threshold*100,
+		)
+		m.forceClose(ctx, pos, currentPrice, "pre_settlement_emergency_close")
+		return
+	}
+
+	// Rule 2: widen TP1 to 2% + |funding_rate| if not yet done.
+	if m.cfg.PreSettlement.WidenTPOnMiss && !pos.TPWidened && pos.TPOrderID != "" {
+		m.widenTP1(ctx, &pos, fi)
+	}
+}
+
+// widenTP1 cancels the existing TP1 and replaces it at 2% + |funding_rate|.
+func (m *PositionManager) widenTP1(ctx context.Context, pos *domain.Position, _ *domain.FundingRate) {
+	newTPPct := m.cfg.Execution.TpPct + math.Abs(pos.FundingRateAtEntry*100)
+	newTP := pos.EntryPrice * (1 - newTPPct/100)
+	newTPLimit := newTP * 0.99
+
+	oldTPPct := m.cfg.Execution.TpPct
+	slog.Info("pre_settlement_tp_widened",
+		"symbol", pos.Symbol,
+		"old_tp_pct", oldTPPct,
+		"new_tp_pct", newTPPct,
+		"new_tp_price", newTP,
+	)
+
+	if err := m.executor.CancelOrder(ctx, pos.Symbol, pos.TPOrderID); err != nil {
+		slog.Warn("widenTP1: cancel old TP failed", "symbol", pos.Symbol, "error", err)
+		return
+	}
+	pos.TPOrderID = ""
+
+	tp1SizePct := m.cfg.Execution.TP1SizePct / 100
+	tp1Qty := pos.OriginalQty * tp1SizePct
+
+	newTPOrder, err := m.executor.PlaceStopLimitOrder(ctx, domain.OrderRequest{
+		Symbol:     pos.Symbol,
+		Side:       domain.SideBuy,
+		Type:       domain.OrderTypeTakeProfit,
+		Quantity:   tp1Qty,
+		StopPrice:  newTP,
+		Price:      newTPLimit,
+		ReduceOnly: true,
+	})
+	if err != nil {
+		slog.Error("widenTP1: place new TP failed", "symbol", pos.Symbol, "error", err)
+		return
+	}
+	if newTPOrder != nil {
+		pos.TPOrderID = newTPOrder.OrderID
+	}
+	pos.TakeProfit = newTP
+	pos.TPWidened = true
+
+	if err := m.cache.SetActivePosition(ctx, *pos); err != nil {
+		slog.Error("widenTP1: update position", "symbol", pos.Symbol, "error", err)
+	}
+}
+
+// checkSettlementPassed detects when a funding settlement has passed while a position is open.
+func (m *PositionManager) checkSettlementPassed(ctx context.Context, pos domain.Position) {
+	if pos.FundingFeePaid || pos.SettlementPassedAt != nil {
+		return // already marked
+	}
+	if pos.FundingRateAtEntry == 0 {
+		return
+	}
+
+	fi, ok := m.fundingInfo.GetFundingInfo(pos.Symbol)
+	if !ok || fi.NextFunding.IsZero() {
+		return
+	}
+
+	// If the next funding time has advanced past what it was at entry, settlement occurred.
+	// We detect this by checking if next funding is now more than 1 hour in the future
+	// AND the position is old enough that a settlement could have passed.
+	holdDuration := time.Since(pos.OpenedAt)
+	if holdDuration < 10*time.Minute {
+		return // too young, settlement couldn't have passed
+	}
+
+	// If next funding is > 7 hours away, a settlement must have just occurred.
+	if time.Until(fi.NextFunding) > 7*time.Hour {
+		m.onSettlementPassed(ctx, pos)
+	}
+}
+
+// onSettlementPassed marks the position as having had the funding fee paid.
+func (m *PositionManager) onSettlementPassed(ctx context.Context, pos domain.Position) {
+	now := time.Now()
+	pos.FundingFeePaid = true
+	pos.FundingFeePaidPct = math.Abs(pos.FundingRateAtEntry)
+	pos.SettlementPassedAt = &now
+
+	slog.Info("position_settlement_passed",
+		"symbol", pos.Symbol,
+		"funding_rate", pos.FundingRateAtEntry*100,
+		"fee_paid_pct", pos.FundingFeePaidPct*100,
+	)
+
+	if err := m.cache.SetActivePosition(ctx, pos); err != nil {
+		slog.Error("onSettlementPassed: update position", "symbol", pos.Symbol, "error", err)
 	}
 }
 

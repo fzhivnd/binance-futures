@@ -9,23 +9,44 @@ import (
 )
 
 type Config struct {
-	App        AppConfig        `yaml:"app"`
-	Binance    BinanceConfig    `yaml:"binance"`
-	Trading    TradingConfig    `yaml:"trading"`
-	Funding    FundingConfig    `yaml:"funding"`
-	Execution  ExecutionConfig  `yaml:"execution"`
-	Scheduler  SchedulerConfig  `yaml:"scheduler"`
-	WebSocket  WebSocketConfig  `yaml:"websocket"`
-	Database   DatabaseConfig   `yaml:"database"`
-	Filtering  FilteringConfig  `yaml:"filtering"`
-	Scoring    ScoringConfig    `yaml:"scoring"`
-	Indicators IndicatorConfig  `yaml:"indicators"`
-	Risk       RiskConfig       `yaml:"risk"`
-	Backtest   BacktestConfig   `yaml:"backtest"`
-	LLM        LLMConfig        `yaml:"llm"`
-	Memory     MemoryConfig     `yaml:"memory"`
-	Telegram   TelegramConfig   `yaml:"telegram"`
-	Summary    SummaryConfig    `yaml:"summary"`
+	App             AppConfig             `yaml:"app"`
+	Binance         BinanceConfig         `yaml:"binance"`
+	Trading         TradingConfig         `yaml:"trading"`
+	Funding         FundingConfig         `yaml:"funding"`
+	Execution       ExecutionConfig       `yaml:"execution"`
+	Scheduler       SchedulerConfig       `yaml:"scheduler"`
+	WebSocket       WebSocketConfig       `yaml:"websocket"`
+	Database        DatabaseConfig        `yaml:"database"`
+	Filtering       FilteringConfig       `yaml:"filtering"`
+	Scoring         ScoringConfig         `yaml:"scoring"`
+	Indicators      IndicatorConfig       `yaml:"indicators"`
+	Risk            RiskConfig            `yaml:"risk"`
+	Backtest        BacktestConfig        `yaml:"backtest"`
+	LLM             LLMConfig             `yaml:"llm"`
+	Memory          MemoryConfig          `yaml:"memory"`
+	Telegram        TelegramConfig        `yaml:"telegram"`
+	Summary         SummaryConfig         `yaml:"summary"`
+	AfterExecution  AfterExecConfig       `yaml:"after_execution"`
+	PreSettlement   PreSettlementConfig   `yaml:"pre_settlement"`
+}
+
+// AfterExecConfig controls the Phase 8 AfterTrigger and bid-depth sizing.
+type AfterExecConfig struct {
+	Enabled                  bool    `yaml:"enabled"`
+	SubscribeBeforeSeconds   int     `yaml:"subscribe_before_seconds"`  // subscribe @bookTicker at T-Xs
+	MinBidDepthMultiplier    float64 `yaml:"min_bid_depth_multiplier"`  // skip if depth < multiplier * orderSize
+	FullSizeDepthMultiplier  float64 `yaml:"full_size_depth_multiplier"` // full size if depth >= multiplier * orderSize
+	ReducedSizePct           float64 `yaml:"reduced_size_pct"`           // position size pct when book is thin
+	ClockSyncIntervalSeconds int     `yaml:"clock_sync_interval_seconds"`
+	FallbackToScheduler      bool    `yaml:"fallback_to_scheduler"`
+}
+
+// PreSettlementConfig controls the T-2m pre-settlement check for FRONTRUN/LASTMINUTE positions.
+type PreSettlementConfig struct {
+	Enabled                bool    `yaml:"enabled"`
+	CheckBeforeMinutes     int     `yaml:"check_before_minutes"`      // fire check at T-Xm
+	EmergencyCloseThreshold float64 `yaml:"emergency_close_threshold"` // close if loss > X * |funding_rate|
+	WidenTPOnMiss          bool    `yaml:"widen_tp_on_miss"`          // widen TP1 if not filled by T-2m
 }
 
 type TelegramConfig struct {
@@ -296,7 +317,7 @@ func setDefaults(cfg *Config) {
 
 	// Phase 2 defaults
 	if cfg.Filtering.MinDailyROIPct == 0 {
-		cfg.Filtering.MinDailyROIPct = 20.0
+		cfg.Filtering.MinDailyROIPct = 15.0
 	}
 	if cfg.Filtering.MinVolume24hM == 0 {
 		cfg.Filtering.MinVolume24hM = 50.0
@@ -395,6 +416,37 @@ func setDefaults(cfg *Config) {
 	}
 	if cfg.Execution.ForceSLTimeoutSec == 0 {
 		cfg.Execution.ForceSLTimeoutSec = 5
+	}
+
+	// Phase 8: AfterExecution defaults
+	if cfg.AfterExecution.SubscribeBeforeSeconds == 0 {
+		cfg.AfterExecution.SubscribeBeforeSeconds = 5
+	}
+	if cfg.AfterExecution.MinBidDepthMultiplier == 0 {
+		cfg.AfterExecution.MinBidDepthMultiplier = 1.0
+	}
+	if cfg.AfterExecution.FullSizeDepthMultiplier == 0 {
+		cfg.AfterExecution.FullSizeDepthMultiplier = 3.0
+	}
+	if cfg.AfterExecution.ReducedSizePct == 0 {
+		cfg.AfterExecution.ReducedSizePct = 50.0
+	}
+	if cfg.AfterExecution.ClockSyncIntervalSeconds == 0 {
+		cfg.AfterExecution.ClockSyncIntervalSeconds = 300
+	}
+	if !cfg.AfterExecution.FallbackToScheduler {
+		cfg.AfterExecution.FallbackToScheduler = true
+	}
+
+	// Phase 8: PreSettlement defaults
+	if cfg.PreSettlement.CheckBeforeMinutes == 0 {
+		cfg.PreSettlement.CheckBeforeMinutes = 2
+	}
+	if cfg.PreSettlement.EmergencyCloseThreshold == 0 {
+		cfg.PreSettlement.EmergencyCloseThreshold = 0.75
+	}
+	if !cfg.PreSettlement.WidenTPOnMiss {
+		cfg.PreSettlement.WidenTPOnMiss = true
 	}
 
 	// Phase 6: Telegram defaults

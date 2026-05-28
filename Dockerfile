@@ -9,4 +9,5 @@ FROM alpine:3.20
 WORKDIR /app
 COPY --from=builder /app/bin/bot .
 COPY config/config.yaml config/
+COPY migrations/ migrations/
 ENTRYPOINT ["./bot", "-config", "config/config.yaml"]

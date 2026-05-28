@@ -364,6 +364,21 @@ func (c *BinanceClient) GetAccount(ctx context.Context) (*AccountResponse, error
 	return &resp, nil
 }
 
+// GetServerTime returns the Binance server time (UTC).
+func (c *BinanceClient) GetServerTime(ctx context.Context) (time.Time, error) {
+	body, err := c.get(ctx, "/fapi/v1/time", nil, false)
+	if err != nil {
+		return time.Time{}, err
+	}
+	var resp struct {
+		ServerTime int64 `json:"serverTime"`
+	}
+	if err := json.Unmarshal(body, &resp); err != nil {
+		return time.Time{}, fmt.Errorf("parse serverTime: %w", err)
+	}
+	return time.UnixMilli(resp.ServerTime).UTC(), nil
+}
+
 func (c *BinanceClient) get(ctx context.Context, path string, params url.Values, signed bool) ([]byte, error) {
 	u := c.baseURL + path
 	if params != nil {

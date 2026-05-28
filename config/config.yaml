@@ -32,7 +32,7 @@ execution:
 scheduler:
   scan_interval_early: "1m"
   scan_interval_late: "1m"
-  window_start_minutes: 20
+  window_start_minutes: 30
 
 websocket:
   ping_interval: "2m"
@@ -44,19 +44,19 @@ websocket:
 database:
   postgres:
     host: "${POSTGRES.HOST}"
-    port: "${POSTGRES.PORT}"
+    port: 5432
     user: "${POSTGRES.USERNAME}"
     password: "${POSTGRES.PASSWORD}"
     dbname: "${POSTGRES.DATABASE}"
     sslmode: "disable"
     max_conns: 10
   redis:
-    addr: "${REDIS.HOST}:${REDIS.PORT}"
+    addr: "${REDIS.HOST}:6379"
     password: "${REDIS.PASSWORD}"
-    db: "${REDIS.DATABASE}"
+    db: 0
 
 filtering:
-  min_daily_roi_pct: 20.0
+  min_daily_roi_pct: 15.0
   min_volume_24h_m: 25.0
 
 scoring:
@@ -87,16 +87,22 @@ backtest:
   data_dir: "./data/backtest"
 
 llm:
-  enabled: false
+  enabled: true
   api_key: "${OPENAI.API_KEY}"
-  model: "gpt-4.1-mini"
+  model: "gpt-5-mini"
   timeout_secs: 15
   max_retries: 1
-  max_rpm: 30
-  top_candidates: 5
+  max_rpm: 20
+  top_candidates: 3
   min_confidence: 60
   frontrun_exec_interval_secs: 300  # execute best FRONTRUN intent every 5m
   call_cooldown_secs: 300           # skip LLM call if inputs unchanged within this window
+
+telegram:
+  enabled: true
+  bot_token: "${TELEGRAM.BOT_TOKEN}"
+  chat_id: "${TELEGRAM.CHAT_ID}"
+  timeout_secs: 10
 
 memory:
   enabled: false
@@ -107,4 +113,19 @@ memory:
   embed_skips: true
   skip_validation_delay: "2h"
   max_memory_age: "90d"
-  summarizer_model: "gpt-4.1-mini"
+  summarizer_model: "gpt-5-mini"
+
+after_execution:
+  enabled: true
+  subscribe_before_seconds: 5       # subscribe @bookTicker at T-Xs before settlement
+  min_bid_depth_multiplier: 1.0     # skip if bidDepthUSDT < multiplier * orderSize
+  full_size_depth_multiplier: 3.0   # use full size if bidDepth >= 3x order
+  reduced_size_pct: 50              # position size pct when book is thin (< 1.5x)
+  clock_sync_interval_seconds: 300  # sync Binance server time every 5m
+  fallback_to_scheduler: true       # scheduler fires as fallback if trigger fails
+
+pre_settlement:
+  enabled: true
+  check_before_minutes: 2              # fire check at T-2m before settlement
+  emergency_close_threshold: 0.75     # close if loss > 0.75 * |funding_rate|
+  widen_tp_on_miss: true               # widen TP1 to 2%+|funding_rate| if not filled

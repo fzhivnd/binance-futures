@@ -14,6 +14,15 @@ type ForceSLRequest struct {
 	EntryReasons       []string           `json:"entry_reasons"`
 	PriceAction        ForceSLPriceAction `json:"price_action"`
 	BTCContext         LLMBTCContext      `json:"btc_context"`
+
+	// Phase 8: funding fee context
+	FundingRatePct     float64 `json:"funding_rate_pct"`      // original funding rate at entry (e.g. -0.8)
+	FundingFeePaid     bool    `json:"funding_fee_paid"`      // true if held through settlement
+	FundingFeePaidPct  float64 `json:"funding_fee_paid_pct"`  // e.g. 0.8 = 0.8% fee paid
+	EffectiveLossPct   float64 `json:"effective_loss_pct"`    // unrealized PnL + fee paid (true damage)
+	SettlementPassed   bool    `json:"settlement_passed"`     // has funding settlement occurred since entry?
+	MinutesSinceSettle int     `json:"minutes_since_settlement"`
+	TPWidened          bool    `json:"tp_widened"`            // whether TP was already widened at T-2m
 }
 
 type ForceSLPriceAction struct {

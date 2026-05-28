@@ -1,26 +1,33 @@
 services:
   postgres:
-    image: postgres:16-alpine
+    image: pgvector/pgvector:pg16
     environment:
-      POSTGRES_USER: futures
-      POSTGRES_PASSWORD: futures_dev
-      POSTGRES_DB: futures_bot
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
     ports:
       - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U futures"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 5s
       timeout: 5s
       retries: 5
 
   redis:
     image: redis:7-alpine
+    command: >
+      sh -c "if [ -n '${REDIS_PASSWORD}' ];
+             then redis-server --requirepass ${REDIS_PASSWORD};
+             else redis-server; fi"
     ports:
       - "6379:6379"
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: >
+        sh -c "if [ -n '${REDIS_PASSWORD}' ];
+               then redis-cli -a ${REDIS_PASSWORD} ping;
+               else redis-cli ping; fi"
       interval: 5s
       timeout: 5s
       retries: 5
@@ -35,9 +42,23 @@ services:
       redis:
         condition: service_healthy
     environment:
-      - BINANCE_API_KEY=${BINANCE_API_KEY}
-      - BINANCE_API_SECRET=${BINANCE_API_SECRET}
-      - POSTGRES_PASSWORD=futures_dev
+      # Binance — matches ${BINANCE.API_KEY} in config.yaml
+      - BINANCE.API_KEY=${BINANCE_API_KEY}
+      - BINANCE.API_SECRET=${BINANCE_API_SECRET}
+      # OpenAI — matches ${OPENAI.API_KEY} in config.yaml
+      - OPENAI.API_KEY=${OPENAI_API_KEY}
+      # Postgres — matches ${POSTGRES.*} in config.yaml
+      - POSTGRES.HOST=localhost
+      - POSTGRES.USERNAME=${POSTGRES_USER}
+      - POSTGRES.PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES.DATABASE=${POSTGRES_DB}
+      # Redis — matches ${REDIS.*} in config.yaml
+      - REDIS.HOST=localhost
+      - REDIS.PASSWORD=${REDIS_PASSWORD}
+      # Telegram — matches ${TELEGRAM.*} in config.yaml (if you add those vars)
+      - TELEGRAM.BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - TELEGRAM.CHAT_ID=${TELEGRAM_CHAT_ID}
+    network_mode: host
     volumes:
       - ./config:/app/config:ro
     restart: unless-stopped

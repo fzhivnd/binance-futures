@@ -56,6 +56,12 @@ func main() {
 		os.Exit(1)
 	}
 
+	slog.Info("running database migrations")
+	if err := storage.Migrate(ctx, pool, "migrations"); err != nil {
+		slog.Error("migration failed", "error", err)
+		os.Exit(1)
+	}
+
 	tradeRepo := telemetry.NewInstrumentedTradeRepo(storage.NewPGTradeRepository(pool))
 	riskRepo := storage.NewPGRiskRepository(pool)
 	cache := telemetry.NewInstrumentedStateCache(storage.NewRedisStateCache(redisClient), 60)
