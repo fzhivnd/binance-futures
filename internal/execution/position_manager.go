@@ -14,6 +14,7 @@ import (
 	"futures/internal/exchange"
 	"futures/internal/indicator"
 	"futures/internal/llm"
+	"futures/internal/notify"
 	"futures/internal/storage"
 )
 
@@ -32,6 +33,7 @@ type PositionManager struct {
 	cfg           *config.Config
 	forceSLEngine *llm.ForceSLEngine
 	indEngine     *indicator.Engine
+	notifier      *notify.Notifier
 }
 
 func NewPositionManager(
@@ -41,6 +43,7 @@ func NewPositionManager(
 	tradeRepo storage.TradeRepository,
 	riskRepo *storage.PGRiskRepository,
 	cfg *config.Config,
+	notifier *notify.Notifier,
 ) *PositionManager {
 	return &PositionManager{
 		executor:  exec,
@@ -49,6 +52,7 @@ func NewPositionManager(
 		tradeRepo: tradeRepo,
 		riskRepo:  riskRepo,
 		cfg:       cfg,
+		notifier:  notifier,
 	}
 }
 
@@ -540,6 +544,22 @@ func (m *PositionManager) persistClose(ctx context.Context, pos domain.Position,
 		"avg_close", avgClose,
 		"pnl", pnl,
 	)
+
+	if m.notifier != nil {
+		leveragedPnlPct := pnl / (pos.EntryPrice * pos.OriginalQty) * float64(pos.Leverage) * 100
+		m.notifier.NotifyTradeClosed(ctx, notify.TradeClosedEvent{
+			Symbol:       pos.Symbol,
+			Side:         "SHORT",
+			EntryPrice:   pos.EntryPrice,
+			ExitPrice:    avgClose,
+			PnL:          pnl,
+			PnLPct:       leveragedPnlPct,
+			Result:       result,
+			CloseReason:  closeReason,
+			HoldDuration: now.Sub(pos.OpenedAt).Round(time.Second).String(),
+			IsPaper:      pos.IsPaper,
+		})
+	}
 }
 
 // computeAvgClosePrice calculates weighted average exit price for split-leg closes.

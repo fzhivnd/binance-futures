@@ -10,6 +10,7 @@ import (
 
 	"futures/internal/config"
 	"futures/internal/domain"
+	"futures/internal/notify"
 	"futures/internal/scheduler"
 	"futures/internal/storage"
 )
@@ -26,6 +27,7 @@ type ExecutionEngine struct {
 	tradeRepo storage.TradeRepository
 	riskRepo  *storage.PGRiskRepository
 	cfg       *config.Config
+	notifier  *notify.Notifier
 }
 
 func NewExecutionEngine(
@@ -35,6 +37,7 @@ func NewExecutionEngine(
 	tradeRepo storage.TradeRepository,
 	riskRepo *storage.PGRiskRepository,
 	cfg *config.Config,
+	notifier *notify.Notifier,
 ) *ExecutionEngine {
 	return &ExecutionEngine{
 		executor:  exec,
@@ -43,6 +46,7 @@ func NewExecutionEngine(
 		tradeRepo: tradeRepo,
 		riskRepo:  riskRepo,
 		cfg:       cfg,
+		notifier:  notifier,
 	}
 }
 
@@ -269,5 +273,22 @@ func (e *ExecutionEngine) executeInternalWithTP(ctx context.Context, candidate d
 		"window", window,
 		"paper", e.cfg.App.Mode == "paper",
 	)
+
+	if e.notifier != nil {
+		e.notifier.NotifyTradeOpened(ctx, notify.TradeOpenedEvent{
+			Symbol:     candidate.Symbol,
+			Side:       "SHORT",
+			EntryPrice: entryPrice,
+			Quantity:   order.Quantity,
+			Leverage:   e.cfg.Trading.Leverage,
+			StopLoss:   stopLoss,
+			TakeProfit: takeProfit,
+			EntryMode:  string(window.ToEntryMode()),
+			Confidence: confidence,
+			Score:      float64(confidence),
+			IsPaper:    e.cfg.App.Mode == "paper",
+		})
+	}
+
 	return nil
 }

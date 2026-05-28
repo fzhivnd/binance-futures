@@ -60,3 +60,12 @@ database:
     addr: "${REDIS.HOST}:${REDIS.PORT}"
     password: "${REDIS.PASSWORD}"
     db: "${REDIS.DATABASE}"
+
+telegram:
+  enabled: false
+  bot_token: ""    # from @BotFather
+  chat_id: ""      # your Telegram user/group chat ID
+  timeout_secs: 10
+
+summary:
+  enabled: true

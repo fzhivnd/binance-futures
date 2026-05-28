@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"futures/internal/domain"
+	"futures/internal/notify"
 	"futures/internal/storage"
 )
 
@@ -37,14 +38,16 @@ type Engine struct {
 	tradeRepo storage.TradeRepository
 	drawdown  *DrawdownTracker
 	cfg       Config
+	notifier  *notify.Notifier
 }
 
-func NewEngine(cache storage.StateCache, tradeRepo storage.TradeRepository, drawdown *DrawdownTracker, cfg Config) *Engine {
+func NewEngine(cache storage.StateCache, tradeRepo storage.TradeRepository, drawdown *DrawdownTracker, cfg Config, notifier *notify.Notifier) *Engine {
 	return &Engine{
 		cache:     cache,
 		tradeRepo: tradeRepo,
 		drawdown:  drawdown,
 		cfg:       cfg,
+		notifier:  notifier,
 	}
 }
 
@@ -76,10 +79,28 @@ func (e *Engine) PreCheck(ctx context.Context) error {
 
 	losses, err := e.tradeRepo.GetDailyLossCount(ctx, time.Now().UTC())
 	if err == nil && losses >= e.cfg.MaxDailyLosses {
+		if e.notifier != nil {
+			e.notifier.NotifyRiskEvent(ctx, notify.RiskEvent{
+				Type:    "daily_loss_limit",
+				Message: fmt.Sprintf("Daily loss limit reached (%d losses). Trading disabled until 00:00 UTC.", e.cfg.MaxDailyLosses),
+			})
+		}
 		return fmt.Errorf("daily loss limit reached (%d)", e.cfg.MaxDailyLosses)
 	}
 
 	return nil
+}
+
+// ActivateKillSwitch sets the kill switch flag and sends a risk notification.
+func (e *Engine) ActivateKillSwitch(ctx context.Context, reason string) {
+	_ = e.cache.SetKillSwitch(ctx, true)
+	slog.Error("kill switch activated", "reason", reason)
+	if e.notifier != nil {
+		e.notifier.NotifyRiskEvent(ctx, notify.RiskEvent{
+			Type:    "kill_switch",
+			Message: "Kill switch activated: " + reason,
+		})
+	}
 }
 
 // EvaluateCandidate runs Phase 2 indicator-aware guards.

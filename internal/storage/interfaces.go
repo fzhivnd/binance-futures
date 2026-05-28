@@ -29,6 +29,7 @@ type TradeRepository interface {
 	GetRecent(ctx context.Context, limit int) ([]domain.Trade, error)
 	UpdateResult(ctx context.Context, id uuid.UUID, exit domain.ExitInfo) error
 	GetDailyLossCount(ctx context.Context, date time.Time) (int, error)
+	FindByOpenTimeRange(ctx context.Context, from, to time.Time, isPaper bool) ([]domain.Trade, error)
 }
 
 type MemorySearchResult struct {
