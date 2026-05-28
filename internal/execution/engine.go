@@ -116,8 +116,8 @@ func (e *ExecutionEngine) executeInternal(
 		}
 	}
 
-	lossCount, err := e.tradeRepo.GetDailyLossCount(ctx, time.Now().UTC())
-	if err == nil && lossCount >= 2 {
+	lossCount, err := e.cache.GetDailyLossCount(ctx)
+	if err == nil && lossCount >= e.cfg.Risk.MaxDailyLosses {
 		slog.Warn("daily loss limit reached, skipping", "symbol", candidate.Symbol)
 		return nil
 	}
@@ -129,7 +129,6 @@ func (e *ExecutionEngine) executeInternal(
 	if balance.AvailableBalance < 50 {
 		return fmt.Errorf("insufficient balance: %.2f", balance.AvailableBalance)
 	}
-	balance.AvailableBalance = 100 // TODO: REMOVED
 
 	margin := balance.AvailableBalance * positionSizePct / 100
 	qty := margin * float64(e.cfg.Trading.Leverage) / candidate.MarkPrice

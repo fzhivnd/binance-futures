@@ -25,6 +25,7 @@ import (
 	"futures/internal/scoring"
 	"futures/internal/storage"
 	"futures/internal/summary"
+	"futures/internal/telemetry"
 )
 
 // llmCallState tracks what we last sent to the LLM so we can skip redundant calls.
@@ -103,13 +104,13 @@ func (a *App) Run(
 	}
 
 	if a.cfg.App.Mode == "live" {
-		a.executor = execution.NewLiveExecutor(binanceClient)
+		a.executor = telemetry.NewInstrumentedExecutor(execution.NewLiveExecutor(binanceClient))
 	} else {
-		a.executor = execution.NewPaperExecutor(
+		a.executor = telemetry.NewInstrumentedExecutor(execution.NewPaperExecutor(
 			a.cfg.App.PaperBalance,
 			a.cfg.Execution.SlippageBps,
 			a.engine.TickerCache(),
-		)
+		))
 	}
 
 	a.scanner = scanner.NewFundingScanner(a.engine, &a.cfg.Funding)
@@ -242,7 +243,7 @@ func (a *App) Run(
 			})
 		}
 		maxAge := a.cfg.Memory.GetMaxMemoryAge()
-		memRepo := storage.NewPGMemoryRepository(pool, maxAge)
+		memRepo := telemetry.NewInstrumentedMemoryRepo(storage.NewPGMemoryRepository(pool, maxAge))
 		a.memoryEngine = memory.NewEngine(memory.EngineConfig{
 			Enabled: true,
 			EmbedderCfg: memory.EmbedderConfig{

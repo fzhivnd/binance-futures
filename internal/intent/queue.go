@@ -116,8 +116,13 @@ func (q *Queue) tickFrontrunLocked(ctx context.Context) {
 
 	// Release lock before calling execFn (may block).
 	q.mu.Unlock()
-	if err := q.execFn(ctx, intent.Candidate, intent.Decision); err != nil {
-		slog.Error("intent execution failed", "symbol", intent.Symbol, "error", err)
+	execStart := time.Now()
+	err := q.execFn(ctx, intent.Candidate, intent.Decision)
+	latencyMs := float64(time.Since(execStart).Microseconds()) / 1000.0
+	if err != nil {
+		slog.Error("intent execution failed", "symbol", intent.Symbol, "window", scheduler.WindowFrontrun, "latency_ms", latencyMs, "error", err)
+	} else {
+		slog.Info("intent executed", "symbol", intent.Symbol, "window", scheduler.WindowFrontrun, "confidence", intent.Decision.Confidence, "latency_ms", latencyMs)
 	}
 	q.mu.Lock()
 }
@@ -147,8 +152,13 @@ func (q *Queue) tickTransitionLocked(ctx context.Context, currentWindow schedule
 	)
 
 	q.mu.Unlock()
-	if err := q.execFn(ctx, intent.Candidate, intent.Decision); err != nil {
-		slog.Error("intent execution failed", "symbol", intent.Symbol, "error", err)
+	execStart := time.Now()
+	err := q.execFn(ctx, intent.Candidate, intent.Decision)
+	latencyMs := float64(time.Since(execStart).Microseconds()) / 1000.0
+	if err != nil {
+		slog.Error("intent execution failed", "symbol", intent.Symbol, "window", currentWindow, "latency_ms", latencyMs, "error", err)
+	} else {
+		slog.Info("intent executed", "symbol", intent.Symbol, "window", currentWindow, "confidence", intent.Decision.Confidence, "latency_ms", latencyMs)
 	}
 	q.mu.Lock()
 }

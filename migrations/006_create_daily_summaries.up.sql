@@ -12,4 +12,4 @@ CREATE TABLE IF NOT EXISTS daily_summaries (
     CONSTRAINT uq_daily_summaries_date UNIQUE (trade_date, is_paper)
 );
 
-CREATE INDEX idx_daily_summaries_date ON daily_summaries (trade_date DESC);
+CREATE INDEX IF NOT EXISTS idx_daily_summaries_date ON daily_summaries (trade_date DESC);
