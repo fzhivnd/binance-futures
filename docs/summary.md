@@ -170,11 +170,11 @@ SCAN → PRE-FILTER → INDICATOR SCORE → TOP 3 ONLY
 
 > Extremely negative funding can indicate a crowded short or squeeze risk.
 
-**Daily ROI Filter:** `daily ROI > 20%`
+**Daily ROI Filter:** `daily ROI > 15%`
 
 | ROI Range | Interpretation |
 |-----------|----------------|
-| 20–50%    | Optimal        |
+| 15–50%    | Optimal        |
 | 50–80%    | Dangerous      |
 | > 80%     | Avoid          |
 

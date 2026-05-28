@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"log/slog"
 	"strconv"
+	"strings"
 	"time"
 
 	"futures/internal/domain"
@@ -32,11 +33,17 @@ func (r *UserDataRouter) Handle(msgType string, data []byte) {
 }
 
 type StreamRouter struct {
-	engine *market.MarketEngine
+	engine     *market.MarketEngine
+	bookTicker *market.BookTickerCache // may be nil
 }
 
 func NewStreamRouter(engine *market.MarketEngine) *StreamRouter {
 	return &StreamRouter{engine: engine}
+}
+
+// SetBookTickerCache wires an optional BookTickerCache for @bookTicker events.
+func (r *StreamRouter) SetBookTickerCache(c *market.BookTickerCache) {
+	r.bookTicker = c
 }
 
 func (r *StreamRouter) Handle(msgType string, data []byte) {
@@ -45,6 +52,8 @@ func (r *StreamRouter) Handle(msgType string, data []byte) {
 		r.handleMarkPriceArray(data)
 	case "kline":
 		r.handleKline(data)
+	case "bookTicker":
+		r.handleBookTicker(data)
 	default:
 		// combined stream wrapper or subscription response — try both
 		var wrapped struct {
@@ -66,6 +75,9 @@ func (r *StreamRouter) Handle(msgType string, data []byte) {
 func detectStreamType(stream string) string {
 	if len(stream) > 10 && stream[len(stream)-5:] == "kline" {
 		return "kline"
+	}
+	if strings.HasSuffix(stream, "@bookTicker") {
+		return "bookTicker"
 	}
 	return stream
 }
@@ -114,4 +126,24 @@ func (r *StreamRouter) handleKline(data []byte) {
 	candle.Close, _ = strconv.ParseFloat(k.Close, 64)
 	candle.Volume, _ = strconv.ParseFloat(k.Volume, 64)
 	r.engine.UpdateCandle(candle)
+}
+
+func (r *StreamRouter) handleBookTicker(data []byte) {
+	if r.bookTicker == nil {
+		return
+	}
+	var event BookTickerEvent
+	if err := json.Unmarshal(data, &event); err != nil {
+		slog.Debug("parse bookTicker failed", "error", err)
+		return
+	}
+	if event.Symbol == "" {
+		return
+	}
+	bt := &market.BookTicker{UpdatedAt: time.Now()}
+	bt.BidPrice, _ = strconv.ParseFloat(event.BidPrice, 64)
+	bt.BidQty, _ = strconv.ParseFloat(event.BidQty, 64)
+	bt.AskPrice, _ = strconv.ParseFloat(event.AskPrice, 64)
+	bt.AskQty, _ = strconv.ParseFloat(event.AskQty, 64)
+	r.bookTicker.Update(event.Symbol, bt)
 }

@@ -109,7 +109,7 @@ Phase 2 Additions (inserted between scanner and execution):
     │  []Candidate (filtered by funding rate)                  │
     │       │                                                 │
     │       ▼                                                 │
-    │  ROI Filter: reject if daily_roi < 20%                  │
+    │  ROI Filter: reject if daily_roi < 15%                  │
     │       │                                                 │
     │       ▼                                                 │
     │  Volume Filter: reject if 24h volume < threshold M      │
@@ -283,7 +283,7 @@ Existing goroutines (unchanged):
 Modified flow within Scheduler scan:
     scanFn(ctx, window):
         1. FundingScanner.Scan()           — returns []Candidate (Phase 1 funding filter)
-        2. ROI Filter                      — reject candidates with daily_roi < 20% (NEW)
+        2. ROI Filter                      — reject candidates with daily_roi < 15% (NEW)
         3. Volume Filter                   — reject candidates with 24h volume < threshold (NEW)
         4. IndicatorEngine.Compute()       — for each remaining candidate (NEW)
         4. IndicatorEngine.ComputeBTCContext() — once per cycle (NEW)
@@ -319,7 +319,7 @@ Modified flow within Scheduler scan:
                            ▼
                     ┌──────────────────────┐
                     │ ROI Filter            │
-                    │ reject daily_roi < 20%│
+                    │ reject daily_roi < 15%│
                     └──────┬───────────────┘
                            │
                            ▼
@@ -483,10 +483,10 @@ Scorer.Score(candidate, indicators, btcContext)
        │       no spike → 3
        │
        ├── ROI Score (max 15) — based on 24h price change %:
-       │       daily_roi 20-50% → 15 (optimal pump, good reversal setup)
+       │       daily_roi 15-50% → 15 (optimal pump, good reversal setup)
        │       daily_roi 50-80% → 7 (dangerous, extreme momentum)
        │       daily_roi > 80%  → 0 (avoid, parabolic — too risky)
-       │       daily_roi < 20%  → 0 (already filtered out)
+       │       daily_roi < 15%  → 0 (already filtered out)
        │
        └── Volatility Score (max 5):
                ATRRatio 1-3%    → 5 (enough movement for TP)
@@ -541,9 +541,9 @@ cmd/backtest
 
 Daily ROI here means the **coin's 24-hour price change percentage** — how much the coin has pumped (or dumped) in the last 24 hours. This is NOT the funding rate yield; it measures price momentum.
 
-The daily ROI filter is a **hard rejection gate** applied after funding rate filtering and before any indicator computation. Candidates with `daily_roi < 20%` are immediately discarded — they do not proceed to the indicator engine or scoring.
+The daily ROI filter is a **hard rejection gate** applied after funding rate filtering and before any indicator computation. Candidates with `daily_roi < 15%` are immediately discarded — they do not proceed to the indicator engine or scoring.
 
-**Why:** A coin with extreme negative funding but less than 20% price increase in 24h hasn't pumped hard enough — the short squeeze risk isn't justified by the setup quality. We want coins that have run up aggressively (creating overextension) alongside deeply negative funding. Below 20% daily price change, the momentum isn't extreme enough to expect a meaningful reversal.
+**Why:** A coin with extreme negative funding but less than 15% price increase in 24h hasn't pumped hard enough — the short squeeze risk isn't justified by the setup quality. We want coins that have run up aggressively (creating overextension) alongside deeply negative funding. Below 15% daily price change, the momentum isn't extreme enough to expect a meaningful reversal.
 
 ```go
 // FilterByROI removes candidates whose 24h price change doesn't meet the minimum threshold.
@@ -564,14 +564,14 @@ func FilterByROI(candidates []domain.Candidate, minROIPct float64) []domain.Cand
 
 | 24h Price Change (Daily ROI) | Action |
 |------------------------------|--------|
-| < 20% | **REJECT** — pump not extreme enough |
-| >= 20% | PASS to indicator engine |
+| < 15% | **REJECT** — pump not extreme enough |
+| >= 15% | PASS to indicator engine |
 
 **ROI scoring (applied later in Scorer, max 15 points):**
 
 | 24h Price Change | Interpretation | Score |
 |------------------|---------------|-------|
-| 20–50% | Optimal — strong pump creating overextension, good reversal setup | 15 |
+| 15–50% | Optimal — strong pump creating overextension, good reversal setup | 15 |
 | 50–80% | Dangerous — extreme pump but elevated risk of continued momentum | 7 |
 | > 80% | Avoid — parabolic move, too unpredictable, squeeze likely to continue | 0 |
 
@@ -584,10 +584,10 @@ Computed from the 1D kline close-to-close, or from comparing the current mark pr
 
 **Example:**
 - 1000PEPEUSDT: price 24h ago = $0.010, now = $0.013 → daily_roi = 30% → **PASS** (optimal range)
-- DOGEUSDT: price 24h ago = $0.15, now = $0.17 → daily_roi = 13.3% → **REJECT** (< 20%)
+- DOGEUSDT: price 24h ago = $0.15, now = $0.17 → daily_roi = 13.3% → **REJECT** (< 15%)
 - WIFUSDT: price 24h ago = $1.00, now = $1.85 → daily_roi = 85% → **PASS** (but scored 0 — avoid)
 
-> Note: The 20% threshold ensures we only short coins that have pumped hard enough to create genuine overextension. Combined with deeply negative funding, this setup targets the "overheated long squeeze" scenario where aggressive longs are paying extreme funding while price is already overextended.
+> Note: The 15% threshold ensures we only short coins that have pumped hard enough to create genuine overextension. Combined with deeply negative funding, this setup targets the "overheated long squeeze" scenario where aggressive longs are paying extreme funding while price is already overextended.
 
 ---
 
@@ -1065,7 +1065,7 @@ func (s *ScorerImpl) Score(c domain.Candidate, ind *IndicatorSnapshot, btc *BTCC
     case c.DailyROI > 80:
         bd.ROIScore = 0                    // avoid: parabolic, too unpredictable
     default:
-        bd.ROIScore = 0                    // < 20% already filtered out upstream
+        bd.ROIScore = 0                    // < 15% already filtered out upstream
     }
 
     // 7. Volatility Score (max 5)
@@ -1504,7 +1504,7 @@ func (r *Runner) Run(ctx context.Context) (*BacktestResult, error) {
 # Additions to config.yaml
 
 filtering:
-  min_daily_roi_pct: 20.0    # Hard filter: reject coins with 24h price change < 20%
+  min_daily_roi_pct: 15.0    # Hard filter: reject coins with 24h price change < 15%
   min_volume_24h_m: 50.0     # Hard filter: reject coins with 24h volume < 50M USDT
 
 scoring:

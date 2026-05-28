@@ -152,6 +152,16 @@ type OpenOrderResponse struct {
 	ReduceOnly bool    `json:"reduceOnly"`
 }
 
+// BookTickerEvent is one update from <symbol>@bookTicker stream.
+type BookTickerEvent struct {
+	Symbol   string `json:"s"`
+	BidPrice string `json:"b"`
+	BidQty   string `json:"B"`
+	AskPrice string `json:"a"`
+	AskQty   string `json:"A"`
+	UpdateTime int64 `json:"T"`
+}
+
 // UserDataEvent wraps ORDER_TRADE_UPDATE from the user data stream.
 type UserDataEvent struct {
 	EventType string           `json:"e"`

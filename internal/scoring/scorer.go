@@ -72,7 +72,7 @@ func (s *Scorer) Score(c domain.Candidate, ind *domain.IndicatorSnapshot, btc *d
 
 	// 6. ROI (max 15): based on 24h price change
 	switch {
-	case c.DailyROI >= 20 && c.DailyROI <= 50:
+	case c.DailyROI >= 15 && c.DailyROI <= 50:
 		bd.ROIScore = s.weights.ROI
 	case c.DailyROI > 50 && c.DailyROI <= 80:
 		bd.ROIScore = s.weights.ROI * 0.47

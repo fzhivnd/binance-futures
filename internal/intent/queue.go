@@ -127,6 +127,36 @@ func (q *Queue) tickFrontrunLocked(ctx context.Context) {
 	q.mu.Lock()
 }
 
+// ClaimAfterIntent atomically claims the best eligible AFTER intent and marks it fired.
+// Returns nil if none is available or one was already fired. Safe for use by AfterTrigger
+// to prevent double-fire with the scheduler's tickTransitionLocked path.
+func (q *Queue) ClaimAfterIntent() *TradeIntent {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+
+	if q.firedInWindow[scheduler.WindowAfter] {
+		return nil
+	}
+	intent := q.bestEligibleLocked(scheduler.WindowAfter)
+	if intent == nil {
+		return nil
+	}
+	intent.Status = IntentFired
+	q.removeByIndexLocked(intent)
+	q.firedInWindow[scheduler.WindowAfter] = true
+	return intent
+}
+
+// HasAfterIntent returns true if there is at least one pending AFTER-eligible intent.
+func (q *Queue) HasAfterIntent() bool {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	if q.firedInWindow[scheduler.WindowAfter] {
+		return false
+	}
+	return q.bestEligibleLocked(scheduler.WindowAfter) != nil
+}
+
 // tickTransitionLocked fires the best eligible intent exactly once per window type per funding cycle.
 // Must be called with q.mu held.
 func (q *Queue) tickTransitionLocked(ctx context.Context, currentWindow scheduler.WindowType) {

@@ -45,17 +45,84 @@ DECISION FRAMEWORK:
 3. Look for confluence: strong funding + rising OI + bearish candle patterns + momentum exhaustion
 4. Avoid: low confluence setups, squeeze risk (extreme OI + no reversal signal), BTC breakout environment
 
-ENTRY MODE LOGIC:
-- FRONTRUN: Enter 15-30m before funding settlement. Best when: high confidence, clear reversal forming. Captures full funding fee (included in Projected TP1). Risk: price can still pump before settlement.
-- LAST_MINUTE: Enter 1-5m before settlement. Best when: moderate confidence, want direction confirmation. Captures funding fee (included in Projected TP1). Safer than FRONTRUN.
-- AFTER: Enter 0-5m after settlement. Best when: want to see actual settlement reaction. Does NOT capture funding fee — effective TP1 is lower than shown. Lowest squeeze risk.
+ENTRY MODE BEHAVIOR:
 
-Note: "Projected TP1" shown per candidate includes the funding fee and applies to FRONTRUN/LAST_MINUTE entries only. For AFTER entries, subtract the funding rate from Projected TP1 to get the effective target.
+We short coins with extreme negative funding rates. Each entry mode targets a DIFFERENT
+price movement phenomenon. Understanding what you're trying to capture is critical.
+
+═══════════════════════════════════════════════════════════════════════════════════════
+WHAT WE'RE CAPTURING — THE CORE THESIS PER MODE:
+═══════════════════════════════════════════════════════════════════════════════════════
+
+IMPORTANT — FUNDING FEE MECHANICS:
+  We SHORT on NEGATIVE funding. Negative funding = shorts PAY longs at settlement.
+  If we hold a short through settlement → WE PAY the funding fee (0.5-2% cost).
+  Our goal is to profit from price drop and ideally EXIT BEFORE settlement to avoid paying.
+  If we can't exit in time, TP is widened at T-2m so the price drop covers the fee.
+
+FRONTRUN thesis: "Price will drop BEFORE funding settlement — exit before paying the fee."
+  → WHY: When funding is extremely negative, smart money closes longs 10-30 minutes before
+    settlement to avoid paying the fee. This selling pressure causes a pre-settlement dump.
+  → BEST CASE: TP1 hits before settlement → 2% pure profit, ZERO fee paid.
+  → WORST CASE: TP1 doesn't hit → hold through settlement, pay the fee, TP widens.
+    Or if losing at T-2m → emergency close to avoid paying fee on a loser.
+  → EDGE: Enter early, catch the pre-settlement dump, exit clean before the fee hits.
+
+LAST_MINUTE thesis: "Price is already starting to drop — confirm direction, likely pays fee."
+  → WHY: Same mechanic as FRONTRUN but wait until T-5m for confirmation. Less time means
+    less chance TP1 hits before settlement. More likely to hold through and pay the fee.
+  → LIKELY OUTCOME: Hold through settlement → pay fee → TP widened to cover it.
+  → EDGE: Less time exposed to squeezes. Directional confirmation before committing.
+
+AFTER thesis: "Price will dump HARD right after funding settlement — ride the post-fee panic."
+  → WHY: At T+0, longs who just PAID a massive fee (-0.8% to -2%) panic-sell to cut losses.
+    Bots fire sell orders simultaneously. Concentrated dump in the first 0-60 seconds.
+  → WHAT WE GET: 2% price drop profit. NO fee to pay (we entered AFTER settlement).
+  → KEY: This is the only mode where we keep 100% of the 2% move with ZERO fee cost.
+    But we miss the pre-settlement dump and enter at a potentially worse price.
+
+═══════════════════════════════════════════════════════════════════════════════════════
+MODE MECHANICS & SYSTEM BEHAVIOR:
+═══════════════════════════════════════════════════════════════════════════════════════
+
+FRONTRUN (Enter T-30m to T-5m):
+  TP1 Target: 2% pure. Funding Fee: we PAY if held through settlement.
+  T-2m Safety: If losing > 0.75×|funding_rate| → force-closed (avoid fee on loser).
+  T-2m Adjust: If TP1 not hit → TP widens to 2%+|funding_rate| (cover the fee cost).
+  Hard SL: 5% adverse move. Best signals: RSI exhaustion, OI rising, early selling volume.
+
+LAST_MINUTE (Enter T-5m to T-0):
+  TP1 Target: 2% pure. Funding Fee: almost certainly PAY (not enough time to TP before).
+  T-2m Safety: applies if entered before T-2m. Best signals: dump already beginning.
+
+AFTER (Enter T+0 to T+1m):
+  TP1 Target: 2% pure — this is 100% yours, no fee deduction.
+  Funding Fee: NOT paid. T-2m Safety: does NOT apply (no upcoming settlement).
+  Best signals: extreme funding -1% to -2%, high OI, uncertain pre-settlement setup.
+
+═══════════════════════════════════════════════════════════════════════════════════════
+MODE SELECTION DECISION TREE:
+═══════════════════════════════════════════════════════════════════════════════════════
+
+"Am I confident price will drop BEFORE settlement?"
+  YES (confidence ≥ 80, clear reversal forming) → FRONTRUN
+    Best case: 2% profit, zero fee. Accept T-2m emergency close risk if wrong.
+  MAYBE (confidence 65-79, some signals) → LAST_MINUTE
+    Accept paying fee. Net profit target still 2% after fee deduction.
+  NO / UNSURE (confidence 60-69, or squeeze risk elevated) → AFTER
+    Enter post-settlement. No fee, keep 100% of the 2% move. Worse entry price.
+  NOTHING (confidence < 60) → SKIP
+
+Additional factors:
+- BTC in breakout → penalize FRONTRUN heavily (squeeze risk during long exposure)
+- ATR ratio > 3 → prefer LAST_MINUTE or AFTER (less time for volatile swings)
+- Funding rate > -0.5% → AFTER less attractive (weak fee = weak post-settlement panic)
+- Funding rate < -1.5% → FRONTRUN attractive (strong pre-dump pressure)
 
 RISK PARAMETERS:
 - Hard SL: 5% adverse price move triggers stop
 - Base TP: ~2% price move = 40% ROI at 20x
-- Breakeven trigger: move SL to entry after 1% profit
+- Breakeven trigger: move SL to entry after 1.5% profit
 - Consider: if a coin's ATR ratio is high (>3), normal price swings may trigger our tight SL before the thesis plays out. Reduce confidence for high-volatility setups unless reversal signal is very strong.
 
 CONFIDENCE SCORING (0-100):

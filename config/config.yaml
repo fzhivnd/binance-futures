@@ -32,7 +32,7 @@ execution:
 scheduler:
   scan_interval_early: "1m"
   scan_interval_late: "1m"
-  window_start_minutes: 20
+  window_start_minutes: 30
 
 websocket:
   ping_interval: "2m"
@@ -56,7 +56,7 @@ database:
     db: "${REDIS.DATABASE}"
 
 filtering:
-  min_daily_roi_pct: 20.0
+  min_daily_roi_pct: 15.0
   min_volume_24h_m: 25.0
 
 scoring:
@@ -108,3 +108,18 @@ memory:
   skip_validation_delay: "2h"
   max_memory_age: "90d"
   summarizer_model: "gpt-4.1-mini"
+
+after_execution:
+  enabled: true
+  subscribe_before_seconds: 5       # subscribe @bookTicker at T-Xs before settlement
+  min_bid_depth_multiplier: 1.0     # skip if bidDepthUSDT < multiplier * orderSize
+  full_size_depth_multiplier: 3.0   # use full size if bidDepth >= 3x order
+  reduced_size_pct: 50              # position size pct when book is thin (< 1.5x)
+  clock_sync_interval_seconds: 300  # sync Binance server time every 5m
+  fallback_to_scheduler: true       # scheduler fires as fallback if trigger fails
+
+pre_settlement:
+  enabled: true
+  check_before_minutes: 2              # fire check at T-2m before settlement
+  emergency_close_threshold: 0.75     # close if loss > 0.75 * |funding_rate|
+  widen_tp_on_miss: true               # widen TP1 to 2%+|funding_rate| if not filled

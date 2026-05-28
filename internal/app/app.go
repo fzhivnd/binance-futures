@@ -57,6 +57,9 @@ type App struct {
 	lastLLMCall   *llmCallState
 	memoryEngine  *memory.Engine
 	binanceClient *exchange.BinanceClient
+	// Phase 8
+	bookTickerCache *market.BookTickerCache
+	afterTrigger    *execution.AfterTrigger
 }
 
 func New(cfg *config.Config) (*App, error) {
@@ -77,6 +80,7 @@ func (a *App) Run(
 	}()
 
 	a.engine = market.NewMarketEngine()
+	a.bookTickerCache = market.NewBookTickerCache()
 
 	a.binanceClient = exchange.NewBinanceClient(
 		a.cfg.Binance.APIKey,
@@ -163,6 +167,7 @@ func (a *App) Run(
 
 	markPriceURL := a.cfg.Binance.WsURL + "/ws/!markPrice@arr@1s"
 	router := exchange.NewStreamRouter(a.engine)
+	router.SetBookTickerCache(a.bookTickerCache) // Phase 8: route @bookTicker events
 	a.wsMarkPx = exchange.NewWSConnection(
 		markPriceURL,
 		router.Handle,
@@ -282,6 +287,19 @@ func (a *App) Run(
 	a.sched = scheduler.NewScheduler(&a.cfg.Scheduler, cache, a.scanFn)
 	a.sched.SetIntentQueue(a.intentQueue)
 
+	// Phase 8: AfterTrigger — precision T+0 execution for AFTER intents.
+	a.posMgr.SetFundingInfoGetter(a.engine)
+	afterStrategy := execution.NewAfterExecutionStrategy(a.bookTickerCache, a.execEng, a.cfg)
+	a.afterTrigger = execution.NewAfterTrigger(
+		a.intentQueue,
+		afterStrategy,
+		a.bookTickerCache,
+		a.wsKlines, // subscribe @bookTicker on the combined stream
+		a.binanceClient,
+		a.engine,
+		a.cfg,
+	)
+
 	// Phase 7: startup reconciliation (live mode only, non-fatal)
 	if a.cfg.App.Mode == "live" {
 		if err := execution.Reconcile(ctx, binanceClient, a.executor, cache, tradeRepo, a.cfg, notifier); err != nil {
@@ -316,6 +334,9 @@ func (a *App) Run(
 		go a.wsUserData.Run(ctx)
 		go a.keepAliveListenKey(ctx, binanceClient, listenKey)
 	}
+	// Phase 8: AfterTrigger + pre-settlement checker
+	go a.afterTrigger.Run(ctx)
+	a.posMgr.RunPreSettlementChecker(ctx)
 
 	slog.Info("bot started", "mode", a.cfg.App.Mode)
 

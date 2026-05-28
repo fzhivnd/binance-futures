@@ -154,23 +154,31 @@ func (e *ExecutionEngine) executeInternal(
 	)
 
 	now := time.Now()
-	pending := domain.PendingEntry{
-		OrderID:         order.OrderID,
-		Symbol:          candidate.Symbol,
-		Quantity:        order.Quantity,
-		PositionSizePct: positionSizePct,
-		Confidence:      confidence,
-		Window:          string(window.ToEntryMode()),
-		TpPct:           e.cfg.Execution.TpPct,
-		LLMDecision:     llmDecision,
-		CreatedAt:       now,
-		ExpiresAt:       now.Add(60 * time.Second),
+
+	// Phase 8: capture funding context for fee-tracking and pre-settlement check.
+	fundingRate, _ := e.market.GetFundingRate(candidate.Symbol)
+	var nextFundingAt time.Time
+	if fi, ok := e.market.(interface {
+		GetFundingInfo(string) (*domain.FundingRate, bool)
+	}); ok {
+		if info, found := fi.GetFundingInfo(candidate.Symbol); found && info != nil {
+			nextFundingAt = info.NextFunding
+		}
 	}
 
-	// Store funding-adjusted tpPct so finalizeSLTP can use it.
-	if window == scheduler.WindowFrontrun || window == scheduler.WindowLastMinute {
-		extra := -candidate.FundingRate // e.g. 0.002 for -0.2% funding
-		pending.TpPct = e.cfg.Execution.TpPct + extra*100
+	pending := domain.PendingEntry{
+		OrderID:            order.OrderID,
+		Symbol:             candidate.Symbol,
+		Quantity:           order.Quantity,
+		PositionSizePct:    positionSizePct,
+		Confidence:         confidence,
+		Window:             string(window.ToEntryMode()),
+		TpPct:              e.cfg.Execution.TpPct, // pure 2% — Phase 8
+		LLMDecision:        llmDecision,
+		CreatedAt:          now,
+		ExpiresAt:          now.Add(60 * time.Second),
+		FundingRateAtEntry: fundingRate,
+		NextFundingAt:      nextFundingAt,
 	}
 
 	if err := e.cache.SetPendingEntry(ctx, pending); err != nil {
