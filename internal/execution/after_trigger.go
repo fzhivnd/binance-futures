@@ -12,6 +12,7 @@ import (
 	"futures/internal/exchange"
 	"futures/internal/intent"
 	"futures/internal/market"
+	"futures/internal/scheduler"
 )
 
 // FundingInfoSource is the subset of MarketEngine needed by AfterTrigger to resolve
@@ -40,6 +41,7 @@ type AfterTrigger struct {
 	wsConn      *exchange.WSConnection // combined market stream for subscribe/unsubscribe
 	binance     ServerTimeProvider
 	fundingInfo FundingInfoSource
+	executor    Executor
 	cfg         *config.Config
 
 	mu            sync.Mutex
@@ -54,6 +56,7 @@ func NewAfterTrigger(
 	wsConn *exchange.WSConnection,
 	binance ServerTimeProvider,
 	fundingInfo FundingInfoSource,
+	executor Executor,
 	cfg *config.Config,
 ) *AfterTrigger {
 	return &AfterTrigger{
@@ -63,6 +66,7 @@ func NewAfterTrigger(
 		wsConn:      wsConn,
 		binance:     binance,
 		fundingInfo: fundingInfo,
+		executor:    executor,
 		cfg:         cfg,
 	}
 }
@@ -82,42 +86,50 @@ func (t *AfterTrigger) Run(ctx context.Context) {
 			return
 		}
 
-		// Step 1: wait until there is a pending AFTER intent.
-		if !t.intentQueue.HasAfterIntent() {
+		// Step 1: sleep until T-2m (scan freeze point). The scheduler stops enqueuing
+		// new candidates at T-3m, so by T-2m the queue is stable and the symbol we
+		// peek is the same one that will fire at T+0.
+		next := scheduler.NextFundingTime(time.Now().UTC())
+		wakeAt := next.Add(-2 * time.Minute)
+		if d := time.Until(wakeAt); d > 0 {
+			slog.Info("AfterTrigger: sleeping until T-2m", "wake_at", wakeAt, "next_funding", next)
 			select {
 			case <-ctx.Done():
 				return
-			case <-time.After(time.Second):
+			case <-time.After(d):
 			}
-			continue
 		}
 
-		// Step 2: determine the next funding time across all tracked symbols.
-		// We use the funding data for the most-negative-funding symbol as proxy.
-		// The scheduler already filtered symbols; the intent queue has the best candidate.
-		nextFunding, symbol, ok := t.resolveNextFunding()
+		// Step 2: peek the queue for the best AFTER symbol (queue is frozen at this point).
+		symbol, ok := t.intentQueue.PeekAfterSymbol()
 		if !ok {
-			time.Sleep(time.Second)
-			continue
-		}
-
-		now := t.adjustedNow()
-		timeUntil := nextFunding.Sub(now)
-		subscribeLeadTime := time.Duration(t.cfg.AfterExecution.SubscribeBeforeSeconds) * time.Second
-
-		// Step 3: sleep until T-subscribeLeadTime.
-		if timeUntil > subscribeLeadTime {
-			sleepDur := timeUntil - subscribeLeadTime
-			slog.Info("AfterTrigger: sleeping until T-subscribeLeadTime",
-				"symbol", symbol,
-				"sleep", sleepDur.Round(time.Millisecond),
-				"next_funding", nextFunding,
-			)
+			// No AFTER intent this cycle — sleep past T+0 and try the next cycle.
+			slog.Info("AfterTrigger: no AFTER intent at T-2m, skipping cycle")
 			select {
 			case <-ctx.Done():
 				return
-			case <-time.After(sleepDur):
+			case <-time.After(3 * time.Minute):
 			}
+			continue
+		}
+
+		fi, found := t.fundingInfo.GetFundingInfo(symbol)
+		if !found || fi.NextFunding.IsZero() || fi.NextFunding.Before(time.Now()) {
+			slog.Warn("AfterTrigger: no valid funding info for symbol, skipping cycle", "symbol", symbol)
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(3 * time.Minute):
+			}
+			continue
+		}
+		nextFunding := fi.NextFunding
+
+		// Step 3: pre-warm leverage so SetLeverage is not on the critical path at T+0.
+		if err := t.executor.SetLeverage(ctx, symbol, t.cfg.Trading.Leverage); err != nil {
+			slog.Warn("AfterTrigger: pre-warm leverage failed, will retry at execution", "symbol", symbol, "error", err)
+		} else {
+			slog.Info("AfterTrigger: leverage pre-warmed", "symbol", symbol, "leverage", t.cfg.Trading.Leverage)
 		}
 
 		// Step 4: subscribe @bookTicker for the target symbol.
@@ -131,9 +143,9 @@ func (t *AfterTrigger) Run(ctx context.Context) {
 			}
 		}
 
-		// Step 5: sync clock and arm timer for T+0.
+		// Step 4: sync clock and arm timer for T+0.
 		t.syncClockIfStale(ctx)
-		now = t.adjustedNow()
+		now := t.adjustedNow()
 		timeUntilFiring := nextFunding.Sub(now)
 
 		if timeUntilFiring > 0 {
@@ -149,7 +161,7 @@ func (t *AfterTrigger) Run(ctx context.Context) {
 			}
 		}
 
-		// Step 6: fire — atomically claim the intent.
+		// Step 5: fire — atomically claim the intent.
 		fireTime := time.Now()
 		ti := t.intentQueue.ClaimAfterIntent()
 		if ti == nil {
@@ -174,7 +186,7 @@ func (t *AfterTrigger) Run(ctx context.Context) {
 			"expected_bid", expectedBid,
 		)
 
-		// Step 7: unsubscribe @bookTicker after AFTER window closes (T+60s).
+		// Step 6: unsubscribe @bookTicker after AFTER window closes (T+60s).
 		go func(s string) {
 			select {
 			case <-ctx.Done():
@@ -186,67 +198,6 @@ func (t *AfterTrigger) Run(ctx context.Context) {
 		// Reset for next cycle.
 		time.Sleep(2 * time.Second)
 	}
-}
-
-// resolveNextFunding returns the earliest next-funding time across symbols tracked by the
-// funding cache. This is an approximation — the AfterTrigger fires for the soonest event.
-func (t *AfterTrigger) resolveNextFunding() (time.Time, string, bool) {
-	// We use the intent queue's HasAfterIntent result as a gate; here we scan
-	// funding info to find which symbol fires soonest.
-	// Since we cannot enumerate the queue without claiming, we find the global
-	// minimum next funding time from the market engine.
-	//
-	// The funding cache stores a next-funding time per symbol updated from
-	// the !markPrice@arr@1s stream (every second). We want the soonest one
-	// that's still in the future.
-	if t.fundingInfo == nil {
-		return time.Time{}, "", false
-	}
-
-	// We ask the fundingInfo for a broad set of well-known symbols that will
-	// be in the queue. Since we can't enumerate all symbols from the interface,
-	// we rely on the intent queue's HasAfterIntent flag being set which means
-	// at least one symbol has an AFTER intent with a known next funding time.
-	// We use a small trick: the symbols that triggered AFTER intents are known
-	// to the queue; the trigger fires for the globally next settlement.
-	//
-	// Practical implementation: we call GetFundingInfo on top symbols tracked
-	// by the engine. Since the engine maintains all symbols from the stream,
-	// we can't enumerate them here without adding an extra interface method.
-	// Instead, we use the FundingInfoAll approach below via a type assertion.
-	type allFundingProvider interface {
-		GetAllFundingRates() map[string]float64
-		GetFundingInfo(symbol string) (*domain.FundingRate, bool)
-	}
-
-	afp, ok := t.fundingInfo.(allFundingProvider)
-	if !ok {
-		return time.Time{}, "", false
-	}
-
-	all := afp.GetAllFundingRates()
-	var earliest time.Time
-	var earliestSymbol string
-	now := time.Now()
-
-	for sym := range all {
-		fi, ok := afp.GetFundingInfo(sym)
-		if !ok || fi.NextFunding.IsZero() {
-			continue
-		}
-		if fi.NextFunding.Before(now) {
-			continue
-		}
-		if earliest.IsZero() || fi.NextFunding.Before(earliest) {
-			earliest = fi.NextFunding
-			earliestSymbol = sym
-		}
-	}
-
-	if earliest.IsZero() {
-		return time.Time{}, "", false
-	}
-	return earliest, earliestSymbol, true
 }
 
 func (t *AfterTrigger) unsubscribeBookTicker(ctx context.Context, symbol string) {

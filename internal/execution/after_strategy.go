@@ -51,6 +51,9 @@ func (s *AfterExecutionStrategy) Execute(ctx context.Context, ti *intent.TradeIn
 
 	positionSizePct := ti.Candidate.PositionSizePct
 	adjustedSizePct := s.adjustSizeForDepth(ctx, candidate.Symbol, positionSizePct, currentPrice)
+	if adjustedSizePct == 0 {
+		return nil
+	}
 
 	// Build a modified candidate with any size adjustments
 	sc := ti.Candidate
@@ -88,7 +91,7 @@ func (s *AfterExecutionStrategy) adjustSizeForDepth(ctx context.Context, symbol 
 	spread, _ := s.bookTicker.SpreadBps(symbol)
 	slog.Info("after_spread_bps", "symbol", symbol, "spread", spread)
 
-	fullThreshold := afCfg.FullSizeDepthMultiplier * desiredUSDT   // e.g. 3x
+	fullThreshold := afCfg.FullSizeDepthMultiplier * desiredUSDT // e.g. 3x
 	halfThreshold := 1.5 * desiredUSDT
 	minThreshold := afCfg.MinBidDepthMultiplier * desiredUSDT
 
