@@ -44,6 +44,13 @@ func (e *MarketEngine) UpdateCandle(c domain.Candle) {
 	e.candles.Update(c)
 }
 
+// SeedCandles bulk-loads historical candles into the store (used for backfill on startup).
+func (e *MarketEngine) SeedCandles(candles []domain.Candle) {
+	for _, c := range candles {
+		e.candles.Update(c)
+	}
+}
+
 func (e *MarketEngine) UpdateOI(symbol string, oi float64) {
 	e.oi.Update(symbol, oi)
 }

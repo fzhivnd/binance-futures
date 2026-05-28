@@ -187,6 +187,53 @@ func (c *BinanceClient) GetAllPositionRisk(ctx context.Context) ([]PositionRiskR
 	return resp, nil
 }
 
+// FetchKlines fetches the most recent `limit` candles for a symbol and interval.
+// Used for seeding the candle store on startup; only closed candles are returned.
+func (c *BinanceClient) FetchKlines(ctx context.Context, symbol, interval string, limit int) ([]domain.Candle, error) {
+	params := url.Values{}
+	params.Set("symbol", symbol)
+	params.Set("interval", interval)
+	params.Set("limit", strconv.Itoa(limit))
+
+	body, err := c.get(ctx, "/fapi/v1/klines", params, false)
+	if err != nil {
+		return nil, err
+	}
+
+	var raw [][]interface{}
+	if err := json.Unmarshal(body, &raw); err != nil {
+		return nil, fmt.Errorf("parse klines: %w", err)
+	}
+
+	now := time.Now().UnixMilli()
+	candles := make([]domain.Candle, 0, len(raw))
+	for _, k := range raw {
+		closeMs := int64(k[6].(float64))
+		if closeMs >= now {
+			continue // skip the current open candle
+		}
+		openMs := int64(k[0].(float64))
+		open, _ := strconv.ParseFloat(k[1].(string), 64)
+		high, _ := strconv.ParseFloat(k[2].(string), 64)
+		low, _ := strconv.ParseFloat(k[3].(string), 64)
+		closeP, _ := strconv.ParseFloat(k[4].(string), 64)
+		vol, _ := strconv.ParseFloat(k[5].(string), 64)
+		candles = append(candles, domain.Candle{
+			Symbol:    symbol,
+			Timeframe: domain.Timeframe(interval),
+			OpenTime:  time.UnixMilli(openMs),
+			Open:      open,
+			High:      high,
+			Low:       low,
+			Close:     closeP,
+			Volume:    vol,
+			CloseTime: time.UnixMilli(closeMs),
+			IsClosed:  true,
+		})
+	}
+	return candles, nil
+}
+
 // GetHistoricalKlines fetches historical klines for a symbol and interval over a date range.
 func (c *BinanceClient) GetHistoricalKlines(ctx context.Context, symbol, interval string, start, end time.Time) ([]domain.Candle, error) {
 	var all []domain.Candle
