@@ -254,8 +254,8 @@ func (e *Engine) RetrieveSimilar(
 }
 
 // ValidateSkips checks skipped trades to determine if the skip was correct.
-// checkPrice returns the % price change from entryTime to +2h later.
-func (e *Engine) ValidateSkips(ctx context.Context, checkPrice func(symbol string, entryTime time.Time) (float64, error)) error {
+// checkPrice scans candles over 2h and returns the outcome and hypothetical profit pct.
+func (e *Engine) ValidateSkips(ctx context.Context, checkPrice func(symbol string, entryTime time.Time) (string, float64, error)) error {
 	if !e.enabled {
 		return nil
 	}
@@ -266,22 +266,10 @@ func (e *Engine) ValidateSkips(ctx context.Context, checkPrice func(symbol strin
 	}
 
 	for _, mem := range pending {
-		priceChange, err := checkPrice(mem.Symbol, mem.CreatedAt)
+		outcome, profitPct, err := checkPrice(mem.Symbol, mem.CreatedAt)
 		if err != nil {
 			slog.Warn("skip validation price check failed", "symbol", mem.Symbol, "error", err)
 			continue
-		}
-
-		var outcome string
-		var profitPct float64
-
-		// For shorts: if price went down, skip was a miss; if price went up, skip was validated.
-		if priceChange < -1.0 {
-			outcome = "SKIP_MISSED"
-			profitPct = -priceChange
-		} else {
-			outcome = "SKIP_VALIDATED"
-			profitPct = priceChange
 		}
 
 		if err := e.repo.UpdateOutcome(ctx, mem.ID, outcome, profitPct, 0); err != nil {

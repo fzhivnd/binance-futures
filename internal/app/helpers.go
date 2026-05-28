@@ -20,10 +20,23 @@ func confidenceToSize(confidence int) float64 {
 	}
 }
 
-// checkHistoricalPrice returns the % price change from entryTime to entryTime+2h.
-// Negative return means price dropped (short would have profited).
-func (a *App) checkHistoricalPrice(symbol string, entryTime time.Time) (float64, error) {
+// checkHistoricalPrice scans 1m candles over 2h from entryTime and returns the outcome
+// and hypothetical profit pct for a short. Positive profitPct = short would have profited.
+func (a *App) checkHistoricalPrice(symbol string, entryTime time.Time) (string, float64, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	return a.binanceClient.GetPriceChange(ctx, symbol, entryTime, entryTime.Add(2*time.Hour))
+
+	profitPct, err := a.binanceClient.GetPriceOutcome(
+		ctx, symbol,
+		entryTime, entryTime.Add(2*time.Hour),
+		a.cfg.Execution.TpPct, a.cfg.Execution.SlPct,
+	)
+	if err != nil {
+		return "", 0, err
+	}
+
+	if profitPct > 0 {
+		return "SKIP_MISSED", profitPct, nil
+	}
+	return "SKIP_VALIDATED", -profitPct, nil
 }

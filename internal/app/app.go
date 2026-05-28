@@ -298,7 +298,7 @@ func (a *App) Run(
 
 	// Phase 8: AfterTrigger — precision T+0 execution for AFTER intents.
 	a.posMgr.SetFundingInfoGetter(a.engine)
-	afterStrategy := execution.NewAfterExecutionStrategy(a.bookTickerCache, a.execEng, a.cfg)
+	afterStrategy := execution.NewAfterExecutionStrategy(a.bookTickerCache, a.execEng, notifier, a.cfg)
 	a.afterTrigger = execution.NewAfterTrigger(
 		a.intentQueue,
 		afterStrategy,

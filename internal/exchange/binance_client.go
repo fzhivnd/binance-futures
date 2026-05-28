@@ -341,35 +341,36 @@ func (c *BinanceClient) GetHistoricalFundingRates(ctx context.Context, symbol st
 	return all, nil
 }
 
-// GetPriceChange returns the percentage price change between from and to for a symbol.
-// Uses 1-minute klines: compares the close at `from` to the close at `to`.
-// A negative return means price dropped (a short would have profited).
-func (c *BinanceClient) GetPriceChange(ctx context.Context, symbol string, from, to time.Time) (float64, error) {
-	// Fetch one 1m candle at `from`
-	fromCandles, err := c.GetHistoricalKlines(ctx, symbol, "1m", from, from.Add(time.Minute))
+// GetPriceOutcome scans 1m candles from `from` to `to` and returns the hypothetical
+// profit pct for a short position (positive = profitable). Stops early when TP or SL is hit;
+// falls back to end-of-window close if neither triggers.
+func (c *BinanceClient) GetPriceOutcome(ctx context.Context, symbol string, from, to time.Time, tpPct, slPct float64) (float64, error) {
+	candles, err := c.GetHistoricalKlines(ctx, symbol, "1m", from, to)
 	if err != nil {
-		return 0, fmt.Errorf("GetPriceChange from kline: %w", err)
+		return 0, fmt.Errorf("GetPriceOutcome klines: %w", err)
 	}
-	if len(fromCandles) == 0 {
-		return 0, fmt.Errorf("no kline data at entry time for %s", symbol)
+	if len(candles) == 0 {
+		return 0, fmt.Errorf("no kline data for %s between %s and %s", symbol, from.Format(time.RFC3339), to.Format(time.RFC3339))
 	}
 
-	// Fetch one 1m candle at `to`
-	toCandles, err := c.GetHistoricalKlines(ctx, symbol, "1m", to, to.Add(time.Minute))
-	if err != nil {
-		return 0, fmt.Errorf("GetPriceChange to kline: %w", err)
-	}
-	if len(toCandles) == 0 {
-		return 0, fmt.Errorf("no kline data at exit time for %s", symbol)
-	}
-
-	entryPrice := fromCandles[0].Close
-	exitPrice := toCandles[0].Close
+	entryPrice := candles[0].Open
 	if entryPrice == 0 {
 		return 0, fmt.Errorf("zero entry price for %s", symbol)
 	}
 
-	return (exitPrice - entryPrice) / entryPrice * 100, nil
+	tpPrice := entryPrice * (1 - tpPct/100)
+	slPrice := entryPrice * (1 + slPct/100)
+
+	for _, c := range candles {
+		if c.Low <= tpPrice {
+			return (entryPrice - tpPrice) / entryPrice * 100, nil
+		}
+		if c.High >= slPrice {
+			return (entryPrice - slPrice) / entryPrice * 100, nil
+		}
+	}
+
+	return (entryPrice - candles[len(candles)-1].Close) / entryPrice * 100, nil
 }
 
 func (c *BinanceClient) CreateListenKey(ctx context.Context) (string, error) {
