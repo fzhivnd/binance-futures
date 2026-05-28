@@ -9,32 +9,31 @@ import (
 )
 
 type Config struct {
-	App             AppConfig             `yaml:"app"`
-	Binance         BinanceConfig         `yaml:"binance"`
-	Trading         TradingConfig         `yaml:"trading"`
-	Funding         FundingConfig         `yaml:"funding"`
-	Execution       ExecutionConfig       `yaml:"execution"`
-	Scheduler       SchedulerConfig       `yaml:"scheduler"`
-	WebSocket       WebSocketConfig       `yaml:"websocket"`
-	Database        DatabaseConfig        `yaml:"database"`
-	Filtering       FilteringConfig       `yaml:"filtering"`
-	Scoring         ScoringConfig         `yaml:"scoring"`
-	Indicators      IndicatorConfig       `yaml:"indicators"`
-	Risk            RiskConfig            `yaml:"risk"`
-	Backtest        BacktestConfig        `yaml:"backtest"`
-	LLM             LLMConfig             `yaml:"llm"`
-	Memory          MemoryConfig          `yaml:"memory"`
-	Telegram        TelegramConfig        `yaml:"telegram"`
-	Summary         SummaryConfig         `yaml:"summary"`
-	AfterExecution  AfterExecConfig       `yaml:"after_execution"`
-	PreSettlement   PreSettlementConfig   `yaml:"pre_settlement"`
+	App            AppConfig           `yaml:"app"`
+	Binance        BinanceConfig       `yaml:"binance"`
+	Trading        TradingConfig       `yaml:"trading"`
+	Funding        FundingConfig       `yaml:"funding"`
+	Execution      ExecutionConfig     `yaml:"execution"`
+	Scheduler      SchedulerConfig     `yaml:"scheduler"`
+	WebSocket      WebSocketConfig     `yaml:"websocket"`
+	Database       DatabaseConfig      `yaml:"database"`
+	Filtering      FilteringConfig     `yaml:"filtering"`
+	Scoring        ScoringConfig       `yaml:"scoring"`
+	Indicators     IndicatorConfig     `yaml:"indicators"`
+	Risk           RiskConfig          `yaml:"risk"`
+	LLM            LLMConfig           `yaml:"llm"`
+	Memory         MemoryConfig        `yaml:"memory"`
+	Telegram       TelegramConfig      `yaml:"telegram"`
+	Summary        SummaryConfig       `yaml:"summary"`
+	AfterExecution AfterExecConfig     `yaml:"after_execution"`
+	PreSettlement  PreSettlementConfig `yaml:"pre_settlement"`
 }
 
 // AfterExecConfig controls the Phase 8 AfterTrigger and bid-depth sizing.
 type AfterExecConfig struct {
 	Enabled                  bool    `yaml:"enabled"`
-	SubscribeBeforeSeconds   int     `yaml:"subscribe_before_seconds"`  // subscribe @bookTicker at T-Xs
-	MinBidDepthMultiplier    float64 `yaml:"min_bid_depth_multiplier"`  // skip if depth < multiplier * orderSize
+	SubscribeBeforeSeconds   int     `yaml:"subscribe_before_seconds"`   // subscribe @bookTicker at T-Xs
+	MinBidDepthMultiplier    float64 `yaml:"min_bid_depth_multiplier"`   // skip if depth < multiplier * orderSize
 	FullSizeDepthMultiplier  float64 `yaml:"full_size_depth_multiplier"` // full size if depth >= multiplier * orderSize
 	ReducedSizePct           float64 `yaml:"reduced_size_pct"`           // position size pct when book is thin
 	ClockSyncIntervalSeconds int     `yaml:"clock_sync_interval_seconds"`
@@ -43,10 +42,10 @@ type AfterExecConfig struct {
 
 // PreSettlementConfig controls the T-2m pre-settlement check for FRONTRUN/LASTMINUTE positions.
 type PreSettlementConfig struct {
-	Enabled                bool    `yaml:"enabled"`
-	CheckBeforeMinutes     int     `yaml:"check_before_minutes"`      // fire check at T-Xm
+	Enabled                 bool    `yaml:"enabled"`
+	CheckBeforeMinutes      int     `yaml:"check_before_minutes"`      // fire check at T-Xm
 	EmergencyCloseThreshold float64 `yaml:"emergency_close_threshold"` // close if loss > X * |funding_rate|
-	WidenTPOnMiss          bool    `yaml:"widen_tp_on_miss"`          // widen TP1 if not filled by T-2m
+	WidenTPOnMiss           bool    `yaml:"widen_tp_on_miss"`          // widen TP1 if not filled by T-2m
 }
 
 type TelegramConfig struct {
@@ -97,16 +96,16 @@ type ExecutionConfig struct {
 
 	// Phase 5: Split TP + trailing stop
 	TrailingCallbackRate float64 `yaml:"trailing_callback_rate"` // e.g. 0.5 = 0.5%
-	TP1SizePct          float64 `yaml:"tp1_size_pct"`           // e.g. 50 = 50% of position
+	TP1SizePct           float64 `yaml:"tp1_size_pct"`           // e.g. 50 = 50% of position
 
 	// Phase 5: Force stop-loss
-	ForceSLEnabled          bool    `yaml:"force_sl_enabled"`
-	ForceSLStartMin         int     `yaml:"force_sl_start_min"`          // start checking after N minutes
-	ForceSLPnlGatePct       float64 `yaml:"force_sl_pnl_gate_pct"`       // skip if PnL above this (e.g. -0.5)
-	ForceSLEscalatePnlPct   float64 `yaml:"force_sl_escalate_pnl_pct"`  // escalate below this (e.g. -2.0)
-	ForceSLSlowIntervalSec  int     `yaml:"force_sl_slow_interval_sec"` // interval when mild loss (300s)
-	ForceSLFastIntervalSec  int     `yaml:"force_sl_fast_interval_sec"` // interval when severe loss (60s)
-	ForceSLTimeoutSec       int     `yaml:"force_sl_timeout_sec"`        // LLM call timeout (5s)
+	ForceSLEnabled         bool    `yaml:"force_sl_enabled"`
+	ForceSLStartMin        int     `yaml:"force_sl_start_min"`         // start checking after N minutes
+	ForceSLPnlGatePct      float64 `yaml:"force_sl_pnl_gate_pct"`      // skip if PnL above this (e.g. -0.5)
+	ForceSLEscalatePnlPct  float64 `yaml:"force_sl_escalate_pnl_pct"`  // escalate below this (e.g. -2.0)
+	ForceSLSlowIntervalSec int     `yaml:"force_sl_slow_interval_sec"` // interval when mild loss (300s)
+	ForceSLFastIntervalSec int     `yaml:"force_sl_fast_interval_sec"` // interval when severe loss (60s)
+	ForceSLTimeoutSec      int     `yaml:"force_sl_timeout_sec"`       // LLM call timeout (5s)
 }
 
 type SchedulerConfig struct {
@@ -143,8 +142,8 @@ type DatabaseConfig struct {
 }
 
 type FilteringConfig struct {
-	MinDailyROIPct  float64 `yaml:"min_daily_roi_pct"`
-	MinVolume24hM   float64 `yaml:"min_volume_24h_m"`
+	MinDailyROIPct float64 `yaml:"min_daily_roi_pct"`
+	MinVolume24hM  float64 `yaml:"min_volume_24h_m"`
 }
 
 type ScoringWeightsConfig struct {
@@ -175,10 +174,6 @@ type RiskConfig struct {
 	MaxDrawdownPct    float64 `yaml:"max_drawdown_pct"`
 	MaxATRRatio       float64 `yaml:"max_atr_ratio"`
 	BTCBreakoutReject bool    `yaml:"btc_breakout_reject"`
-}
-
-type BacktestConfig struct {
-	DataDir string `yaml:"data_dir"`
 }
 
 type MemoryConfig struct {
@@ -361,10 +356,6 @@ func setDefaults(cfg *Config) {
 	if !cfg.Risk.BTCBreakoutReject {
 		cfg.Risk.BTCBreakoutReject = true
 	}
-	if cfg.Backtest.DataDir == "" {
-		cfg.Backtest.DataDir = "./data/backtest"
-	}
-
 	// Phase 3: LLM defaults
 	if cfg.LLM.Model == "" {
 		cfg.LLM.Model = "gpt-4.1-mini"
