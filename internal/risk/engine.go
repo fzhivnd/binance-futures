@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"time"
 
 	"futures/internal/domain"
 	"futures/internal/notify"
@@ -77,7 +76,7 @@ func (e *Engine) PreCheck(ctx context.Context) error {
 		return fmt.Errorf("max positions reached (%d)", e.cfg.MaxPositions)
 	}
 
-	losses, err := e.tradeRepo.GetDailyLossCount(ctx, time.Now().UTC())
+	losses, err := e.cache.GetDailyLossCount(ctx)
 	if err == nil && losses >= e.cfg.MaxDailyLosses {
 		if e.notifier != nil {
 			e.notifier.NotifyRiskEvent(ctx, notify.RiskEvent{

@@ -20,6 +20,7 @@ const (
 	keyLastWSMessage      = "meta:last_ws_message"
 	keyPendingEntryPrefix = "pending_entry:"
 	keyPendingProtPrefix  = "pending_prot:"
+	keyDailyLossPrefix    = "risk:daily_losses:"
 )
 
 type RedisStateCache struct {
@@ -221,4 +222,32 @@ func (r *RedisStateCache) GetPendingProtection(ctx context.Context, symbol strin
 
 func (r *RedisStateCache) RemovePendingProtection(ctx context.Context, symbol string) error {
 	return r.client.Del(ctx, keyPendingProtPrefix+symbol).Err()
+}
+
+// — Daily loss counter ————————————————————————————————————————————
+
+func dailyLossKey() string {
+	return keyDailyLossPrefix + time.Now().UTC().Format("2006-01-02")
+}
+
+func (r *RedisStateCache) GetDailyLossCount(ctx context.Context) (int, error) {
+	val, err := r.client.Get(ctx, dailyLossKey()).Result()
+	if err == redis.Nil {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, err
+	}
+	var count int
+	fmt.Sscanf(val, "%d", &count)
+	return count, nil
+}
+
+func (r *RedisStateCache) IncrDailyLossCount(ctx context.Context) error {
+	key := dailyLossKey()
+	pipe := r.client.Pipeline()
+	pipe.Incr(ctx, key)
+	pipe.Expire(ctx, key, 26*time.Hour)
+	_, err := pipe.Exec(ctx)
+	return err
 }

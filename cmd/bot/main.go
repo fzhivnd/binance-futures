@@ -11,6 +11,7 @@ import (
 	"futures/internal/app"
 	"futures/internal/config"
 	"futures/internal/storage"
+	"futures/internal/telemetry"
 )
 
 func main() {
@@ -55,9 +56,9 @@ func main() {
 		os.Exit(1)
 	}
 
-	tradeRepo := storage.NewPGTradeRepository(pool)
+	tradeRepo := telemetry.NewInstrumentedTradeRepo(storage.NewPGTradeRepository(pool))
 	riskRepo := storage.NewPGRiskRepository(pool)
-	cache := storage.NewRedisStateCache(redisClient)
+	cache := telemetry.NewInstrumentedStateCache(storage.NewRedisStateCache(redisClient), 60)
 
 	application, err := app.New(cfg)
 	if err != nil {

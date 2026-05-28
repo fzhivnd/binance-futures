@@ -14,6 +14,11 @@ import (
 )
 
 func (a *App) scanFn(ctx context.Context, window scheduler.WindowType) error {
+	scanStart := time.Now()
+	defer func() {
+		slog.Info("scan completed", "window", window, "latency_ms", float64(time.Since(scanStart).Microseconds())/1000.0)
+	}()
+
 	if err := a.riskEngine.PreCheck(ctx); err != nil {
 		slog.Info("pre-check rejected", "reason", err)
 		return nil

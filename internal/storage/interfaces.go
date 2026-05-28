@@ -32,6 +32,10 @@ type StateCache interface {
 	SetPendingProtection(ctx context.Context, p domain.PendingProtection) error
 	GetPendingProtection(ctx context.Context, symbol string) (*domain.PendingProtection, error)
 	RemovePendingProtection(ctx context.Context, symbol string) error
+
+	// Daily loss counter (resets at midnight UTC via TTL)
+	GetDailyLossCount(ctx context.Context) (int, error)
+	IncrDailyLossCount(ctx context.Context) error
 }
 
 type TradeRepository interface {
