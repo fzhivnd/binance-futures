@@ -43,6 +43,31 @@ func calcPriceROI(cp CandleProvider, symbol string, tf domain.Timeframe) float64
 	return 0
 }
 
+// calc24hROI returns the 24h ROI by comparing the current mark price against
+// the close price of the 6th closed 4h candle (≈24h ago).
+// Returns 0 if there are fewer than 6 closed 4h candles available.
+func calc24hROI(cp CandleProvider, symbol string, currentPrice float64) float64 {
+	// Fetch 7 candles: up to 1 may still be open, so we need 7 to guarantee 6 closed.
+	candles := cp.GetCandles(symbol, domain.Timeframe4h, 7)
+	closed := make([]domain.Candle, 0, 6)
+	for i := len(candles) - 1; i >= 0; i-- {
+		if candles[i].IsClosed {
+			closed = append(closed, candles[i])
+		}
+		if len(closed) == 6 {
+			break
+		}
+	}
+	if len(closed) < 6 {
+		return 0
+	}
+	base := closed[5].Close // 6th closed candle = 24h ago
+	if base == 0 {
+		return 0
+	}
+	return (currentPrice - base) / base * 100
+}
+
 // calc24hVolume sums the last 24 closed 1h candles to get 24h quote volume.
 func calc24hVolume(cp CandleProvider, symbol string) float64 {
 	candles := cp.GetCandles(symbol, domain.Timeframe1h, 25)
@@ -62,7 +87,7 @@ func buildCandidate(symbol string, rate, price float64, cp CandleProvider) domai
 	var roi1d, roi4h, roi1h float64
 	var volume24h float64
 	if cp != nil {
-		roi1d = calcPriceROI(cp, symbol, domain.Timeframe1d)
+		roi1d = calc24hROI(cp, symbol, price)
 		roi4h = calcPriceROI(cp, symbol, domain.Timeframe4h)
 		roi1h = calcPriceROI(cp, symbol, domain.Timeframe1h)
 		volume24h = calc24hVolume(cp, symbol)
