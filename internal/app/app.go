@@ -147,7 +147,7 @@ func (a *App) Run(
 	slog.Info("scoring config loaded", "config_id", scoringCfg.ID, "name", scoringCfg.Name)
 
 	go func() {
-		ticker := time.NewTicker(4 * time.Hour)
+		ticker := time.NewTicker(60 * time.Minute)
 		defer ticker.Stop()
 		for {
 			select {
