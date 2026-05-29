@@ -41,7 +41,17 @@ func main() {
 	case "error":
 		level = slog.LevelError
 	}
-	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: level})))
+
+	slog.SetDefault(
+		slog.New(
+			slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
+				Level: level,
+				ReplaceAttr: func(groups []string, a slog.Attr) slog.Attr {
+					return a
+				},
+			}),
+		),
+	)
 
 	if cfg.App.PprofPort > 0 {
 		addr := fmt.Sprintf(":%d", cfg.App.PprofPort)

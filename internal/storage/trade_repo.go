@@ -27,12 +27,12 @@ func (r *PGTradeRepository) Insert(ctx context.Context, trade *domain.Trade) err
 	}
 	_, err := r.pool.Exec(ctx, `
 		INSERT INTO trades (id, symbol, side, entry_mode, leverage, confidence,
-		    funding_rate, daily_roi, entry_price, quantity, is_paper, created_at,
+		    funding_rate, change_24h, entry_price, quantity, is_paper, created_at,
 		    llm_confidence, llm_entry_mode,
 		    llm_entry_reasons, llm_warnings)
 		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
 	`, trade.ID, trade.Symbol, trade.Side, trade.EntryMode, trade.Leverage,
-		trade.Confidence, trade.FundingRate, trade.DailyROI,
+		trade.Confidence, trade.FundingRate, trade.Change24h,
 		trade.EntryPrice, trade.Quantity, trade.IsPaper, trade.CreatedAt,
 		trade.LLMConfidence, trade.LLMEntryMode,
 		trade.LLMEntryReasons, trade.LLMWarnings)
@@ -43,13 +43,13 @@ func (r *PGTradeRepository) GetByID(ctx context.Context, id uuid.UUID) (*domain.
 	var t domain.Trade
 	err := r.pool.QueryRow(ctx, `
 		SELECT id, symbol, side, entry_mode, leverage, confidence,
-		    funding_rate, daily_roi, entry_price, exit_price, pnl, result,
+		    funding_rate, change_24h, roi_pct, entry_price, exit_price, pnl, result,
 		    is_paper, created_at, closed_at,
 		    llm_confidence, llm_entry_mode,
 		    llm_entry_reasons, llm_warnings
 		FROM trades WHERE id = $1
 	`, id).Scan(&t.ID, &t.Symbol, &t.Side, &t.EntryMode, &t.Leverage,
-		&t.Confidence, &t.FundingRate, &t.DailyROI,
+		&t.Confidence, &t.FundingRate, &t.Change24h, &t.ROIPct,
 		&t.EntryPrice, &t.ExitPrice, &t.PnL, &t.Result,
 		&t.IsPaper, &t.CreatedAt, &t.ClosedAt,
 		&t.LLMConfidence, &t.LLMEntryMode,
@@ -63,7 +63,7 @@ func (r *PGTradeRepository) GetByID(ctx context.Context, id uuid.UUID) (*domain.
 func (r *PGTradeRepository) GetRecent(ctx context.Context, limit int) ([]domain.Trade, error) {
 	rows, err := r.pool.Query(ctx, `
 		SELECT id, symbol, side, entry_mode, leverage, confidence,
-		    funding_rate, daily_roi, entry_price, exit_price, pnl, result,
+		    funding_rate, change_24h, roi_pct, entry_price, exit_price, pnl, result,
 		    is_paper, created_at, closed_at,
 		    llm_confidence, llm_entry_mode,
 		    llm_entry_reasons, llm_warnings
@@ -77,7 +77,7 @@ func (r *PGTradeRepository) GetRecent(ctx context.Context, limit int) ([]domain.
 	for rows.Next() {
 		var t domain.Trade
 		if err := rows.Scan(&t.ID, &t.Symbol, &t.Side, &t.EntryMode, &t.Leverage,
-			&t.Confidence, &t.FundingRate, &t.DailyROI,
+			&t.Confidence, &t.FundingRate, &t.Change24h, &t.ROIPct,
 			&t.EntryPrice, &t.ExitPrice, &t.PnL, &t.Result,
 			&t.IsPaper, &t.CreatedAt, &t.ClosedAt,
 			&t.LLMConfidence, &t.LLMEntryMode,
@@ -92,10 +92,10 @@ func (r *PGTradeRepository) GetRecent(ctx context.Context, limit int) ([]domain.
 func (r *PGTradeRepository) UpdateResult(ctx context.Context, id uuid.UUID, exit domain.ExitInfo) error {
 	_, err := r.pool.Exec(ctx, `
 		UPDATE trades SET
-			exit_price=$1, avg_close_price=$1, pnl=$2, result=$3,
-			close_reason=$4, closed_at=$5
-		WHERE id=$6
-	`, exit.AvgClosePrice, exit.PnL, exit.Result, exit.CloseReason, exit.ClosedAt, id)
+			exit_price=$1, avg_close_price=$1, pnl=$2, roi_pct=$3, result=$4,
+			close_reason=$5, closed_at=$6
+		WHERE id=$7
+	`, exit.AvgClosePrice, exit.PnL, exit.ROIPct, exit.Result, exit.CloseReason, exit.ClosedAt, id)
 	return err
 }
 

@@ -50,9 +50,9 @@ func CurrentWindow(now time.Time, windowStartMinutes int) WindowType {
 	switch {
 	case until <= 0 && until > -1*time.Minute:
 		return WindowAfter
-	case until > 0 && until <= 10*time.Minute:
+	case until > 0 && until <= 7*time.Minute:
 		return WindowLastMinute
-	case until > 10*time.Minute && until <= windowStart:
+	case until > 7*time.Minute && until <= windowStart:
 		return WindowFrontrun
 	default:
 		return WindowNone

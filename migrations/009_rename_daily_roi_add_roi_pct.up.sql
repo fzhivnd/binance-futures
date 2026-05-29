@@ -1,0 +1,2 @@
+ALTER TABLE trades RENAME COLUMN daily_roi TO change_24h;
+ALTER TABLE trades ADD COLUMN IF NOT EXISTS roi_pct NUMERIC(10,4);

@@ -146,7 +146,7 @@
         <tr>
           <th>Time</th><th>Symbol</th><th>Side</th><th>Mode</th>
           <th>Lev</th><th>Conf</th><th>LLM</th>
-          <th>Funding</th><th>ROI%</th>
+          <th>Funding</th><th>24h Chg</th><th>ROI%</th>
           <th>Entry</th><th>Size (USDT)</th><th>Exit</th><th>PnL</th>
           <th>Result</th><th>Close</th><th>Type</th>
         </tr>
@@ -331,7 +331,7 @@
     const errEl   = document.getElementById('trades-error');
     const tbody   = document.getElementById('trades-body');
 
-    tbody.innerHTML = '<tr><td colspan="15" class="loading">Loading…</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="17" class="loading">Loading…</td></tr>';
     errEl.innerHTML = '';
 
     const params = new URLSearchParams({ from, to, limit, paper: currentPaper });
@@ -341,7 +341,7 @@
       const res = await fetch('/api/trades?' + params);
       if (!res.ok) { errEl.innerHTML = `<div class="error-msg">${await res.text()}</div>`; tbody.innerHTML = ''; return; }
       const trades = await res.json();
-      if (!trades.length) { tbody.innerHTML = '<tr><td colspan="16" class="empty">No trades found</td></tr>'; return; }
+      if (!trades.length) { tbody.innerHTML = '<tr><td colspan="17" class="empty">No trades found</td></tr>'; return; }
       tbody.innerHTML = trades.map(t => {
         const result  = t.Result || 'OPEN';
         const pnl     = t.PnL != null ? parseFloat(t.PnL) : null;
@@ -357,7 +357,8 @@
           <td>${t.Confidence}</td>
           <td>${t.LLMConfidence != null ? t.LLMConfidence : '—'}</td>
           <td>${(t.FundingRate * 100).toFixed(4)}%</td>
-          <td>${t.DailyROI.toFixed(1)}%</td>
+          <td>${t.Change24h != null ? t.Change24h.toFixed(1) + '%' : '—'}</td>
+          <td>${t.ROIPct != null ? (t.ROIPct >= 0 ? '+' : '') + t.ROIPct.toFixed(1) + '%' : '—'}</td>
           <td>${fmt8(t.EntryPrice)}</td>
           <td>$${notional}</td>
           <td>${t.AvgClosePrice != null ? fmt8(t.AvgClosePrice) : '—'}</td>

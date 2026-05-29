@@ -17,6 +17,7 @@ type Config struct {
 	MaxATRRatio       float64
 	BTCBreakoutReject bool
 	MinCompositeScore float64
+	MinScoreOverride  float64
 	MaxPositions      int
 	CooldownMinutes   int
 }
@@ -105,11 +106,20 @@ func (e *Engine) ActivateKillSwitch(ctx context.Context, reason string) {
 // EvaluateCandidate runs Phase 2 indicator-aware guards.
 func (e *Engine) EvaluateCandidate(ctx context.Context, sc *domain.ScoredCandidate, btc *domain.BTCContext) error {
 	if sc.CompositeScore < e.cfg.MinCompositeScore {
-		slog.Debug("candidate rejected: score too low",
-			"symbol", sc.Candidate.Symbol,
-			"score", sc.CompositeScore,
-			"min", e.cfg.MinCompositeScore)
-		return fmt.Errorf("score %.1f below threshold %.1f", sc.CompositeScore, e.cfg.MinCompositeScore)
+		overrideFloor := e.cfg.MinScoreOverride
+		if overrideFloor > 0 && sc.CompositeScore >= overrideFloor {
+			slog.Info("score below normal threshold, forwarding to LLM via override",
+				"symbol", sc.Candidate.Symbol,
+				"score", sc.CompositeScore,
+				"min", e.cfg.MinCompositeScore,
+				"override_floor", overrideFloor)
+		} else {
+			slog.Debug("candidate rejected: score too low",
+				"symbol", sc.Candidate.Symbol,
+				"score", sc.CompositeScore,
+				"min", e.cfg.MinCompositeScore)
+			return fmt.Errorf("score %.1f below threshold %.1f", sc.CompositeScore, e.cfg.MinCompositeScore)
+		}
 	}
 
 	if sc.Indicators != nil && sc.Indicators.ATRRatio > e.cfg.MaxATRRatio {

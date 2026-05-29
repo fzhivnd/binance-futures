@@ -2,6 +2,7 @@ package execution
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"time"
@@ -92,7 +93,7 @@ func (e *ExecutionEngine) executeInternal(
 	llmDecision *domain.LLMDecision,
 ) error {
 	err := e.execute(ctx, sc, window, positionSizePct, confidence, llmDecision)
-	if err != nil {
+	if err != nil && !errors.Is(err, domain.ErrSkipped) {
 		e.notifier.NotifyRiskEvent(ctx, notify.RiskEvent{
 			Type:    "execution_error",
 			Message: fmt.Sprintf("symbol: %s window: %s error: %s", sc.Candidate.Symbol, window, err.Error()),
@@ -118,7 +119,7 @@ func (e *ExecutionEngine) execute(
 	onCooldown, err := e.cache.IsOnCooldown(ctx)
 	if err != nil || onCooldown {
 		slog.Info("skipping trade: on cooldown", "symbol", candidate.Symbol)
-		return nil
+		return domain.ErrSkipped
 	}
 	positions, err := e.cache.GetActivePositions(ctx)
 	if err != nil {
@@ -126,19 +127,19 @@ func (e *ExecutionEngine) execute(
 	}
 	if len(positions) >= e.cfg.Trading.MaxPositions {
 		slog.Info("skipping trade: max positions reached", "symbol", candidate.Symbol)
-		return nil
+		return domain.ErrSkipped
 	}
 	for _, p := range positions {
 		if p.Symbol == candidate.Symbol {
 			slog.Info("skipping trade: already in position", "symbol", candidate.Symbol)
-			return nil
+			return domain.ErrSkipped
 		}
 	}
 
 	lossCount, err := e.cache.GetDailyLossCount(ctx)
 	if err == nil && lossCount >= e.cfg.Risk.MaxDailyLosses {
 		slog.Warn("daily loss limit reached, skipping", "symbol", candidate.Symbol)
-		return nil
+		return domain.ErrSkipped
 	}
 
 	balance, err := e.executor.GetAccountBalance(ctx)
@@ -185,7 +186,7 @@ func (e *ExecutionEngine) execute(
 		ExpiresAt:          now.Add(60 * time.Second),
 		FundingRateAtEntry: fundingRate,
 		FundingRate:        candidate.FundingRate,
-		DailyROI:           candidate.DailyROI,
+		Change24h:          candidate.DailyROI,
 		ScoredCandidate:    sc,
 		IndicatorSnapshot:  sc.Indicators,
 		BTCContext:         sc.BTCContext,

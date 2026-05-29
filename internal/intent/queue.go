@@ -2,6 +2,7 @@ package intent
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"sort"
 	"sync"
@@ -106,7 +107,6 @@ func (q *Queue) tickFrontrunLocked(ctx context.Context) {
 	intent.Status = IntentFired
 	q.removeByIndexLocked(intent)
 	q.lastFrontrunExec = time.Now()
-	q.firedInWindow[scheduler.WindowFrontrun] = true
 
 	slog.Info("intent firing (FRONTRUN interval)",
 		"symbol", intent.Symbol,
@@ -119,12 +119,17 @@ func (q *Queue) tickFrontrunLocked(ctx context.Context) {
 	execStart := time.Now()
 	err := q.execFn(ctx, intent.Candidate, intent.Decision)
 	latencyMs := float64(time.Since(execStart).Microseconds()) / 1000.0
-	if err != nil {
-		slog.Error("intent execution failed", "symbol", intent.Symbol, "window", scheduler.WindowFrontrun, "latency_ms", latencyMs, "error", err)
-	} else {
-		slog.Info("intent executed", "symbol", intent.Symbol, "window", scheduler.WindowFrontrun, "confidence", intent.Decision.Confidence, "latency_ms", latencyMs)
-	}
 	q.mu.Lock()
+	if errors.Is(err, domain.ErrSkipped) {
+		slog.Info("intent skipped (FRONTRUN), window not marked fired", "symbol", intent.Symbol)
+	} else {
+		q.firedInWindow[scheduler.WindowFrontrun] = true
+		if err != nil {
+			slog.Error("intent execution failed", "symbol", intent.Symbol, "window", scheduler.WindowFrontrun, "latency_ms", latencyMs, "error", err)
+		} else {
+			slog.Info("intent executed", "symbol", intent.Symbol, "window", scheduler.WindowFrontrun, "confidence", intent.Decision.Confidence, "latency_ms", latencyMs)
+		}
+	}
 }
 
 // ClaimAfterIntent atomically claims the best eligible AFTER intent and marks it fired.
@@ -185,7 +190,6 @@ func (q *Queue) tickTransitionLocked(ctx context.Context, currentWindow schedule
 
 	intent.Status = IntentFired
 	q.removeByIndexLocked(intent)
-	q.firedInWindow[currentWindow] = true
 
 	slog.Info("intent firing (window transition)",
 		"symbol", intent.Symbol,
@@ -199,12 +203,17 @@ func (q *Queue) tickTransitionLocked(ctx context.Context, currentWindow schedule
 	execStart := time.Now()
 	err := q.execFn(ctx, intent.Candidate, intent.Decision)
 	latencyMs := float64(time.Since(execStart).Microseconds()) / 1000.0
-	if err != nil {
-		slog.Error("intent execution failed", "symbol", intent.Symbol, "window", currentWindow, "latency_ms", latencyMs, "error", err)
-	} else {
-		slog.Info("intent executed", "symbol", intent.Symbol, "window", currentWindow, "confidence", intent.Decision.Confidence, "latency_ms", latencyMs)
-	}
 	q.mu.Lock()
+	if errors.Is(err, domain.ErrSkipped) {
+		slog.Info("intent skipped, window not marked fired", "symbol", intent.Symbol, "window", currentWindow)
+	} else {
+		q.firedInWindow[currentWindow] = true
+		if err != nil {
+			slog.Error("intent execution failed", "symbol", intent.Symbol, "window", currentWindow, "latency_ms", latencyMs, "error", err)
+		} else {
+			slog.Info("intent executed", "symbol", intent.Symbol, "window", currentWindow, "confidence", intent.Decision.Confidence, "latency_ms", latencyMs)
+		}
+	}
 }
 
 // bestEligibleLocked returns the highest-confidence pending intent that can fire

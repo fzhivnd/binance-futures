@@ -656,7 +656,7 @@ func (m *PositionManager) finalizeSLTP(
 		IsPaper:     isPaper,
 		CreatedAt:   openedAt,
 		FundingRate: pending.FundingRate,
-		DailyROI:    pending.DailyROI,
+		Change24h:   pending.Change24h,
 	}
 	if pending.LLMDecision != nil {
 		d := pending.LLMDecision
@@ -672,7 +672,7 @@ func (m *PositionManager) finalizeSLTP(
 		slog.Error("finalizeSLTP: insert trade record", "symbol", pending.Symbol, "error", err)
 	}
 
-	if m.memoryEngine != nil && pending.ScoredCandidate != nil && pending.IndicatorSnapshot != nil && pending.BTCContext != nil {
+	if m.memoryEngine != nil && pending.ScoredCandidate != nil && pending.IndicatorSnapshot != nil {
 		go func() {
 			bgCtx := context.Background()
 			if err := m.memoryEngine.RecordTrade(bgCtx, trade, pending.IndicatorSnapshot, pending.BTCContext, pending.ScoredCandidate, pending.LLMDecision); err != nil {
@@ -951,13 +951,13 @@ func (m *PositionManager) persistClose(ctx context.Context, pos domain.Position,
 	if id == uuid.Nil {
 		slog.Warn("persistClose: position has no TradeID, result not persisted", "symbol", pos.Symbol)
 	} else {
-		cr := closeReason
-		ac := avgClose
+		roiPct := pnl / (pos.EntryPrice * pos.OriginalQty) * float64(pos.Leverage) * 100
 		if err := m.tradeRepo.UpdateResult(ctx, id, domain.ExitInfo{
-			AvgClosePrice: ac,
+			AvgClosePrice: avgClose,
 			PnL:           pnl,
+			ROIPct:        roiPct,
 			Result:        result,
-			CloseReason:   cr,
+			CloseReason:   closeReason,
 			ClosedAt:      now,
 		}); err != nil {
 			slog.Error("update trade result", "symbol", pos.Symbol, "error", err)
