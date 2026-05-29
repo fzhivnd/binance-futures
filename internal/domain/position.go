@@ -76,6 +76,11 @@ type PendingEntry struct {
 	FundingRateAtEntry float64
 	FundingRate        float64 // candidate funding rate at scan time
 	DailyROI           float64 // candidate daily ROI at scan time
+
+	// Memory context: carried from scan time so finalizeSLTP can record the trade.
+	ScoredCandidate   *ScoredCandidate
+	IndicatorSnapshot *IndicatorSnapshot
+	BTCContext        *BTCContext
 }
 
 // PendingProtection represents a position that is open but whose SL/TP

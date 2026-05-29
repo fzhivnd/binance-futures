@@ -14,6 +14,7 @@ import (
 	"futures/internal/exchange"
 	"futures/internal/indicator"
 	"futures/internal/llm"
+	"futures/internal/memory"
 	"futures/internal/notify"
 	"futures/internal/storage"
 )
@@ -34,6 +35,7 @@ type PositionManager struct {
 	cache         storage.StateCache
 	tradeRepo     storage.TradeRepository
 	memoryRepo    storage.MemoryRepository
+	memoryEngine  *memory.Engine
 	riskRepo      *storage.PGRiskRepository
 	cfg           *config.Config
 	forceSLEngine *llm.ForceSLEngine
@@ -75,6 +77,11 @@ func (m *PositionManager) SetIndicatorEngine(engine *indicator.Engine) {
 // SetMemoryRepo attaches the memory repository for recording trade outcomes.
 func (m *PositionManager) SetMemoryRepo(repo storage.MemoryRepository) {
 	m.memoryRepo = repo
+}
+
+// SetMemoryEngine attaches the memory engine for inserting trade records at entry.
+func (m *PositionManager) SetMemoryEngine(eng *memory.Engine) {
+	m.memoryEngine = eng
 }
 
 // SetFundingInfoGetter wires the funding info source for pre-settlement checks (Phase 8).
@@ -664,6 +671,16 @@ func (m *PositionManager) finalizeSLTP(
 	if err := m.tradeRepo.Insert(ctx, trade); err != nil {
 		slog.Error("finalizeSLTP: insert trade record", "symbol", pending.Symbol, "error", err)
 	}
+
+	if m.memoryEngine != nil && pending.ScoredCandidate != nil && pending.IndicatorSnapshot != nil && pending.BTCContext != nil {
+		go func() {
+			bgCtx := context.Background()
+			if err := m.memoryEngine.RecordTrade(bgCtx, trade, pending.IndicatorSnapshot, pending.BTCContext, pending.ScoredCandidate, pending.LLMDecision); err != nil {
+				slog.Error("finalizeSLTP: record trade memory", "symbol", pending.Symbol, "error", err)
+			}
+		}()
+	}
+
 	if err := m.cache.SetActivePosition(ctx, pos); err != nil {
 		slog.Error("finalizeSLTP: set active position", "symbol", pending.Symbol, "error", err)
 	}

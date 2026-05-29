@@ -57,17 +57,17 @@ func (e *ExecutionEngine) SetPositionManager(pm *PositionManager) {
 
 // ExecuteScored is the Phase 2 entry point.
 func (e *ExecutionEngine) ExecuteScored(ctx context.Context, sc *domain.ScoredCandidate, window scheduler.WindowType) error {
-	return e.executeInternal(ctx, sc.Candidate, window, sc.PositionSizePct, int(sc.CompositeScore), nil)
+	return e.executeInternal(ctx, sc, window, sc.PositionSizePct, int(sc.CompositeScore), nil)
 }
 
 // ExecuteScoredWithLLM is the Phase 3 entry point.
 func (e *ExecutionEngine) ExecuteScoredWithLLM(ctx context.Context, sc *domain.ScoredCandidate, decision *domain.LLMDecision) error {
 	window := entryModeToWindow(decision.EntryMode)
-	return e.executeInternal(ctx, sc.Candidate, window, sc.PositionSizePct, decision.Confidence, decision)
+	return e.executeInternal(ctx, sc, window, sc.PositionSizePct, decision.Confidence, decision)
 }
 
 func (e *ExecutionEngine) Execute(ctx context.Context, candidate domain.Candidate, window scheduler.WindowType) error {
-	return e.executeInternal(ctx, candidate, window, e.cfg.Trading.PositionSizePct, 0, nil)
+	return e.executeInternal(ctx, &domain.ScoredCandidate{Candidate: candidate}, window, e.cfg.Trading.PositionSizePct, 0, nil)
 }
 
 func entryModeToWindow(mode domain.EntryMode) scheduler.WindowType {
@@ -85,17 +85,17 @@ func entryModeToWindow(mode domain.EntryMode) scheduler.WindowType {
 
 func (e *ExecutionEngine) executeInternal(
 	ctx context.Context,
-	candidate domain.Candidate,
+	sc *domain.ScoredCandidate,
 	window scheduler.WindowType,
 	positionSizePct float64,
 	confidence int,
 	llmDecision *domain.LLMDecision,
 ) error {
-	err := e.execute(ctx, candidate, window, positionSizePct, confidence, llmDecision)
+	err := e.execute(ctx, sc, window, positionSizePct, confidence, llmDecision)
 	if err != nil {
 		e.notifier.NotifyRiskEvent(ctx, notify.RiskEvent{
 			Type:    "execution_error",
-			Message: fmt.Sprintf("symbol: %s window: %s error: %s", candidate.Symbol, window, err.Error()),
+			Message: fmt.Sprintf("symbol: %s window: %s error: %s", sc.Candidate.Symbol, window, err.Error()),
 		})
 	}
 	return err
@@ -103,12 +103,13 @@ func (e *ExecutionEngine) executeInternal(
 
 func (e *ExecutionEngine) execute(
 	ctx context.Context,
-	candidate domain.Candidate,
+	sc *domain.ScoredCandidate,
 	window scheduler.WindowType,
 	positionSizePct float64,
 	confidence int,
 	llmDecision *domain.LLMDecision,
 ) error {
+	candidate := sc.Candidate
 	// Pre-checks
 	killSwitch, err := e.cache.GetKillSwitch(ctx)
 	if err != nil || killSwitch {
@@ -185,6 +186,9 @@ func (e *ExecutionEngine) execute(
 		FundingRateAtEntry: fundingRate,
 		FundingRate:        candidate.FundingRate,
 		DailyROI:           candidate.DailyROI,
+		ScoredCandidate:    sc,
+		IndicatorSnapshot:  sc.Indicators,
+		BTCContext:         sc.BTCContext,
 	}
 
 	if err := e.cache.SetPendingEntry(ctx, pending); err != nil {

@@ -3,6 +3,7 @@ package domain
 type ScoredCandidate struct {
 	Candidate       Candidate
 	Indicators      *IndicatorSnapshot
+	BTCContext      *BTCContext
 	CompositeScore  float64
 	Breakdown       ScoreBreakdown
 	Confidence      string

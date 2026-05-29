@@ -71,6 +71,7 @@ func (s *Scorer) Score(c domain.Candidate, ind *domain.IndicatorSnapshot, btc *d
 	return &domain.ScoredCandidate{
 		Candidate:       c,
 		Indicators:      ind,
+		BTCContext:      btc,
 		CompositeScore:  composite,
 		Breakdown:       bd,
 		Confidence:      confidence,

@@ -58,6 +58,10 @@ func (e *Engine) RecordTrade(
 	if !e.enabled {
 		return nil
 	}
+	if snap == nil || btc == nil {
+		slog.Warn("RecordTrade: missing snapshot or BTC context, skipping", "trade_id", trade.ID)
+		return nil
+	}
 
 	entryMode := ""
 	if decision != nil {
