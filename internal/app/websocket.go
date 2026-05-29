@@ -81,6 +81,7 @@ func (a *App) backfillCandles(ctx context.Context, symbols []string, existing ma
 		if existing[sym] {
 			continue
 		}
+		slog.Info("candle backfill started", "symbol", sym)
 		for _, p := range backfillPlan {
 			candles, err := a.binanceClient.FetchKlines(ctx, sym, p.interval, p.limit)
 			if err != nil {
@@ -89,6 +90,6 @@ func (a *App) backfillCandles(ctx context.Context, symbols []string, existing ma
 			}
 			a.engine.SeedCandles(candles)
 		}
-		slog.Debug("candle backfill done", "symbol", sym)
+		slog.Info("candle backfill done", "symbol", sym)
 	}
 }
