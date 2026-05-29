@@ -103,12 +103,14 @@ func (t *AfterTrigger) Run(ctx context.Context) {
 		// Step 2: peek the queue for the best AFTER symbol (queue is frozen at this point).
 		symbol, ok := t.intentQueue.PeekAfterSymbol()
 		if !ok {
-			// No AFTER intent this cycle — sleep past T+0 and try the next cycle.
-			slog.Info("AfterTrigger: no AFTER intent at T-2m, skipping cycle")
+			// No AFTER intent this cycle — sleep until T+1m so the next loop iteration
+			// lands at the correct T-2m of the following cycle.
+			slog.Debug("AfterTrigger: no AFTER intent at T-2m, skipping cycle")
+			sleepUntil := next.Add(1 * time.Minute)
 			select {
 			case <-ctx.Done():
 				return
-			case <-time.After(3 * time.Minute):
+			case <-time.After(time.Until(sleepUntil)):
 			}
 			continue
 		}
@@ -116,10 +118,11 @@ func (t *AfterTrigger) Run(ctx context.Context) {
 		fi, found := t.fundingInfo.GetFundingInfo(symbol)
 		if !found || fi.NextFunding.IsZero() || fi.NextFunding.Before(time.Now()) {
 			slog.Warn("AfterTrigger: no valid funding info for symbol, skipping cycle", "symbol", symbol)
+			sleepUntil := next.Add(1 * time.Minute)
 			select {
 			case <-ctx.Done():
 				return
-			case <-time.After(3 * time.Minute):
+			case <-time.After(time.Until(sleepUntil)):
 			}
 			continue
 		}

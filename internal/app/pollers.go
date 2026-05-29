@@ -55,8 +55,10 @@ func (a *App) klineSubscriber(ctx context.Context) {
 			if len(newSymbols) == 0 {
 				continue
 			}
+			slog.Info("kline subscriber cycle started", "symbols", len(newSymbols))
 			a.updateKlineSubscriptions(ctx, currentSymbols, newSymbols)
 			currentSymbols = newSymbols
+			slog.Info("kline subscriber cycle done", "symbols", len(currentSymbols))
 		}
 	}
 }
