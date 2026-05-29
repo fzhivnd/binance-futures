@@ -22,7 +22,7 @@ import (
 var webFS embed.FS
 
 func main() {
-	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo})))
+	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo})))
 
 	pgCfg := config.PostgresConfig{
 		Host:     getenv("POSTGRES_HOST", "localhost"),
