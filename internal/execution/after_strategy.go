@@ -37,6 +37,7 @@ func NewAfterExecutionStrategy(
 
 // Execute fires the AFTER intent with bid-depth sizing and staleness validation.
 func (s *AfterExecutionStrategy) Execute(ctx context.Context, ti *intent.TradeIntent) error {
+	start := time.Now()
 	candidate := ti.Candidate.Candidate
 	decision := ti.Decision
 
@@ -49,6 +50,7 @@ func (s *AfterExecutionStrategy) Execute(ctx context.Context, ti *intent.TradeIn
 		slog.Info("after_entry_skipped",
 			"symbol", candidate.Symbol,
 			"reason", err.Error(),
+			"latency_ms", time.Since(start).Milliseconds(),
 		)
 		return nil
 	}
@@ -60,6 +62,7 @@ func (s *AfterExecutionStrategy) Execute(ctx context.Context, ti *intent.TradeIn
 			"symbol", candidate.Symbol,
 			"reason", "thin_book",
 			"window", "AFTER",
+			"latency_ms", time.Since(start).Milliseconds(),
 		)
 		s.notifier.NotifyRiskEvent(ctx, notify.RiskEvent{
 			Type:    "after_entry_skipped",
@@ -72,7 +75,13 @@ func (s *AfterExecutionStrategy) Execute(ctx context.Context, ti *intent.TradeIn
 	sc := ti.Candidate
 	sc.PositionSizePct = adjustedSizePct
 
-	return s.execEng.ExecuteScoredWithLLM(ctx, sc, decision)
+	err := s.execEng.ExecuteScoredWithLLM(ctx, sc, decision)
+	slog.Info("after_execute",
+		"symbol", candidate.Symbol,
+		"latency_ms", time.Since(start).Milliseconds(),
+		"error", err,
+	)
+	return err
 }
 
 // adjustSizeForDepth checks bid depth and returns the effective position size percentage.

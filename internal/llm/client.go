@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"sync"
 	"time"
 
@@ -46,6 +47,7 @@ func (c *Client) CallPlain(ctx context.Context, systemPrompt, userMessage string
 	callCtx, cancel := context.WithTimeout(ctx, c.cfg.Timeout)
 	defer cancel()
 
+	start := time.Now()
 	resp, err := c.client.Chat.Completions.New(callCtx, openai.ChatCompletionNewParams{
 		Model: openai.ChatModel(c.cfg.Model),
 		Messages: []openai.ChatCompletionMessageParamUnion{
@@ -64,12 +66,15 @@ func (c *Client) CallPlain(ctx context.Context, systemPrompt, userMessage string
 			},
 		})
 	}
+	elapsed := time.Since(start)
 	if err != nil {
+		slog.Warn("llm_call_plain failed", "latency_ms", elapsed.Milliseconds(), "model", c.cfg.Model, "error", err)
 		return "", err
 	}
 	if len(resp.Choices) == 0 {
 		return "", errors.New("empty response from LLM")
 	}
+	slog.Debug("llm_call_plain", "latency_ms", elapsed.Milliseconds(), "model", c.cfg.Model)
 	return resp.Choices[0].Message.Content, nil
 }
 
@@ -95,6 +100,7 @@ func (c *Client) Call(ctx context.Context, systemPrompt, userMessage string) (st
 func (c *Client) doCall(ctx context.Context, systemPrompt, userMessage string) (string, error) {
 	schemaBytes, _ := json.Marshal(tradeDecisionSchema())
 
+	start := time.Now()
 	resp, err := c.client.Chat.Completions.New(ctx, openai.ChatCompletionNewParams{
 		Model: openai.ChatModel(c.cfg.Model),
 		Messages: []openai.ChatCompletionMessageParamUnion{
@@ -111,13 +117,16 @@ func (c *Client) doCall(ctx context.Context, systemPrompt, userMessage string) (
 			},
 		},
 	})
+	elapsed := time.Since(start)
 	if err != nil {
+		slog.Warn("llm_call failed", "latency_ms", elapsed.Milliseconds(), "model", c.cfg.Model, "error", err)
 		return "", err
 	}
 
 	if len(resp.Choices) == 0 {
 		return "", errors.New("empty response from LLM")
 	}
+	slog.Debug("llm_call", "latency_ms", elapsed.Milliseconds(), "model", c.cfg.Model)
 	return resp.Choices[0].Message.Content, nil
 }
 

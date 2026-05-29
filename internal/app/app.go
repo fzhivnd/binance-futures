@@ -281,16 +281,23 @@ func (a *App) Run(
 
 	frontrunInterval := time.Duration(a.cfg.LLM.FrontrunExecIntervalSecs) * time.Second
 	a.intentQueue = intent.NewQueue(func(ctx context.Context, sc *domain.ScoredCandidate, decision *domain.LLMDecision) error {
+		fireStart := time.Now()
 		btcAtFire, _ := a.indEngine.ComputeBTCContext(ctx)
 		if err := a.riskEngine.EvaluateCandidate(ctx, sc, btcAtFire); err != nil {
 			slog.Info("intent rejected by risk engine at fire time",
-				"symbol", sc.Candidate.Symbol, "reason", err)
+				"symbol", sc.Candidate.Symbol, "reason", err,
+				"latency_ms", time.Since(fireStart).Milliseconds())
 			return nil
 		}
 		if err := a.executor.SetLeverage(ctx, sc.Candidate.Symbol, a.cfg.Trading.Leverage); err != nil {
 			slog.Warn("set leverage failed before execution, continuing", "symbol", sc.Candidate.Symbol, "error", err)
 		}
-		return a.execEng.ExecuteScoredWithLLM(ctx, sc, decision)
+		err := a.execEng.ExecuteScoredWithLLM(ctx, sc, decision)
+		slog.Info("intent_fired",
+			"symbol", sc.Candidate.Symbol,
+			"latency_ms", time.Since(fireStart).Milliseconds(),
+			"error", err)
+		return err
 	}, frontrunInterval)
 
 	a.sched = scheduler.NewScheduler(&a.cfg.Scheduler, cache, a.scanFn)

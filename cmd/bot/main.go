@@ -3,7 +3,10 @@ package main
 import (
 	"context"
 	"flag"
+	"fmt"
 	"log/slog"
+	"net/http"
+	_ "net/http/pprof"
 	"os"
 	"os/signal"
 	"syscall"
@@ -39,6 +42,16 @@ func main() {
 		level = slog.LevelError
 	}
 	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: level})))
+
+	if cfg.App.PprofPort > 0 {
+		addr := fmt.Sprintf(":%d", cfg.App.PprofPort)
+		go func() {
+			slog.Info("pprof listening", "addr", fmt.Sprintf("http://0.0.0.0%s/debug/pprof/", addr))
+			if err := http.ListenAndServe(addr, nil); err != nil {
+				slog.Warn("pprof server stopped", "error", err)
+			}
+		}()
+	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
