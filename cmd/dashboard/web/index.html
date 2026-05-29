@@ -147,12 +147,12 @@
           <th>Time</th><th>Symbol</th><th>Side</th><th>Mode</th>
           <th>Lev</th><th>Conf</th><th>LLM</th>
           <th>Funding</th><th>ROI%</th>
-          <th>Entry</th><th>Exit</th><th>PnL</th>
+          <th>Entry</th><th>Size (USDT)</th><th>Exit</th><th>PnL</th>
           <th>Result</th><th>Close</th><th>Type</th>
         </tr>
       </thead>
       <tbody id="trades-body">
-        <tr><td colspan="15" class="loading">Loading…</td></tr>
+        <tr><td colspan="16" class="loading">Loading…</td></tr>
       </tbody>
     </table>
   </div>
@@ -341,12 +341,13 @@
       const res = await fetch('/api/trades?' + params);
       if (!res.ok) { errEl.innerHTML = `<div class="error-msg">${await res.text()}</div>`; tbody.innerHTML = ''; return; }
       const trades = await res.json();
-      if (!trades.length) { tbody.innerHTML = '<tr><td colspan="15" class="empty">No trades found</td></tr>'; return; }
+      if (!trades.length) { tbody.innerHTML = '<tr><td colspan="16" class="empty">No trades found</td></tr>'; return; }
       tbody.innerHTML = trades.map(t => {
-        const result = t.Result || 'OPEN';
-        const pnl    = t.PnL != null ? parseFloat(t.PnL) : null;
-        const pnlStr = pnl != null ? (pnl >= 0 ? '+' : '') + pnl.toFixed(4) : '—';
-        const pnlCls = pnl == null ? 'zero' : pnl > 0 ? 'pos' : pnl < 0 ? 'neg' : 'zero';
+        const result  = t.Result || 'OPEN';
+        const pnl     = t.PnL != null ? parseFloat(t.PnL) : null;
+        const pnlStr  = pnl != null ? (pnl >= 0 ? '+' : '') + pnl.toFixed(4) : '—';
+        const pnlCls  = pnl == null ? 'zero' : pnl > 0 ? 'pos' : pnl < 0 ? 'neg' : 'zero';
+        const notional = t.Quantity && t.EntryPrice ? (parseFloat(t.Quantity) * parseFloat(t.EntryPrice)).toFixed(2) : '—';
         return `<tr>
           <td>${fmtTs(t.CreatedAt)}</td>
           <td><strong>${t.Symbol}</strong></td>
@@ -358,6 +359,7 @@
           <td>${(t.FundingRate * 100).toFixed(4)}%</td>
           <td>${t.DailyROI.toFixed(1)}%</td>
           <td>${fmt8(t.EntryPrice)}</td>
+          <td>$${notional}</td>
           <td>${t.AvgClosePrice != null ? fmt8(t.AvgClosePrice) : '—'}</td>
           <td class="pnl ${pnlCls}">${pnlStr}</td>
           <td><span class="badge ${result}">${result}</span></td>

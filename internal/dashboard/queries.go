@@ -9,23 +9,24 @@ import (
 )
 
 type TradeRow struct {
-	ID             string
-	Symbol         string
-	Side           string
-	EntryMode      string
-	Leverage       int
-	Confidence     int
-	FundingRate    float64
-	DailyROI       float64
-	EntryPrice     float64
-	AvgClosePrice  *float64
-	PnL            *float64
-	Result         *string
-	CloseReason    *string
-	IsPaper        bool
-	LLMConfidence  *int
-	CreatedAt      time.Time
-	ClosedAt       *time.Time
+	ID            string
+	Symbol        string
+	Side          string
+	EntryMode     string
+	Leverage      int
+	Confidence    int
+	FundingRate   float64
+	DailyROI      float64
+	EntryPrice    float64
+	Quantity      float64
+	AvgClosePrice *float64
+	PnL           *float64
+	Result        *string
+	CloseReason   *string
+	IsPaper       bool
+	LLMConfidence *int
+	CreatedAt     time.Time
+	ClosedAt      *time.Time
 }
 
 type SummaryRow struct {
@@ -73,7 +74,7 @@ func (q *Queries) ListTrades(ctx context.Context, from, to time.Time, isPaper *b
 
 	rows, err := q.pool.Query(ctx, `
 		SELECT id, symbol, side, entry_mode, leverage, confidence,
-		       funding_rate, daily_roi, entry_price, avg_close_price,
+		       funding_rate, daily_roi, entry_price, quantity, avg_close_price,
 		       pnl, result, close_reason, is_paper, llm_confidence,
 		       created_at, closed_at
 		FROM trades
@@ -92,7 +93,7 @@ func (q *Queries) ListTrades(ctx context.Context, from, to time.Time, isPaper *b
 		var t TradeRow
 		if err := rows.Scan(
 			&t.ID, &t.Symbol, &t.Side, &t.EntryMode, &t.Leverage, &t.Confidence,
-			&t.FundingRate, &t.DailyROI, &t.EntryPrice, &t.AvgClosePrice,
+			&t.FundingRate, &t.DailyROI, &t.EntryPrice, &t.Quantity, &t.AvgClosePrice,
 			&t.PnL, &t.Result, &t.CloseReason, &t.IsPaper, &t.LLMConfidence,
 			&t.CreatedAt, &t.ClosedAt,
 		); err != nil {

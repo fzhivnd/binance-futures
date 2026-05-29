@@ -123,7 +123,13 @@ func (c *Client) doCall(ctx context.Context, systemPrompt, userMessage string) (
 	if len(resp.Choices) == 0 {
 		return "", errors.New("empty response from LLM")
 	}
-	slog.Debug("llm_call", "latency_ms", elapsed.Milliseconds(), "model", c.cfg.Model)
+	slog.Info("llm_call",
+		"latency_ms", elapsed.Milliseconds(),
+		"model", c.cfg.Model,
+		"prompt_tokens", resp.Usage.PromptTokens,
+		"cached_tokens", resp.Usage.PromptTokensDetails.CachedTokens,
+		"completion_tokens", resp.Usage.CompletionTokens,
+	)
 	return resp.Choices[0].Message.Content, nil
 }
 

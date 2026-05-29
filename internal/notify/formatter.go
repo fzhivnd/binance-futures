@@ -28,21 +28,21 @@ func FormatTradeOpened(e TradeOpenedEvent) string {
 	return fmt.Sprintf(
 		"*SHORT OPENED* \\[%s\\]\n\n"+
 			"Symbol: `%s`\n"+
-			"Entry: `$%s`\n"+
+			"Entry: `$%s` \\| Size: `$%.2f`\n"+
 			"Leverage: `%dx`\n"+
 			"SL: `$%s` \\| TP: `$%s`\n"+
 			"Mode: `%s` \\| Confidence: `%d`\n"+
-			"Score: `%.1f` \\| Entry Mode: `%s`\n"+
+			"Entry Mode: `%s`\n"+
 			"Opened: `%s`",
 		escapeMarkdownV2(e.Symbol),
 		escapeMarkdownV2(e.Symbol),
 		escapeMarkdownV2(fmt.Sprintf("%.8g", e.EntryPrice)),
+		e.Quantity*e.EntryPrice,
 		e.Leverage,
 		escapeMarkdownV2(fmt.Sprintf("%.8g", e.StopLoss)),
 		escapeMarkdownV2(fmt.Sprintf("%.8g", e.TakeProfit)),
 		mode,
 		e.Confidence,
-		e.Score,
 		escapeMarkdownV2(e.EntryMode),
 		escapeMarkdownV2(openedAt),
 	)

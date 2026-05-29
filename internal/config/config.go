@@ -306,7 +306,7 @@ func setDefaults(cfg *Config) {
 	}
 
 	if cfg.LLM.TimeoutSecs == 0 {
-		cfg.LLM.TimeoutSecs = 20
+		cfg.LLM.TimeoutSecs = 45
 	}
 	if cfg.LLM.MaxRetries == 0 {
 		cfg.LLM.MaxRetries = 1

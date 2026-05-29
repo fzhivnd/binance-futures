@@ -310,6 +310,7 @@ func (a *App) Run(
 			Repo:      memRepo,
 		})
 		a.posMgr.SetMemoryRepo(memRepo)
+		a.posMgr.SetMemoryEngine(a.memoryEngine)
 		slog.Info("memory engine enabled",
 			"embedding_model", a.cfg.Memory.EmbeddingModel,
 			"top_similar", a.cfg.Memory.TopSimilar,

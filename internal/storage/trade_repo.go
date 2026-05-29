@@ -27,13 +27,13 @@ func (r *PGTradeRepository) Insert(ctx context.Context, trade *domain.Trade) err
 	}
 	_, err := r.pool.Exec(ctx, `
 		INSERT INTO trades (id, symbol, side, entry_mode, leverage, confidence,
-		    funding_rate, daily_roi, entry_price, is_paper, created_at,
+		    funding_rate, daily_roi, entry_price, quantity, is_paper, created_at,
 		    llm_confidence, llm_entry_mode,
 		    llm_entry_reasons, llm_warnings)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
 	`, trade.ID, trade.Symbol, trade.Side, trade.EntryMode, trade.Leverage,
 		trade.Confidence, trade.FundingRate, trade.DailyROI,
-		trade.EntryPrice, trade.IsPaper, trade.CreatedAt,
+		trade.EntryPrice, trade.Quantity, trade.IsPaper, trade.CreatedAt,
 		trade.LLMConfidence, trade.LLMEntryMode,
 		trade.LLMEntryReasons, trade.LLMWarnings)
 	return err

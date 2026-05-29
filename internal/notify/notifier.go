@@ -18,7 +18,6 @@ type TradeOpenedEvent struct {
 	TakeProfit float64
 	EntryMode  string
 	Confidence int
-	Score      float64
 	IsPaper    bool
 	OpenedAt   time.Time
 }
