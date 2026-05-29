@@ -223,6 +223,7 @@ func (a *App) scanFn(ctx context.Context, window scheduler.WindowType) error {
 		Status:          intent.IntentPending,
 	}
 	a.intentQueue.Enqueue(ti)
+	a.intentQueue.Tick(ctx, window)
 
 	return nil
 }

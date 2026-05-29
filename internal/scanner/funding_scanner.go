@@ -8,7 +8,6 @@ import (
 
 	"futures/internal/config"
 	"futures/internal/domain"
-	"futures/internal/scheduler"
 )
 
 type MarketProvider interface {
@@ -72,20 +71,16 @@ func (s *FundingScanner) Scan(ctx context.Context) ([]domain.Candidate, error) {
 	return candidates, nil
 }
 
-// settlementAlignedWithWindow returns true if the symbol's next funding time
-// matches the upcoming settlement window. Filters out 8h-interval symbols that
-// are not settling in the current 4h window — e.g. at UTC 04:00 an 8h symbol
-// settling at 08:00 is 4h away and should not be traded.
-// Tolerance is 65 minutes to cover the full T-30m → T+5m trading window.
+// settlementAlignedWithWindow returns true if the symbol is settling within the
+// active trading window (T-30m to T+1m). This correctly handles 8h-interval
+// symbols by checking the symbol's actual NextFunding time directly against now,
+// rather than comparing against the scheduler's generic 4h window boundary.
 func settlementAlignedWithWindow(m MarketProvider, symbol string) bool {
 	info, ok := m.GetFundingInfo(symbol)
 	if !ok || info.NextFunding.IsZero() {
 		return true // no data — allow through, don't over-filter
 	}
-	nextWindow := scheduler.NextFundingTime(time.Now().UTC())
-	diff := info.NextFunding.UTC().Sub(nextWindow)
-	if diff < 0 {
-		diff = -diff
-	}
-	return diff <= 65*time.Minute
+	until := time.Until(info.NextFunding.UTC())
+	// Allow if settlement is within 30m in the future or up to 1m in the past.
+	return until <= 30*time.Minute && until >= -1*time.Minute
 }

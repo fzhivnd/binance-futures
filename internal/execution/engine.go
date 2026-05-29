@@ -183,6 +183,8 @@ func (e *ExecutionEngine) execute(
 		CreatedAt:          now,
 		ExpiresAt:          now.Add(60 * time.Second),
 		FundingRateAtEntry: fundingRate,
+		FundingRate:        candidate.FundingRate,
+		DailyROI:           candidate.DailyROI,
 	}
 
 	if err := e.cache.SetPendingEntry(ctx, pending); err != nil {

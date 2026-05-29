@@ -16,6 +16,7 @@ type Trade struct {
 	FundingRate float64
 	DailyROI    float64
 	EntryPrice  float64
+	Quantity    float64
 	ExitPrice   float64
 	PnL         float64
 	Result      string
@@ -41,7 +42,7 @@ type Trade struct {
 type ExitInfo struct {
 	AvgClosePrice float64
 	PnL           float64
-	Result        string   // WIN | LOSS | PARTIAL_WIN | FORCE_SL | BREAKEVEN | MANUAL
-	CloseReason   string   // TP_TRAIL | FORCE_SL | HARD_SL | MANUAL
+	Result        string // WIN | LOSS | PARTIAL_WIN | FORCE_SL | BREAKEVEN | MANUAL
+	CloseReason   string // TP_TRAIL | FORCE_SL | HARD_SL | MANUAL
 	ClosedAt      time.Time
 }

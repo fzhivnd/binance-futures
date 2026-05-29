@@ -69,7 +69,7 @@ FRONTRUN thesis: "Price will drop BEFORE funding settlement — exit before payi
   → EDGE: Enter early, catch the pre-settlement dump, exit clean before the fee hits.
 
 LAST_MINUTE thesis: "Price is already starting to drop — confirm direction, likely pays fee."
-  → WHY: Same mechanic as FRONTRUN but wait until T-5m for confirmation. Less time means
+  → WHY: Same mechanic as FRONTRUN but wait until T-10m for confirmation. Less time means
     less chance TP1 hits before settlement. More likely to hold through and pay the fee.
   → LIKELY OUTCOME: Hold through settlement → pay fee → TP widened to cover it.
   → EDGE: Less time exposed to squeezes. Directional confirmation before committing.
@@ -85,13 +85,13 @@ AFTER thesis: "Price will dump HARD right after funding settlement — ride the 
 MODE MECHANICS & SYSTEM BEHAVIOR:
 ═══════════════════════════════════════════════════════════════════════════════════════
 
-FRONTRUN (Enter T-30m to T-5m):
+FRONTRUN (Enter T-30m to T-10m):
   TP1 Target: 2% pure. Funding Fee: we PAY if held through settlement.
   T-2m Safety: If losing > 0.75×|funding_rate| → force-closed (avoid fee on loser).
   T-2m Adjust: If TP1 not hit → TP widens to 2%+|funding_rate| (cover the fee cost).
   Hard SL: 5% adverse move. Best signals: RSI exhaustion, OI rising, early selling volume.
 
-LAST_MINUTE (Enter T-5m to T-0):
+LAST_MINUTE (Enter T-10m to T-0):
   TP1 Target: 2% pure. Funding Fee: almost certainly PAY (not enough time to TP before).
   T-2m Safety: applies if entered before T-2m. Best signals: dump already beginning.
 

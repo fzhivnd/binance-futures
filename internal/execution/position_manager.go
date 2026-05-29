@@ -638,15 +638,18 @@ func (m *PositionManager) finalizeSLTP(
 	}
 
 	trade := &domain.Trade{
-		ID:         tradeID,
-		Symbol:     pending.Symbol,
-		Side:       domain.SideSell,
-		EntryMode:  domain.EntryMode(pending.Window),
-		Leverage:   m.cfg.Trading.Leverage,
-		Confidence: pending.Confidence,
-		EntryPrice: avgFillPrice,
-		IsPaper:    isPaper,
-		CreatedAt:  openedAt,
+		ID:          tradeID,
+		Symbol:      pending.Symbol,
+		Side:        domain.SideSell,
+		EntryMode:   domain.EntryMode(pending.Window),
+		Leverage:    m.cfg.Trading.Leverage,
+		Confidence:  pending.Confidence,
+		EntryPrice:  avgFillPrice,
+		Quantity:    filledQty,
+		IsPaper:     isPaper,
+		CreatedAt:   openedAt,
+		FundingRate: pending.FundingRate,
+		DailyROI:    pending.DailyROI,
 	}
 	if pending.LLMDecision != nil {
 		d := pending.LLMDecision

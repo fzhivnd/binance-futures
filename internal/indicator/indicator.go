@@ -69,16 +69,36 @@ func (e *Engine) Compute(_ context.Context, symbol string) (*domain.IndicatorSna
 		}
 	}
 
-	// Candle patterns across all timeframes
+	// Candle patterns across all timeframes.
+	// Fetch counts are sized to cover the trend-lookback window for each TF.
+	tfFetchCounts := map[domain.Timeframe]int{
+		domain.Timeframe1h:  10,
+		domain.Timeframe30m: 12,
+		domain.Timeframe15m: 15,
+		domain.Timeframe5m:  20,
+	}
 	for _, tf := range []domain.Timeframe{domain.Timeframe1h, domain.Timeframe30m, domain.Timeframe15m, domain.Timeframe5m} {
-		candles := e.market.GetCandles(symbol, tf, 5)
-		snap.Patterns = append(snap.Patterns, DetectPatterns(candles, tf)...)
+		candles := e.market.GetCandles(symbol, tf, tfFetchCounts[tf])
+		avgVol := avgVolume(candles)
+		snap.Patterns = append(snap.Patterns, DetectPatterns(candles, tf, snap.ATR14_1h, avgVol)...)
 	}
 
 	// MomentumLoss: RSI on both timeframes declining + OI flat/down
 	snap.MomentumLoss = snap.RSI14_15m < 50 && snap.RSI7_5m < 50 && snap.OIDelta1h <= 0
 
 	return snap, nil
+}
+
+// avgVolume returns the mean volume over all candles; returns 0 if none.
+func avgVolume(candles []domain.Candle) float64 {
+	if len(candles) == 0 {
+		return 0
+	}
+	var total float64
+	for _, c := range candles {
+		total += c.Volume
+	}
+	return total / float64(len(candles))
 }
 
 // ComputeBTCContext derives the BTC market context.

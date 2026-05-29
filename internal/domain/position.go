@@ -74,6 +74,8 @@ type PendingEntry struct {
 	CreatedAt          time.Time
 	ExpiresAt          time.Time // CreatedAt + 60s
 	FundingRateAtEntry float64
+	FundingRate        float64 // candidate funding rate at scan time
+	DailyROI           float64 // candidate daily ROI at scan time
 }
 
 // PendingProtection represents a position that is open but whose SL/TP
