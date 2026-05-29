@@ -10,28 +10,34 @@ import (
 )
 
 func (a *App) oiPoller(ctx context.Context, client *exchange.BinanceClient) {
-	ticker := time.NewTicker(5 * time.Minute)
+	a.runOICycle(ctx, client)
+
+	ticker := time.NewTicker(2 * time.Minute)
 	defer ticker.Stop()
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			symbols := a.engine.GetTopNegativeFundingSymbols(20)
-			slog.Info("oi poller cycle started", "symbols", len(symbols))
-			updated := 0
-			for _, sym := range symbols {
-				oi, err := client.GetOpenInterest(ctx, sym)
-				if err != nil {
-					slog.Warn("oi fetch failed", "symbol", sym, "error", err)
-					continue
-				}
-				a.engine.UpdateOI(sym, oi.OpenInterest)
-				updated++
-			}
-			slog.Info("oi poller cycle done", "updated", updated, "total", len(symbols))
+			a.runOICycle(ctx, client)
 		}
 	}
+}
+
+func (a *App) runOICycle(ctx context.Context, client *exchange.BinanceClient) {
+	symbols := a.engine.GetTopNegativeFundingSymbols(20)
+	slog.Info("oi poller cycle started", "symbols", len(symbols))
+	updated := 0
+	for _, sym := range symbols {
+		oi, err := client.GetOpenInterest(ctx, sym)
+		if err != nil {
+			slog.Warn("oi fetch failed", "symbol", sym, "error", err)
+			continue
+		}
+		a.engine.UpdateOI(sym, oi.OpenInterest)
+		updated++
+	}
+	slog.Info("oi poller cycle done", "updated", updated, "total", len(symbols))
 }
 
 func (a *App) klineSubscriber(ctx context.Context) {

@@ -2,7 +2,6 @@ package llm
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"log/slog"
 	"sync"
@@ -98,8 +97,6 @@ func (c *Client) Call(ctx context.Context, systemPrompt, userMessage string) (st
 }
 
 func (c *Client) doCall(ctx context.Context, systemPrompt, userMessage string) (string, error) {
-	schemaBytes, _ := json.Marshal(tradeDecisionSchema())
-
 	start := time.Now()
 	resp, err := c.client.Chat.Completions.New(ctx, openai.ChatCompletionNewParams{
 		Model: openai.ChatModel(c.cfg.Model),
@@ -112,7 +109,7 @@ func (c *Client) doCall(ctx context.Context, systemPrompt, userMessage string) (
 				JSONSchema: openai.ResponseFormatJSONSchemaJSONSchemaParam{
 					Name:   "trade_decision",
 					Strict: openai.Bool(true),
-					Schema: schemaBytes,
+					Schema: tradeDecisionSchema(),
 				},
 			},
 		},

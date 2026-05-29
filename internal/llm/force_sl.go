@@ -135,7 +135,6 @@ func (e *ForceSLEngine) callForceSL(ctx context.Context, userMsg string) (string
 		return "", errors.New("rate limit exceeded")
 	}
 
-	schemaBytes, _ := json.Marshal(forceSLSchema())
 	start := time.Now()
 	resp, err := e.client.client.Chat.Completions.New(ctx, openai.ChatCompletionNewParams{
 		Model: openai.ChatModel(e.client.cfg.Model),
@@ -148,7 +147,7 @@ func (e *ForceSLEngine) callForceSL(ctx context.Context, userMsg string) (string
 				JSONSchema: openai.ResponseFormatJSONSchemaJSONSchemaParam{
 					Name:   "force_sl_decision",
 					Strict: openai.Bool(true),
-					Schema: schemaBytes,
+					Schema: forceSLSchema(),
 				},
 			},
 		},

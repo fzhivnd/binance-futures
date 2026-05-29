@@ -103,7 +103,7 @@ type ExecutionConfig struct {
 	ForceSLEscalatePnlPct  float64 `yaml:"force_sl_escalate_pnl_pct"`  // escalate below this (e.g. -2.0)
 	ForceSLSlowIntervalSec int     `yaml:"force_sl_slow_interval_sec"` // interval when mild loss (300s)
 	ForceSLFastIntervalSec int     `yaml:"force_sl_fast_interval_sec"` // interval when severe loss (60s)
-	ForceSLTimeoutSec      int     `yaml:"force_sl_timeout_sec"`       // LLM call timeout (5s)
+	ForceSLTimeoutSec      int     `yaml:"force_sl_timeout_sec"`       // LLM call timeout (15s)
 }
 
 type SchedulerConfig struct {
@@ -306,7 +306,7 @@ func setDefaults(cfg *Config) {
 	}
 
 	if cfg.LLM.TimeoutSecs == 0 {
-		cfg.LLM.TimeoutSecs = 15
+		cfg.LLM.TimeoutSecs = 20
 	}
 	if cfg.LLM.MaxRetries == 0 {
 		cfg.LLM.MaxRetries = 1
@@ -350,7 +350,7 @@ func setDefaults(cfg *Config) {
 		cfg.Execution.ForceSLFastIntervalSec = 60
 	}
 	if cfg.Execution.ForceSLTimeoutSec == 0 {
-		cfg.Execution.ForceSLTimeoutSec = 5
+		cfg.Execution.ForceSLTimeoutSec = 20
 	}
 
 	// Phase 8: AfterExecution defaults

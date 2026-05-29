@@ -5,8 +5,10 @@ import (
 	"log/slog"
 )
 
+const btcSymbol = "BTCUSDT"
+
 func (a *App) updateKlineSubscriptions(ctx context.Context, old, new []string) {
-	timeframes := []string{"5m", "15m", "30m", "1h", "4h", "1d"}
+	timeframes := []string{"5m", "15m", "30m", "1h", "4h"}
 	oldSet := make(map[string]bool)
 	for _, s := range old {
 		oldSet[s] = true
@@ -14,6 +16,12 @@ func (a *App) updateKlineSubscriptions(ctx context.Context, old, new []string) {
 	newSet := make(map[string]bool)
 	for _, s := range new {
 		newSet[s] = true
+	}
+
+	// Always keep BTCUSDT subscribed for BTC context indicators.
+	if !newSet[btcSymbol] {
+		newSet[btcSymbol] = true
+		new = append(new, btcSymbol)
 	}
 
 	var toUnsub []string
@@ -57,8 +65,7 @@ func (a *App) backfillCandles(ctx context.Context, symbols []string, existing ma
 	//   15m → RSI-14 (40 for Wilder accuracy)           = 40
 	//   30m → DetectPatterns (3 min)                    = 5
 	//   1h  → ATR-14 (20) + BTC context (40 for RSI)   = 40
-	//   4h  → calcPriceROI (2 closed)                   = 5
-	//   1d  → calcPriceROI (2 closed)                   = 5
+	//   4h  → calc24hROI needs 6 closed + 1 open        = 8
 	backfillPlan := []struct {
 		interval string
 		limit    int
@@ -67,8 +74,7 @@ func (a *App) backfillCandles(ctx context.Context, symbols []string, existing ma
 		{"15m", 40},
 		{"30m", 5},
 		{"1h", 40},
-		{"4h", 5},
-		{"1d", 5},
+		{"4h", 8},
 	}
 
 	for _, sym := range symbols {
@@ -86,4 +92,3 @@ func (a *App) backfillCandles(ctx context.Context, symbols []string, existing ma
 		slog.Debug("candle backfill done", "symbol", sym)
 	}
 }
-
