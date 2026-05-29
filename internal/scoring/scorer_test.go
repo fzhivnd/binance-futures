@@ -55,12 +55,14 @@ func TestScore_OptimalROI(t *testing.T) {
 	s := NewDefaultScorer()
 	cand := domain.Candidate{FundingRate: -0.01, DailyROI: 35}
 	sc := s.Score(cand, emptySnap(), neutralBTC)
-	if sc.Breakdown.ROIScore != s.weights.ROI {
-		t.Errorf("expected full ROI score %.0f, got %.2f", s.weights.ROI, sc.Breakdown.ROIScore)
+	wantROI := s.Config().Weights.ROI
+	if sc.Breakdown.ROIScore != wantROI {
+		t.Errorf("expected full ROI score %.0f, got %.2f", wantROI, sc.Breakdown.ROIScore)
 	}
 }
 
 func TestScore_ConfidenceMapping(t *testing.T) {
+	tiers := DefaultScoringConfig().ConfidenceTiers
 	cases := []struct {
 		score    float64
 		wantConf string
@@ -72,7 +74,7 @@ func TestScore_ConfidenceMapping(t *testing.T) {
 		{55, "SKIP"},
 	}
 	for _, tc := range cases {
-		conf, _ := mapScoreToConfidence(tc.score)
+		conf, _ := mapScoreToConfidence(tiers, tc.score)
 		if conf != tc.wantConf {
 			t.Errorf("score %.0f: expected %s got %s", tc.score, tc.wantConf, conf)
 		}

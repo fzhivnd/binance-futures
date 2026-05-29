@@ -14,6 +14,34 @@
   nav button.active { background: #2d3148; color: #e2e8f0; }
   nav button:hover:not(.active) { background: #1e2035; }
 
+  /* Scoring config */
+  .sc-toolbar { display: flex; gap: 10px; margin-bottom: 16px; align-items: center; }
+  .sc-toolbar button { background: #4f46e5; color: #fff; border: none; padding: 6px 14px; border-radius: 6px; cursor: pointer; font-size: 13px; }
+  .sc-toolbar button:hover { background: #4338ca; }
+  .sc-toolbar button.danger { background: #7f1d1d; }
+  .sc-toolbar button.danger:hover { background: #991b1b; }
+  .sc-toolbar button.success { background: #14532d; }
+  .sc-toolbar button.success:hover { background: #166534; }
+  .sc-toolbar button:disabled { opacity: 0.4; cursor: default; }
+  .sc-list-row { cursor: pointer; }
+  .sc-list-row:hover td { background: #1e2035; }
+  .sc-list-row.selected td { background: #1e2748; }
+  .badge.ACTIVE  { background: #14532d; color: #4ade80; }
+  .badge.INACTIVE { background: #1e293b; color: #94a3b8; }
+
+  /* Config detail panel */
+  .sc-detail { margin-top: 20px; }
+  .sc-detail h3 { font-size: 13px; font-weight: 600; color: #a5b4fc; margin: 18px 0 8px; text-transform: uppercase; letter-spacing: 0.6px; }
+  .sc-section { background: #1a1d27; border: 1px solid #2d3148; border-radius: 8px; overflow: hidden; margin-bottom: 8px; }
+  .sc-section table { width: 100%; }
+  .sc-edit-row td input { background: #0f1117; border: 1px solid #374151; color: #e2e8f0; padding: 3px 7px; border-radius: 4px; width: 100%; font-size: 13px; }
+  .sc-edit-row td input:focus { outline: 1px solid #4f46e5; }
+  .sc-save-bar { display: flex; gap: 8px; margin-top: 8px; }
+  .sc-save-bar button { background: #4f46e5; color: #fff; border: none; padding: 5px 14px; border-radius: 6px; cursor: pointer; font-size: 13px; }
+  .sc-save-bar button:hover { background: #4338ca; }
+  .sc-save-bar button.cancel { background: #1e293b; color: #94a3b8; }
+  .sc-save-bar button.cancel:hover { background: #273449; }
+
   main { padding: 20px 24px; }
 
   /* Stats bar */
@@ -70,6 +98,7 @@
   <nav>
     <button class="active" onclick="showPage('trades', this)">Trade History</button>
     <button onclick="showPage('summary', this)">Daily Summary</button>
+    <button onclick="showPage('scoring', this)">Scoring Config</button>
   </nav>
 </header>
 
@@ -150,6 +179,98 @@
   </div>
 </div>
 
+<!-- ===== SCORING CONFIG PAGE ===== -->
+<div class="page" id="page-scoring">
+  <div class="sc-toolbar">
+    <button onclick="loadScoringConfigs()">↻ Refresh</button>
+    <button onclick="cloneConfig()">+ Clone Active</button>
+    <button class="success" id="btn-activate" disabled onclick="activateSelected()">✓ Activate</button>
+    <button class="danger"  id="btn-delete"   disabled onclick="deleteSelected()">✕ Delete</button>
+    <span id="sc-msg" style="font-size:12px;color:#94a3b8;margin-left:8px"></span>
+  </div>
+  <div id="scoring-error"></div>
+
+  <div class="table-wrap">
+    <table>
+      <thead><tr>
+        <th>ID</th><th>Name</th><th>Version</th><th>Status</th><th>Notes</th><th>Created</th>
+      </tr></thead>
+      <tbody id="sc-list-body">
+        <tr><td colspan="6" class="loading">Loading…</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="sc-detail" id="sc-detail" style="display:none">
+    <h3 id="sc-detail-title">Config Detail</h3>
+
+    <!-- Bot Params -->
+    <h3>Bot Parameters</h3>
+    <div class="sc-section">
+      <table>
+        <thead><tr><th>Parameter</th><th>Value</th></tr></thead>
+        <tbody id="sc-params-body"></tbody>
+      </table>
+    </div>
+    <div class="sc-save-bar" id="sc-params-savebar" style="display:none">
+      <button onclick="saveParams()">Save Params</button>
+      <button class="cancel" onclick="cancelEdit('params')">Cancel</button>
+    </div>
+
+    <!-- Scoring Weights -->
+    <h3>Scoring Weights (max points per category)</h3>
+    <div class="sc-section">
+      <table>
+        <thead><tr><th>Category</th><th>Max Points</th></tr></thead>
+        <tbody id="sc-weights-body"></tbody>
+      </table>
+    </div>
+    <div class="sc-save-bar" id="sc-weights-savebar" style="display:none">
+      <button onclick="saveWeights()">Save Weights</button>
+      <button class="cancel" onclick="cancelEdit('weights')">Cancel</button>
+    </div>
+
+    <!-- Confidence Tiers -->
+    <h3>Confidence Tiers</h3>
+    <div class="sc-section">
+      <table>
+        <thead><tr><th>Min Score</th><th>Confidence</th><th>Position Size %</th></tr></thead>
+        <tbody id="sc-tiers-body"></tbody>
+      </table>
+    </div>
+    <div class="sc-save-bar" id="sc-tiers-savebar" style="display:none">
+      <button onclick="saveTiers()">Save Tiers</button>
+      <button class="cancel" onclick="cancelEdit('tiers')">Cancel</button>
+    </div>
+
+    <!-- Thresholds -->
+    <h3>Scoring Thresholds</h3>
+    <div class="sc-section">
+      <table>
+        <thead><tr><th>Category</th><th>Order</th><th>Min</th><th>Max</th><th>Multiplier</th><th>Interpolate</th><th>Condition</th></tr></thead>
+        <tbody id="sc-thresholds-body"></tbody>
+      </table>
+    </div>
+    <div class="sc-save-bar" id="sc-thresholds-savebar" style="display:none">
+      <button onclick="saveThresholds()">Save Thresholds</button>
+      <button class="cancel" onclick="cancelEdit('thresholds')">Cancel</button>
+    </div>
+
+    <!-- Candle Weights -->
+    <h3>Candle Weights</h3>
+    <div class="sc-section">
+      <table>
+        <thead><tr><th>Type</th><th>Label</th><th>Weight</th></tr></thead>
+        <tbody id="sc-candle-body"></tbody>
+      </table>
+    </div>
+    <div class="sc-save-bar" id="sc-candle-savebar" style="display:none">
+      <button onclick="saveCandleWeights()">Save Candle Weights</button>
+      <button class="cancel" onclick="cancelEdit('candle')">Cancel</button>
+    </div>
+  </div>
+</div>
+
 </main>
 
 <script>
@@ -163,15 +284,6 @@
 
   function fmtDate(d) {
     return d.toISOString().slice(0, 10);
-  }
-
-  function showPage(name, btn) {
-    document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
-    document.querySelectorAll('nav button').forEach(b => b.classList.remove('active'));
-    document.getElementById('page-' + name).classList.add('active');
-    btn.classList.add('active');
-    if (name === 'trades') loadTrades();
-    if (name === 'summary') loadSummary();
   }
 
   function setMode(paper) {
@@ -309,6 +421,260 @@
   // ---- Boot ----
   setMode(true);
   loadTrades();
+
+  // ======== SCORING CONFIG ========
+  let scSelected = null; // currently selected config row
+  let scConfigs  = [];   // cached list
+  let scDetail   = null; // full config detail
+
+  function showPage(name, btn) {
+    document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+    document.querySelectorAll('nav button').forEach(b => b.classList.remove('active'));
+    document.getElementById('page-' + name).classList.add('active');
+    btn.classList.add('active');
+    if (name === 'trades')  loadTrades();
+    if (name === 'summary') loadSummary();
+    if (name === 'scoring') loadScoringConfigs();
+  }
+
+  async function loadScoringConfigs() {
+    const tbody = document.getElementById('sc-list-body');
+    tbody.innerHTML = '<tr><td colspan="6" class="loading">Loading…</td></tr>';
+    scSelected = null;
+    scDetail = null;
+    document.getElementById('sc-detail').style.display = 'none';
+    document.getElementById('btn-activate').disabled = true;
+    document.getElementById('btn-delete').disabled = true;
+    scMsg('');
+    try {
+      const res = await fetch('/api/scoring/configs');
+      scConfigs = await res.json();
+      if (!scConfigs.length) { tbody.innerHTML = '<tr><td colspan="6" class="empty">No configs found</td></tr>'; return; }
+      tbody.innerHTML = scConfigs.map(c => `
+        <tr class="sc-list-row" data-id="${c.id}" onclick="selectConfig(${c.id})">
+          <td>${c.id}</td>
+          <td><strong>${c.name}</strong></td>
+          <td>v${c.version}</td>
+          <td><span class="badge ${c.is_active ? 'ACTIVE' : 'INACTIVE'}">${c.is_active ? 'ACTIVE' : 'inactive'}</span></td>
+          <td style="color:#64748b">${c.notes || '—'}</td>
+          <td>${fmtTs(c.created_at)}</td>
+        </tr>`).join('');
+    } catch(e) {
+      tbody.innerHTML = `<tr><td colspan="6" class="error-msg">Fetch error: ${e.message}</td></tr>`;
+    }
+  }
+
+  async function selectConfig(id) {
+    // highlight row
+    document.querySelectorAll('.sc-list-row').forEach(r => r.classList.remove('selected'));
+    const row = document.querySelector(`.sc-list-row[data-id="${id}"]`);
+    if (row) row.classList.add('selected');
+
+    scSelected = scConfigs.find(c => c.id === id);
+    const isActive = scSelected && scSelected.is_active;
+    document.getElementById('btn-activate').disabled = isActive;
+    document.getElementById('btn-delete').disabled = isActive;
+
+    // fetch full detail
+    try {
+      const res = await fetch(`/api/scoring/configs/${id}`);
+      scDetail = await res.json();
+      renderDetail(scDetail, isActive);
+      document.getElementById('sc-detail').style.display = 'block';
+    } catch(e) { scMsg('Failed to load config detail: ' + e.message); }
+  }
+
+  function renderDetail(cfg, isActive) {
+    document.getElementById('sc-detail-title').textContent =
+      `${cfg.name} v${cfg.version} — ${isActive ? 'ACTIVE' : 'inactive'}`;
+
+    // Bot params
+    const paramDefs = [
+      ['min_daily_roi_pct',       'Min Daily ROI %'],
+      ['min_volume_24h_m',        'Min Volume 24h (M)'],
+      ['max_positions',           'Max Positions'],
+      ['leverage',                'Leverage'],
+      ['position_size_pct',       'Position Size %'],
+      ['funding_min_rate',        'Funding Min Rate'],
+      ['funding_max_rate',        'Funding Max Rate'],
+      ['sl_pct',                  'SL %'],
+      ['tp_pct',                  'TP %'],
+      ['trailing_activation_pct', 'Trailing Activation %'],
+      ['breakeven_activation_pct','Breakeven Activation %'],
+    ];
+    const p = cfg.bot_params || {};
+    document.getElementById('sc-params-body').innerHTML = paramDefs.map(([k, label]) =>
+      isActive
+        ? `<tr><td>${label}</td><td>${p[k] ?? '—'}</td></tr>`
+        : `<tr class="sc-edit-row"><td>${label}</td><td><input data-key="${k}" value="${p[k] ?? ''}" type="number" step="any"></td></tr>`
+    ).join('');
+    document.getElementById('sc-params-savebar').style.display = isActive ? 'none' : 'flex';
+
+    // Weights
+    document.getElementById('sc-weights-body').innerHTML = (cfg.weights || []).map(w =>
+      isActive
+        ? `<tr><td>${w.category}</td><td>${w.max_points}</td></tr>`
+        : `<tr class="sc-edit-row"><td>${w.category}</td><td><input data-cat="${w.category}" value="${w.max_points}" type="number" step="any"></td></tr>`
+    ).join('');
+    document.getElementById('sc-weights-savebar').style.display = isActive ? 'none' : 'flex';
+
+    // Confidence tiers
+    document.getElementById('sc-tiers-body').innerHTML = (cfg.confidence_tiers || []).map((t, i) =>
+      isActive
+        ? `<tr><td>${t.min_score}</td><td>${t.confidence}</td><td>${t.position_size_pct}</td></tr>`
+        : `<tr class="sc-edit-row" data-i="${i}">
+            <td><input data-f="min_score" value="${t.min_score}" type="number" step="any"></td>
+            <td><input data-f="confidence" value="${t.confidence}"></td>
+            <td><input data-f="position_size_pct" value="${t.position_size_pct}" type="number" step="any"></td>
+           </tr>`
+    ).join('');
+    document.getElementById('sc-tiers-savebar').style.display = isActive ? 'none' : 'flex';
+
+    // Thresholds
+    document.getElementById('sc-thresholds-body').innerHTML = (cfg.thresholds || []).map((t, i) =>
+      isActive
+        ? `<tr>
+            <td>${t.category}</td><td>${t.tier_order}</td>
+            <td>${t.min_value ?? '—'}</td><td>${t.max_value ?? '—'}</td>
+            <td>${t.multiplier}</td><td>${t.interpolate ? '✓' : ''}</td><td>${t.condition ?? '—'}</td>
+           </tr>`
+        : `<tr class="sc-edit-row" data-i="${i}">
+            <td><input data-f="category" value="${t.category}"></td>
+            <td><input data-f="tier_order" value="${t.tier_order}" type="number"></td>
+            <td><input data-f="min_value" value="${t.min_value ?? ''}" type="number" step="any"></td>
+            <td><input data-f="max_value" value="${t.max_value ?? ''}" type="number" step="any"></td>
+            <td><input data-f="multiplier" value="${t.multiplier}" type="number" step="any"></td>
+            <td><input data-f="interpolate" value="${t.interpolate ? 'true' : 'false'}"></td>
+            <td><input data-f="condition" value="${t.condition ?? ''}"></td>
+           </tr>`
+    ).join('');
+    document.getElementById('sc-thresholds-savebar').style.display = isActive ? 'none' : 'flex';
+
+    // Candle weights
+    document.getElementById('sc-candle-body').innerHTML = (cfg.candle_weights || []).map((w, i) =>
+      isActive
+        ? `<tr><td>${w.type}</td><td>${w.label}</td><td>${w.weight}</td></tr>`
+        : `<tr class="sc-edit-row" data-i="${i}">
+            <td><input data-f="type" value="${w.type}"></td>
+            <td><input data-f="label" value="${w.label}"></td>
+            <td><input data-f="weight" value="${w.weight}" type="number" step="any"></td>
+           </tr>`
+    ).join('');
+    document.getElementById('sc-candle-savebar').style.display = isActive ? 'none' : 'flex';
+  }
+
+  function cancelEdit(section) {
+    if (scDetail) renderDetail(scDetail, scSelected && scSelected.is_active);
+  }
+
+  async function saveParams() {
+    const rows = document.querySelectorAll('#sc-params-body input');
+    const body = {};
+    rows.forEach(inp => { body[inp.dataset.key] = parseFloat(inp.value) || parseInt(inp.value) || inp.value; });
+    // cast ints
+    ['max_positions','leverage'].forEach(k => { if (body[k]) body[k] = parseInt(body[k]); });
+    await scPut(`/api/scoring/configs/${scDetail.id}/params`, body, 'params');
+  }
+
+  async function saveWeights() {
+    const rows = document.querySelectorAll('#sc-weights-body input');
+    const body = Array.from(rows).map(inp => ({ category: inp.dataset.cat, max_points: parseFloat(inp.value) }));
+    await scPut(`/api/scoring/configs/${scDetail.id}/weights`, body, 'weights');
+  }
+
+  async function saveTiers() {
+    const trs = document.querySelectorAll('#sc-tiers-body tr.sc-edit-row');
+    const body = Array.from(trs).map(tr => {
+      const get = f => tr.querySelector(`[data-f="${f}"]`).value;
+      return { min_score: parseFloat(get('min_score')), confidence: get('confidence'), position_size_pct: parseFloat(get('position_size_pct')) };
+    });
+    await scPut(`/api/scoring/configs/${scDetail.id}/confidence-tiers`, body, 'tiers');
+  }
+
+  async function saveThresholds() {
+    const trs = document.querySelectorAll('#sc-thresholds-body tr.sc-edit-row');
+    const body = Array.from(trs).map(tr => {
+      const get = f => tr.querySelector(`[data-f="${f}"]`).value;
+      const minV = get('min_value'); const maxV = get('max_value');
+      return {
+        category: get('category'), tier_order: parseInt(get('tier_order')),
+        min_value: minV !== '' ? parseFloat(minV) : null,
+        max_value: maxV !== '' ? parseFloat(maxV) : null,
+        multiplier: parseFloat(get('multiplier')),
+        interpolate: get('interpolate') === 'true',
+        condition: get('condition') || null,
+      };
+    });
+    await scPut(`/api/scoring/configs/${scDetail.id}/thresholds`, body, 'thresholds');
+  }
+
+  async function saveCandleWeights() {
+    const trs = document.querySelectorAll('#sc-candle-body tr.sc-edit-row');
+    const body = Array.from(trs).map(tr => {
+      const get = f => tr.querySelector(`[data-f="${f}"]`).value;
+      return { type: get('type'), label: get('label'), weight: parseFloat(get('weight')) };
+    });
+    await scPut(`/api/scoring/configs/${scDetail.id}/candle-weights`, body, 'candle');
+  }
+
+  async function scPut(url, body, section) {
+    scMsg('Saving…');
+    try {
+      const res = await fetch(url, { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) });
+      if (!res.ok) { scMsg('Error: ' + await res.text()); return; }
+      scMsg('Saved ✓');
+      // refresh detail
+      const r2 = await fetch(`/api/scoring/configs/${scDetail.id}`);
+      scDetail = await r2.json();
+      renderDetail(scDetail, scSelected && scSelected.is_active);
+    } catch(e) { scMsg('Error: ' + e.message); }
+  }
+
+  async function cloneConfig() {
+    const name = prompt('New config name (leave blank to use "default"):') ?? '';
+    const finalName = name.trim() || 'default';
+    const notes = prompt('Notes (optional):') ?? '';
+    scMsg('Cloning…');
+    try {
+      const res = await fetch('/api/scoring/configs', {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ name: finalName, notes }),
+      });
+      if (!res.ok) { scMsg('Error: ' + await res.text()); return; }
+      const { id } = await res.json();
+      scMsg(`Cloned → config #${id}`);
+      await loadScoringConfigs();
+      selectConfig(id);
+    } catch(e) { scMsg('Error: ' + e.message); }
+  }
+
+  async function activateSelected() {
+    if (!scSelected) return;
+    if (!confirm(`Activate config "${scSelected.name}" v${scSelected.version}?`)) return;
+    scMsg('Activating…');
+    try {
+      const res = await fetch(`/api/scoring/configs/${scSelected.id}/activate`, { method: 'PUT' });
+      if (!res.ok) { scMsg('Error: ' + await res.text()); return; }
+      scMsg('Activated ✓ (bot reloads within 2h)');
+      await loadScoringConfigs();
+    } catch(e) { scMsg('Error: ' + e.message); }
+  }
+
+  async function deleteSelected() {
+    if (!scSelected) return;
+    if (!confirm(`Delete config "${scSelected.name}" v${scSelected.version}? This cannot be undone.`)) return;
+    scMsg('Deleting…');
+    try {
+      const res = await fetch(`/api/scoring/configs/${scSelected.id}`, { method: 'DELETE' });
+      if (!res.ok) { scMsg('Error: ' + await res.text()); return; }
+      scMsg('Deleted ✓');
+      await loadScoringConfigs();
+    } catch(e) { scMsg('Error: ' + e.message); }
+  }
+
+  function scMsg(msg) {
+    document.getElementById('sc-msg').textContent = msg;
+  }
 </script>
 </body>
 </html>

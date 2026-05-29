@@ -17,9 +17,7 @@ type Config struct {
 	Scheduler      SchedulerConfig     `yaml:"scheduler"`
 	WebSocket      WebSocketConfig     `yaml:"websocket"`
 	Database       DatabaseConfig      `yaml:"database"`
-	Filtering      FilteringConfig     `yaml:"filtering"`
 	Scoring        ScoringConfig       `yaml:"scoring"`
-	Indicators     IndicatorConfig     `yaml:"indicators"`
 	Risk           RiskConfig          `yaml:"risk"`
 	LLM            LLMConfig           `yaml:"llm"`
 	Memory         MemoryConfig        `yaml:"memory"`
@@ -90,7 +88,6 @@ type FundingConfig struct {
 type ExecutionConfig struct {
 	SlPct                  float64 `yaml:"sl_pct"`
 	TpPct                  float64 `yaml:"tp_pct"`
-	TrailingEnabled        bool    `yaml:"trailing_enabled"`
 	TrailingActivationPct  float64 `yaml:"trailing_activation_pct"`
 	BreakevenActivationPct float64 `yaml:"breakeven_activation_pct"`
 	SlippageBps            int     `yaml:"slippage_bps"`
@@ -142,32 +139,8 @@ type DatabaseConfig struct {
 	Redis    RedisConfig    `yaml:"redis"`
 }
 
-type FilteringConfig struct {
-	MinDailyROIPct float64 `yaml:"min_daily_roi_pct"`
-	MinVolume24hM  float64 `yaml:"min_volume_24h_m"`
-}
-
-type ScoringWeightsConfig struct {
-	Funding    float64 `yaml:"funding"`
-	OI         float64 `yaml:"oi"`
-	BTC        float64 `yaml:"btc"`
-	Candle     float64 `yaml:"candle"`
-	Volume     float64 `yaml:"volume"`
-	ROI        float64 `yaml:"roi"`
-	Volatility float64 `yaml:"volatility"`
-}
-
 type ScoringConfig struct {
-	Weights  ScoringWeightsConfig `yaml:"weights"`
-	MinScore float64              `yaml:"min_score"`
-}
-
-type IndicatorConfig struct {
-	RSIPeriod            int     `yaml:"rsi_period"`
-	ATRPeriod            int     `yaml:"atr_period"`
-	OIWindow             string  `yaml:"oi_window"`
-	VolumeAvgWindow      int     `yaml:"volume_avg_window"`
-	VolumeSpikeThreshold float64 `yaml:"volume_spike_threshold"`
+	MinScore float64 `yaml:"min_score"`
 }
 
 type RiskConfig struct {
@@ -311,40 +284,10 @@ func setDefaults(cfg *Config) {
 		cfg.Database.Redis.Addr = "localhost:6379"
 	}
 
-	// Phase 2 defaults
-	if cfg.Filtering.MinDailyROIPct == 0 {
-		cfg.Filtering.MinDailyROIPct = 15.0
-	}
-	if cfg.Filtering.MinVolume24hM == 0 {
-		cfg.Filtering.MinVolume24hM = 50.0
-	}
 	if cfg.Scoring.MinScore == 0 {
 		cfg.Scoring.MinScore = 60.0
 	}
-	if cfg.Scoring.Weights.Funding == 0 {
-		cfg.Scoring.Weights.Funding = 25
-		cfg.Scoring.Weights.OI = 15
-		cfg.Scoring.Weights.BTC = 10
-		cfg.Scoring.Weights.Candle = 20
-		cfg.Scoring.Weights.Volume = 10
-		cfg.Scoring.Weights.ROI = 15
-		cfg.Scoring.Weights.Volatility = 5
-	}
-	if cfg.Indicators.RSIPeriod == 0 {
-		cfg.Indicators.RSIPeriod = 14
-	}
-	if cfg.Indicators.ATRPeriod == 0 {
-		cfg.Indicators.ATRPeriod = 14
-	}
-	if cfg.Indicators.OIWindow == "" {
-		cfg.Indicators.OIWindow = "1h"
-	}
-	if cfg.Indicators.VolumeAvgWindow == 0 {
-		cfg.Indicators.VolumeAvgWindow = 24
-	}
-	if cfg.Indicators.VolumeSpikeThreshold == 0 {
-		cfg.Indicators.VolumeSpikeThreshold = 2.0
-	}
+
 	if cfg.Risk.MaxDailyLosses == 0 {
 		cfg.Risk.MaxDailyLosses = 2
 	}
