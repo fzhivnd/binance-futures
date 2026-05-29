@@ -3,6 +3,7 @@ package memory
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"time"
 
 	openai "github.com/openai/openai-go"
@@ -31,13 +32,16 @@ func NewEmbedder(cfg EmbedderConfig) *Embedder {
 
 // Embed converts feature text into a pgvector using the OpenAI embeddings API.
 func (e *Embedder) Embed(ctx context.Context, text string) (pgvector.Vector, error) {
+	start := time.Now()
 	resp, err := e.client.Embeddings.New(ctx, openai.EmbeddingNewParams{
 		Model: openai.EmbeddingModel(e.cfg.Model),
 		Input: openai.EmbeddingNewParamsInputUnion{
 			OfString: openai.String(text),
 		},
 	})
+	elapsed := time.Since(start)
 	if err != nil {
+		slog.Warn("embed_call failed", "latency_ms", elapsed.Milliseconds(), "model", e.cfg.Model, "error", err)
 		return pgvector.Vector{}, fmt.Errorf("embedding API call failed: %w", err)
 	}
 
@@ -45,6 +49,7 @@ func (e *Embedder) Embed(ctx context.Context, text string) (pgvector.Vector, err
 		return pgvector.Vector{}, fmt.Errorf("empty embedding response")
 	}
 
+	slog.Debug("embed_call", "latency_ms", elapsed.Milliseconds(), "model", e.cfg.Model)
 	vec := make([]float32, len(resp.Data[0].Embedding))
 	for i, v := range resp.Data[0].Embedding {
 		vec[i] = float32(v)

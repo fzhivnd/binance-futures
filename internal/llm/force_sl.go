@@ -136,6 +136,7 @@ func (e *ForceSLEngine) callForceSL(ctx context.Context, userMsg string) (string
 	}
 
 	schemaBytes, _ := json.Marshal(forceSLSchema())
+	start := time.Now()
 	resp, err := e.client.client.Chat.Completions.New(ctx, openai.ChatCompletionNewParams{
 		Model: openai.ChatModel(e.client.cfg.Model),
 		Messages: []openai.ChatCompletionMessageParamUnion{
@@ -152,12 +153,15 @@ func (e *ForceSLEngine) callForceSL(ctx context.Context, userMsg string) (string
 			},
 		},
 	})
+	elapsed := time.Since(start)
 	if err != nil {
+		slog.Warn("force_sl_llm_call failed", "latency_ms", elapsed.Milliseconds(), "error", err)
 		return "", err
 	}
 	if len(resp.Choices) == 0 {
 		return "", errors.New("empty response from LLM")
 	}
+	slog.Debug("force_sl_llm_call", "latency_ms", elapsed.Milliseconds())
 	return resp.Choices[0].Message.Content, nil
 }
 

@@ -2,6 +2,7 @@ app:
   mode: "paper"
   log_level: "info"
   paper_balance: 1000.0
+  pprof_port: 6060
 
 binance:
   api_key: "${BINANCE_API_KEY}"

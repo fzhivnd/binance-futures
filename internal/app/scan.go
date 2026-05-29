@@ -161,11 +161,18 @@ func (a *App) scanFn(ctx context.Context, window scheduler.WindowType) error {
 		}
 	}
 
+	llmStart := time.Now()
 	decision, err := a.llmEngine.Evaluate(ctx, top, btc, a.cfg.Execution.TpPct, similarTrades)
 	if err != nil {
-		slog.Error("LLM engine error", "error", err)
+		slog.Error("LLM engine error", "error", err, "latency_ms", time.Since(llmStart).Milliseconds())
 		return nil
 	}
+	slog.Info("llm_evaluate",
+		"latency_ms", time.Since(llmStart).Milliseconds(),
+		"action", decision.Action,
+		"symbol", decision.Symbol,
+		"confidence", decision.Confidence,
+	)
 
 	a.lastLLMCall = &llmCallState{
 		symbol:   top[0].Candidate.Symbol,

@@ -63,6 +63,7 @@ type AppConfig struct {
 	Mode         string  `yaml:"mode"`
 	LogLevel     string  `yaml:"log_level"`
 	PaperBalance float64 `yaml:"paper_balance"`
+	PprofPort    int     `yaml:"pprof_port"` // 0 = disabled
 }
 
 type BinanceConfig struct {
