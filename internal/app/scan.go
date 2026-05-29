@@ -36,13 +36,13 @@ func (a *App) scanFn(ctx context.Context, window scheduler.WindowType) error {
 		slog.Info("candidate", "symbol", c.Symbol, "funding", c.FundingRate, "roi_1d", c.ROI1D, "score", c.Score)
 	}
 
-	candidates = scanner.FilterByROI(candidates, a.cfg.Filtering.MinDailyROIPct)
+	candidates = scanner.FilterByROI(candidates, a.filteringMinROI())
 	if len(candidates) == 0 {
 		slog.Info("no candidates after ROI filter", "window", window)
 		return nil
 	}
 
-	candidates = scanner.FilterByVolume(candidates, a.cfg.Filtering.MinVolume24hM)
+	candidates = scanner.FilterByVolume(candidates, a.filteringMinVolume())
 	if len(candidates) == 0 {
 		slog.Info("no candidates after volume filter", "window", window)
 		return nil

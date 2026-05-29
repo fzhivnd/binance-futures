@@ -66,6 +66,25 @@ func New(cfg *config.Config) (*App, error) {
 	return &App{cfg: cfg}, nil
 }
 
+// applyBotParams writes DB-loaded BotParams back into a.cfg so all downstream
+// components (execution engine, scanner, risk engine) pick them up transparently.
+func (a *App) applyBotParams(sc *domain.ScoringConfig) {
+	p := sc.BotParams
+	a.cfg.Trading.MaxPositions = p.MaxPositions
+	a.cfg.Trading.Leverage = p.Leverage
+	a.cfg.Trading.PositionSizePct = p.PositionSizePct
+	a.cfg.Funding.MinRate = p.FundingMinRate
+	a.cfg.Funding.MaxRate = p.FundingMaxRate
+	a.cfg.Execution.SlPct = p.SlPct
+	a.cfg.Execution.TpPct = p.TpPct
+	a.cfg.Execution.TrailingActivationPct = p.TrailingActivationPct
+	a.cfg.Execution.BreakevenActivationPct = p.BreakevenActivationPct
+}
+
+// filteringMinROI and filteringMinVolume return live values from the active scorer config.
+func (a *App) filteringMinROI() float64    { return a.scorer.Config().BotParams.MinDailyROIPct }
+func (a *App) filteringMinVolume() float64 { return a.scorer.Config().BotParams.MinVolume24hM }
+
 func (a *App) Run(
 	ctx context.Context,
 	pool *pgxpool.Pool,
@@ -117,19 +136,39 @@ func (a *App) Run(
 		))
 	}
 
+	scoringRepo := storage.NewPGScoringConfigRepo(pool)
+	scoringCfg, err := scoringRepo.LoadActive(ctx)
+	if err != nil || scoringCfg == nil {
+		slog.Error("no active scoring config in DB — cannot start", "error", err)
+		return fmt.Errorf("scoring config required: %w", err)
+	}
+	a.applyBotParams(scoringCfg)
+	a.scorer = scoring.NewScorerFromConfig(scoringCfg)
+	slog.Info("scoring config loaded", "config_id", scoringCfg.ID, "name", scoringCfg.Name)
+
+	go func() {
+		ticker := time.NewTicker(60 * time.Minute)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				cfg, err := scoringRepo.LoadActive(ctx)
+				if err != nil || cfg == nil {
+					slog.Warn("scoring config reload failed", "error", err)
+					continue
+				}
+				a.applyBotParams(cfg)
+				a.scorer.UpdateConfig(cfg)
+				slog.Info("scoring config reloaded", "config_id", cfg.ID, "name", cfg.Name)
+			}
+		}
+	}()
+
 	a.scanner = scanner.NewFundingScanner(a.engine, &a.cfg.Funding)
 
 	a.indEngine = indicator.NewEngine(a.engine, a.engine.OIHistory())
-	weights := scoring.WeightConfig{
-		Funding:    a.cfg.Scoring.Weights.Funding,
-		OI:         a.cfg.Scoring.Weights.OI,
-		BTC:        a.cfg.Scoring.Weights.BTC,
-		Candle:     a.cfg.Scoring.Weights.Candle,
-		Volume:     a.cfg.Scoring.Weights.Volume,
-		ROI:        a.cfg.Scoring.Weights.ROI,
-		Volatility: a.cfg.Scoring.Weights.Volatility,
-	}
-	a.scorer = scoring.NewScorer(weights)
 	a.drawdown = risk.NewDrawdownTracker(a.cfg.App.PaperBalance)
 	notifier := notify.NewNotifier(
 		a.cfg.Telegram.Enabled,

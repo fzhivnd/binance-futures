@@ -1,99 +1,72 @@
 package scoring
 
 import (
+	"sort"
+	"sync"
+
 	"futures/internal/domain"
 )
 
-// Scorer computes a composite score for a candidate.
 type Scorer struct {
-	weights WeightConfig
+	mu  sync.RWMutex
+	cfg *domain.ScoringConfig
 }
 
-func NewScorer(weights WeightConfig) *Scorer {
-	return &Scorer{weights: weights}
+func NewScorerFromConfig(cfg *domain.ScoringConfig) *Scorer {
+	return &Scorer{cfg: cfg}
 }
 
 func NewDefaultScorer() *Scorer {
-	return NewScorer(DefaultWeights)
+	return &Scorer{cfg: DefaultScoringConfig()}
+}
+
+func (s *Scorer) UpdateConfig(cfg *domain.ScoringConfig) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.cfg = cfg
+}
+
+func (s *Scorer) Config() *domain.ScoringConfig {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.cfg
 }
 
 // Score produces a ScoredCandidate by combining funding, indicators, and BTC context.
 func (s *Scorer) Score(c domain.Candidate, ind *domain.IndicatorSnapshot, btc *domain.BTCContext) *domain.ScoredCandidate {
+	s.mu.RLock()
+	cfg := s.cfg
+	s.mu.RUnlock()
+
+	tfWeights, strWeights, multitfBonus := buildCandleMaps(cfg.CandleWeights)
+
 	var bd domain.ScoreBreakdown
 
-	// 1. Funding (max 25): reuse Phase 1 mapping, normalized to 25-point scale
-	rawFunding := mapFundingToScore(c.FundingRate)
-	bd.FundingScore = rawFunding / 90 * s.weights.Funding
+	// 1. Funding
+	bd.FundingScore = evalInterpolated(cfg, "funding", c.FundingRate) * cfg.Weights.Funding
 
-	// 2. OI (max 15)
-	switch {
-	case ind.OIDelta1h > 15:
-		bd.OIScore = s.weights.OI
-	case ind.OIDelta1h > 10:
-		bd.OIScore = s.weights.OI * 0.75
-	case ind.OIDelta1h > 5:
-		bd.OIScore = s.weights.OI * 0.50
-	case ind.OIDelta1h > 0:
-		bd.OIScore = s.weights.OI * 0.30
-	default:
-		bd.OIScore = s.weights.OI * 0.13
-	}
+	// 2. OI
+	bd.OIScore = evalThreshold(cfg, "oi", ind.OIDelta1h) * cfg.Weights.OI
 
-	// 3. BTC (max 10)
-	if btc != nil {
-		switch {
-		case btc.IsBreakout && btc.Trend == "bullish":
-			bd.BTCScore = 0
-		case btc.Trend == "bullish" && btc.MomentumScore > 70:
-			bd.BTCScore = s.weights.BTC * 0.2
-		case btc.Trend == "bullish":
-			bd.BTCScore = s.weights.BTC * 0.3
-		case btc.Trend == "neutral":
-			bd.BTCScore = s.weights.BTC * 0.7
-		case btc.Trend == "bearish":
-			bd.BTCScore = s.weights.BTC
-		}
-	} else {
-		bd.BTCScore = s.weights.BTC * 0.7
-	}
+	// 3. BTC
+	bd.BTCScore = evalBTC(cfg, btc) * cfg.Weights.BTC
 
-	// 4. Candle (max 20)
-	bd.CandleScore = scoreCandlePatterns(ind.Patterns, s.weights.Candle)
+	// 4. Candle
+	bd.CandleScore = scoreCandlePatterns(ind.Patterns, cfg.Weights.Candle, tfWeights, strWeights, multitfBonus)
 
-	// 5. Volume (max 10): spike on 5m + overbought RSI on 5m = exhaustion right now
-	switch {
-	case ind.VolumeSpike && ind.RSI7_5m > 65:
-		bd.VolumeScore = s.weights.Volume
-	case ind.VolumeSpike:
-		bd.VolumeScore = s.weights.Volume * 0.5
-	default:
-		bd.VolumeScore = s.weights.Volume * 0.3
-	}
+	// 5. Volume: two-input check — VolumeSpike + RSI7_5m overbought
+	bd.VolumeScore = evalVolume(cfg, ind.VolumeSpike, ind.RSI7_5m) * cfg.Weights.Volume
 
-	// 6. ROI (max 15): based on 24h price change
-	switch {
-	case c.DailyROI >= 15 && c.DailyROI <= 50:
-		bd.ROIScore = s.weights.ROI
-	case c.DailyROI > 50 && c.DailyROI <= 80:
-		bd.ROIScore = s.weights.ROI * 0.47
-	default:
-		bd.ROIScore = 0
-	}
+	// 6. ROI
+	bd.ROIScore = evalThreshold(cfg, "roi", c.DailyROI) * cfg.Weights.ROI
 
-	// 7. Volatility (max 5)
-	switch {
-	case ind.ATRRatio >= 1 && ind.ATRRatio <= 3:
-		bd.VolatilityScore = s.weights.Volatility
-	case ind.ATRRatio > 3 && ind.ATRRatio <= 5:
-		bd.VolatilityScore = s.weights.Volatility * 0.6
-	default:
-		bd.VolatilityScore = 0
-	}
+	// 7. Volatility
+	bd.VolatilityScore = evalThreshold(cfg, "volatility", ind.ATRRatio) * cfg.Weights.Volatility
 
 	composite := bd.FundingScore + bd.OIScore + bd.BTCScore +
 		bd.CandleScore + bd.VolumeScore + bd.ROIScore + bd.VolatilityScore
 
-	confidence, sizePct := mapScoreToConfidence(composite)
+	confidence, sizePct := mapScoreToConfidence(cfg.ConfidenceTiers, composite)
 
 	return &domain.ScoredCandidate{
 		Candidate:       c,
@@ -105,66 +78,169 @@ func (s *Scorer) Score(c domain.Candidate, ind *domain.IndicatorSnapshot, btc *d
 	}
 }
 
-// mapFundingToScore replicates the Phase 1 funding-to-score mapping (0–90 scale).
-func mapFundingToScore(rate float64) float64 {
-	switch {
-	case rate >= -0.002:
-		return 0
-	case rate >= -0.005:
-		t := (rate - (-0.002)) / (-0.005 - (-0.002))
-		return 40 + t*20
-	case rate >= -0.01:
-		t := (rate - (-0.005)) / (-0.01 - (-0.005))
-		return 60 + t*20
-	case rate > -0.02:
-		t := (rate - (-0.01)) / (-0.02 - (-0.01))
-		return 80 + t*10
-	default:
-		return 0
+// evalThreshold walks the tiers for a category and returns the multiplier for the first matching tier.
+func evalThreshold(cfg *domain.ScoringConfig, category string, value float64) float64 {
+	for _, t := range cfg.Thresholds {
+		if t.Category != category {
+			continue
+		}
+		if t.MinValue != nil && value < *t.MinValue {
+			continue
+		}
+		if t.MaxValue != nil && value >= *t.MaxValue {
+			continue
+		}
+		return t.Multiplier
 	}
+	return 0
 }
 
-// scoreCandlePatterns scores signals across timeframes, applying timeframe and strength weights.
-func scoreCandlePatterns(signals []domain.CandleSignal, maxScore float64) float64 {
-	if len(signals) == 0 {
-		return 0
+// evalInterpolated handles tiers with linear interpolation (used by funding).
+func evalInterpolated(cfg *domain.ScoringConfig, category string, value float64) float64 {
+	for _, t := range cfg.Thresholds {
+		if t.Category != category {
+			continue
+		}
+		if t.MinValue != nil && value < *t.MinValue {
+			continue
+		}
+		if t.MaxValue != nil && value >= *t.MaxValue {
+			continue
+		}
+		if !t.Interpolate || t.MinValue == nil || t.MaxValue == nil {
+			return t.Multiplier
+		}
+		// linear ramp within [minValue, maxValue)
+		lo, hi := *t.MinValue, *t.MaxValue
+		if hi == lo {
+			return t.Multiplier
+		}
+		// find next tier's multiplier as the base
+		prevMultiplier := 0.0
+		for _, prev := range cfg.Thresholds {
+			if prev.Category == category && prev.TierOrder == t.TierOrder-1 {
+				prevMultiplier = prev.Multiplier
+				break
+			}
+		}
+		ratio := (value - lo) / (hi - lo)
+		return prevMultiplier + ratio*(t.Multiplier-prevMultiplier)
+	}
+	return 0
+}
+
+// evalBTC resolves the BTC condition string and returns the matching multiplier.
+func evalBTC(cfg *domain.ScoringConfig, btc *domain.BTCContext) float64 {
+	var condition string
+	if btc == nil {
+		condition = "neutral"
+	} else {
+		switch {
+		case btc.IsBreakout && btc.Trend == "bullish":
+			condition = "breakout_bullish"
+		case btc.Trend == "bullish" && btc.MomentumScore > 70:
+			condition = "bullish_high_momentum"
+		case btc.Trend == "bullish":
+			condition = "bullish"
+		case btc.Trend == "bearish":
+			condition = "bearish"
+		default:
+			condition = "neutral"
+		}
 	}
 
-	tfWeight := map[domain.Timeframe]float64{
-		domain.Timeframe1h:  1.00,
-		domain.Timeframe30m: 0.95,
-		domain.Timeframe15m: 0.90,
-		domain.Timeframe5m:  0.85,
+	for _, t := range cfg.Thresholds {
+		if t.Category == "btc" && t.Condition == condition {
+			return t.Multiplier
+		}
 	}
-	strWeight := map[domain.PatternStrength]float64{
-		domain.StrengthStrong: 1.0,
-		domain.StrengthMedium: 0.7,
-		domain.StrengthWeak:   0.35,
+	return 0.7 // safe default: neutral-equivalent
+}
+
+// evalVolume handles the two-input volume check (spike flag + RSI threshold).
+func evalVolume(cfg *domain.ScoringConfig, spike bool, rsi float64) float64 {
+	if !spike {
+		return evalThreshold(cfg, "volume", -1) // matches the no-spike fallback tier
+	}
+	return evalThreshold(cfg, "volume", rsi)
+}
+
+func buildCandleMaps(weights []domain.CandleWeight) (
+	tfWeights map[string]float64,
+	strWeights map[string]float64,
+	multitfBonus map[int]float64,
+) {
+	tfWeights = make(map[string]float64)
+	strWeights = make(map[string]float64)
+	multitfBonus = make(map[int]float64)
+
+	for _, cw := range weights {
+		switch cw.Type {
+		case "timeframe":
+			tfWeights[cw.Label] = cw.Weight
+		case "strength":
+			strWeights[cw.Label] = cw.Weight
+		case "multitf_bonus":
+			var n int
+			for _, r := range cw.Label {
+				n = n*10 + int(r-'0')
+			}
+			multitfBonus[n] = cw.Weight
+		}
+	}
+	return
+}
+
+func scoreCandlePatterns(
+	signals []domain.CandleSignal,
+	maxScore float64,
+	tfWeights map[string]float64,
+	strWeights map[string]float64,
+	multitfBonus map[int]float64,
+) float64 {
+	if len(signals) == 0 {
+		return 0
 	}
 
 	var rawScore float64
 	tfHit := make(map[domain.Timeframe]bool)
 
 	for _, sig := range signals {
-		rawScore += tfWeight[sig.Timeframe] * strWeight[sig.Strength]
+		tw := tfWeights[string(sig.Timeframe)]
+		sw := strWeights[string(sig.Strength)]
+		rawScore += tw * sw
 		tfHit[sig.Timeframe] = true
 	}
 
-	var bonus float64
-	switch len(tfHit) {
-	case 4:
-		bonus = 0.4
-	case 3:
-		bonus = 0.25
-	case 2:
-		bonus = 0.1
+	bonus := multitfBonus[len(tfHit)]
+
+	// max possible raw: sum of all tf weights × STRONG (1.0)
+	maxRaw := 0.0
+	for _, w := range tfWeights {
+		maxRaw += w
+	}
+	if maxRaw == 0 {
+		return 0
 	}
 
-	// max possible raw score = 3.70 (one STRONG on each of 4 TFs: 1.00+0.95+0.90+0.85)
-	normalized := rawScore / 3.70
+	normalized := rawScore / maxRaw
 	if normalized > 1.0 {
 		normalized = 1.0
 	}
 
 	return (normalized + bonus) * maxScore
+}
+
+func mapScoreToConfidence(tiers []domain.ConfidenceTier, score float64) (string, float64) {
+	sorted := make([]domain.ConfidenceTier, len(tiers))
+	copy(sorted, tiers)
+	sort.Slice(sorted, func(i, j int) bool {
+		return sorted[i].MinScore > sorted[j].MinScore
+	})
+	for _, t := range sorted {
+		if score >= t.MinScore {
+			return t.Confidence, t.PositionSizePct
+		}
+	}
+	return "SKIP", 0
 }

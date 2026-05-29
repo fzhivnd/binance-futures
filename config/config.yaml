@@ -12,22 +12,12 @@ binance:
   testnet: false
 
 trading:
-  max_positions: 3
-  leverage: 20
-  position_size_pct: 5.0
-  cooldown_minutes: 15
+  cooldown_minutes: 15  # not configurable via DB
 
 funding:
-  min_rate: -0.02
-  max_rate: -0.002
-  top_candidates: 10
+  top_candidates: 10    # not configurable via DB
 
 execution:
-  sl_pct: 5.0
-  tp_pct: 2.1
-  trailing_enabled: false
-  trailing_activation_pct: 1.5
-  breakeven_activation_pct: 1.5
   slippage_bps: 1
 
 scheduler:
@@ -56,27 +46,10 @@ database:
     password: "${REDIS_PASSWORD}"
     db: 0
 
-filtering:
-  min_daily_roi_pct: 15.0
-  min_volume_24h_m: 25.0
-
 scoring:
-  weights:
-    funding: 25
-    oi: 15
-    btc: 10
-    candle: 20
-    volume: 10
-    roi: 15
-    volatility: 5
   min_score: 60.0
+  # weights, thresholds, filtering, trading, funding, execution params → managed via scoring config in DB
 
-indicators:
-  rsi_period: 14
-  atr_period: 14
-  oi_window: "1h"
-  volume_avg_window: 24
-  volume_spike_threshold: 2.0
 
 risk:
   max_daily_losses: 2
