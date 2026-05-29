@@ -91,7 +91,7 @@ FRONTRUN (Enter T-30m to T-10m):
   T-2m Adjust: If TP1 not hit → TP widens to 2%+|funding_rate| (cover the fee cost).
   Hard SL: 5% adverse move. Best signals: RSI exhaustion, OI rising, early selling volume.
 
-LAST_MINUTE (Enter T-10m to T-0):
+LAST_MINUTE (Enter T-7m to T-0):
   TP1 Target: 2% pure. Funding Fee: almost certainly PAY (not enough time to TP before).
   T-2m Safety: applies if entered before T-2m. Best signals: dump already beginning.
 

@@ -1,10 +1,16 @@
 package domain
 
 import (
+	"errors"
 	"time"
 
 	"github.com/google/uuid"
 )
+
+// ErrSkipped is returned by execution when a trade was not placed due to a
+// pre-check (cooldown, max positions, already in position, daily loss limit).
+// Distinct from a real error so callers can keep the intent alive for retry.
+var ErrSkipped = errors.New("execution skipped")
 
 type Trade struct {
 	ID          uuid.UUID
@@ -14,7 +20,8 @@ type Trade struct {
 	Leverage    int
 	Confidence  int
 	FundingRate float64
-	DailyROI    float64
+	Change24h   float64
+	ROIPct      *float64
 	EntryPrice  float64
 	Quantity    float64
 	ExitPrice   float64
@@ -42,6 +49,7 @@ type Trade struct {
 type ExitInfo struct {
 	AvgClosePrice float64
 	PnL           float64
+	ROIPct        float64
 	Result        string // WIN | LOSS | PARTIAL_WIN | FORCE_SL | BREAKEVEN | MANUAL
 	CloseReason   string // TP_TRAIL | FORCE_SL | HARD_SL | MANUAL
 	ClosedAt      time.Time

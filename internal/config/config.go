@@ -140,7 +140,8 @@ type DatabaseConfig struct {
 }
 
 type ScoringConfig struct {
-	MinScore float64 `yaml:"min_score"`
+	MinScore         float64 `yaml:"min_score"`
+	MinScoreOverride float64 `yaml:"min_score_override"`
 }
 
 type RiskConfig struct {

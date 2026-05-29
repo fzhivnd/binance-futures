@@ -50,8 +50,8 @@ func TestCurrentWindow(t *testing.T) {
 		{"well before window", funding.Add(-45 * time.Minute), WindowNone},
 		{"just entering frontrun", funding.Add(-29 * time.Minute), WindowFrontrun},
 		{"mid frontrun", funding.Add(-20 * time.Minute), WindowFrontrun},
-		{"last frontrun boundary", funding.Add(-11 * time.Minute), WindowFrontrun},
-		{"last 10 min boundary", funding.Add(-10 * time.Minute), WindowLastMinute},
+		{"last frontrun boundary", funding.Add(-8 * time.Minute), WindowFrontrun},
+		{"last 6 min boundary", funding.Add(-6 * time.Minute), WindowLastMinute},
 		{"last minute", funding.Add(-1 * time.Minute), WindowLastMinute},
 		{"1s before funding", funding.Add(-time.Second), WindowLastMinute},
 		// At exactly 04:00:00, NextFundingTime returns 08:00 (4h away) → WindowNone.

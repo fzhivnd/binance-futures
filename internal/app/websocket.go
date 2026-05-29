@@ -60,21 +60,21 @@ func (a *App) updateKlineSubscriptions(ctx context.Context, old, new []string) {
 // recent history from the REST API. Failure is non-fatal — indicators degrade
 // gracefully and the WS stream fills in data going forward.
 func (a *App) backfillCandles(ctx context.Context, symbols []string, existing map[string]bool) {
-	// Per-timeframe limits derived from indicator requirements:
-	//   5m  → RSI-7 (20) + VolumeAnomaly (25 baseline) = 25
-	//   15m → RSI-14 (40 for Wilder accuracy)           = 40
-	//   30m → DetectPatterns (3 min)                    = 5
-	//   1h  → ATR-14 (20) + BTC context (40 for RSI)   = 40
-	//   4h  → calc24hROI needs 6 closed + 1 open        = 8
+	// Per-timeframe limits: closed candles needed + 1 for the open (forming) candle.
+	//   5m  → RSI-7 warmup(8) + VolumeAnomaly baseline + DetectPatterns lookback(13)+1=14 closed → 20+1
+	//   15m → RSI-14 warmup(15) + DetectPatterns lookback(9)+1=10 closed → 40+1
+	//   30m → DetectPatterns lookback(5)+1=6 closed → 15+1
+	//   1h  → ATR-14 warmup(15) + DetectPatterns lookback(4)+1=5 closed → 20+1
+	//   4h  → calc24hROI needs 6 closed + 1 open = 8
 	backfillPlan := []struct {
 		interval string
 		limit    int
 	}{
-		{"5m", 25},
-		{"15m", 40},
-		{"30m", 5},
-		{"1h", 40},
-		{"4h", 8},
+		{"5m", 26},
+		{"15m", 41},
+		{"30m", 16},
+		{"1h", 41},
+		{"4h", 9},
 	}
 
 	slog.Info("candle backfill started", "symbol", len(symbols))

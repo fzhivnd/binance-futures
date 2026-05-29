@@ -69,18 +69,22 @@ func (e *Engine) Compute(_ context.Context, symbol string) (*domain.IndicatorSna
 		}
 	}
 
-	// Candle patterns across all timeframes.
-	// Fetch counts are sized to cover the trend-lookback window for each TF.
+	// +1 on each to account for the still-forming candle that gets stripped before DetectPatterns.
+	// Minimums: 1h needs 5 closed (lookback 4+1), 30m needs 6, 15m needs 10, 5m needs 14.
 	tfFetchCounts := map[domain.Timeframe]int{
-		domain.Timeframe1h:  10,
-		domain.Timeframe30m: 12,
-		domain.Timeframe15m: 15,
-		domain.Timeframe5m:  20,
+		domain.Timeframe1h:  21,
+		domain.Timeframe30m: 16,
+		domain.Timeframe15m: 41,
+		domain.Timeframe5m:  21,
 	}
 	for _, tf := range []domain.Timeframe{domain.Timeframe1h, domain.Timeframe30m, domain.Timeframe15m, domain.Timeframe5m} {
 		candles := e.market.GetCandles(symbol, tf, tfFetchCounts[tf])
-		avgVol := avgVolume(candles)
-		snap.Patterns = append(snap.Patterns, DetectPatterns(candles, tf, snap.ATR14_1h, avgVol)...)
+		closed := candles
+		if len(closed) > 1 {
+			closed = closed[:len(closed)-1] // drop the still-forming candle
+		}
+		avgVol := avgVolume(closed)
+		snap.Patterns = append(snap.Patterns, DetectPatterns(closed, tf, snap.ATR14_1h, avgVol)...)
 	}
 
 	// MomentumLoss: RSI on both timeframes declining + OI flat/down

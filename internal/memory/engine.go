@@ -58,9 +58,12 @@ func (e *Engine) RecordTrade(
 	if !e.enabled {
 		return nil
 	}
-	if snap == nil || btc == nil {
-		slog.Warn("RecordTrade: missing snapshot or BTC context, skipping", "trade_id", trade.ID)
+	if snap == nil {
+		slog.Warn("RecordTrade: missing indicator snapshot, skipping", "trade_id", trade.ID)
 		return nil
+	}
+	if btc == nil {
+		btc = &domain.BTCContext{}
 	}
 
 	entryMode := ""
@@ -86,7 +89,7 @@ func (e *Engine) RecordTrade(
 		Action:          domain.ActionTrade,
 		CreatedAt:       trade.CreatedAt,
 		FundingRate:     trade.FundingRate,
-		DailyROI:        trade.DailyROI,
+		DailyROI:        trade.Change24h,
 		OIDelta1h:       snap.OIDelta1h,
 		OIDelta15m:      snap.OIDelta15m,
 		RSI14_15m:       snap.RSI14_15m,

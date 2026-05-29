@@ -19,6 +19,14 @@ func (a *App) scanFn(ctx context.Context, window scheduler.WindowType) error {
 		slog.Info("scan completed", "window", window, "latency_ms", float64(time.Since(scanStart).Microseconds())/1000.0)
 	}()
 
+	// In the AFTER window, skip a fresh scan if the intent queue already has an
+	// AFTER-mode intent queued from the pre-settlement evaluation — the queue tick
+	// fires it without needing another LLM call.
+	if window == scheduler.WindowAfter && a.intentQueue.HasAfterIntent() {
+		slog.Debug("after window: intent already queued, skipping scan")
+		return nil
+	}
+
 	if err := a.riskEngine.PreCheck(ctx); err != nil {
 		slog.Info("pre-check rejected", "reason", err)
 		return nil

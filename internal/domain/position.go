@@ -75,7 +75,7 @@ type PendingEntry struct {
 	ExpiresAt          time.Time // CreatedAt + 60s
 	FundingRateAtEntry float64
 	FundingRate        float64 // candidate funding rate at scan time
-	DailyROI           float64 // candidate daily ROI at scan time
+	Change24h          float64 // candidate 24h price change at scan time
 
 	// Memory context: carried from scan time so finalizeSLTP can record the trade.
 	ScoredCandidate   *ScoredCandidate
