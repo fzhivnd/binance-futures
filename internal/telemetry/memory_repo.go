@@ -41,6 +41,13 @@ func (i *InstrumentedMemoryRepo) UpdateOutcome(ctx context.Context, id uuid.UUID
 	return err
 }
 
+func (i *InstrumentedMemoryRepo) UpdateOutcomeByTradeID(ctx context.Context, tradeID uuid.UUID, outcome string, profitPct float64, holdMinutes int) error {
+	start := time.Now()
+	err := i.inner.UpdateOutcomeByTradeID(ctx, tradeID, outcome, profitPct, holdMinutes)
+	record("MemoryRepository.UpdateOutcomeByTradeID", time.Since(start), err, "trade_id", tradeID, "outcome", outcome)
+	return err
+}
+
 func (i *InstrumentedMemoryRepo) UpdateLesson(ctx context.Context, id uuid.UUID, lesson string) error {
 	start := time.Now()
 	err := i.inner.UpdateLesson(ctx, id, lesson)
