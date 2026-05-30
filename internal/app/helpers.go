@@ -23,7 +23,7 @@ func confidenceToSize(confidence int) float64 {
 // checkHistoricalPrice scans 1m candles over 2h from entryTime and returns the outcome
 // and hypothetical profit pct for a short. Positive profitPct = short would have profited.
 func (a *App) checkHistoricalPrice(symbol string, entryTime time.Time) (string, float64, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
 	profitPct, err := a.binanceClient.GetPriceOutcome(

@@ -26,7 +26,7 @@ func (a *App) oiPoller(ctx context.Context, client *exchange.BinanceClient) {
 
 func (a *App) runOICycle(ctx context.Context, client *exchange.BinanceClient) {
 	symbols := a.engine.GetTopNegativeFundingSymbols(20)
-	slog.Info("oi poller cycle started", "symbols", len(symbols))
+	//slog.Info("oi poller cycle started", "symbols", len(symbols))
 	updated := 0
 	for _, sym := range symbols {
 		oi, err := client.GetOpenInterest(ctx, sym)
@@ -37,7 +37,7 @@ func (a *App) runOICycle(ctx context.Context, client *exchange.BinanceClient) {
 		a.engine.UpdateOI(sym, oi.OpenInterest)
 		updated++
 	}
-	slog.Info("oi poller cycle done", "updated", updated, "total", len(symbols))
+	//slog.Info("oi poller cycle done", "updated", updated, "total", len(symbols))
 }
 
 func (a *App) klineSubscriber(ctx context.Context) {
@@ -55,10 +55,10 @@ func (a *App) klineSubscriber(ctx context.Context) {
 			if len(newSymbols) == 0 {
 				continue
 			}
-			slog.Info("kline subscriber cycle started", "symbols", len(newSymbols))
+			//slog.Info("kline subscriber cycle started", "symbols", len(newSymbols))
 			a.updateKlineSubscriptions(ctx, currentSymbols, newSymbols)
 			currentSymbols = newSymbols
-			slog.Info("kline subscriber cycle done", "symbols", len(currentSymbols))
+			//slog.Info("kline subscriber cycle done", "symbols", len(currentSymbols))
 		}
 	}
 }
@@ -89,7 +89,7 @@ func (a *App) fundingIntervalRefresher(ctx context.Context, client *exchange.Bin
 		for _, fi := range list {
 			a.engine.SetFundingInterval(fi.Symbol, fi.FundingIntervalHours)
 		}
-		slog.Info("funding intervals refreshed", "symbols", len(list))
+		//slog.Info("funding intervals refreshed", "symbols", len(list))
 	}
 }
 

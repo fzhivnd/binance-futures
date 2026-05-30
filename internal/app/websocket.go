@@ -77,7 +77,7 @@ func (a *App) backfillCandles(ctx context.Context, symbols []string, existing ma
 		{"4h", 9},
 	}
 
-	slog.Info("candle backfill started", "symbol", len(symbols))
+	//slog.Info("candle backfill started", "symbol", len(symbols))
 	for _, sym := range symbols {
 		if existing[sym] {
 			continue
@@ -91,5 +91,5 @@ func (a *App) backfillCandles(ctx context.Context, symbols []string, existing ma
 			a.engine.SeedCandles(candles)
 		}
 	}
-	slog.Info("candle backfill done", "symbol", len(symbols))
+	//slog.Info("candle backfill done", "symbol", len(symbols))
 }
