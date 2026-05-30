@@ -286,6 +286,23 @@ func (q *Queue) PendingCount() int {
 	return n
 }
 
+// CancelBySymbol removes all pending intents for the given symbol.
+// Called when the LLM issues a late-cycle SKIP so the stale queued intent
+// cannot survive to fire in a later window.
+func (q *Queue) CancelBySymbol(symbol string) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	kept := q.intents[:0]
+	for _, intent := range q.intents {
+		if intent.Symbol == symbol && intent.Status == IntentPending {
+			slog.Info("intent cancelled (late LLM skip)", "symbol", symbol, "mode", intent.TargetEntryMode)
+		} else {
+			kept = append(kept, intent)
+		}
+	}
+	q.intents = kept
+}
+
 // ClearAfterSettlement resets the queue at the end of a funding cycle.
 func (q *Queue) ClearAfterSettlement() {
 	q.mu.Lock()

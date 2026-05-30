@@ -176,12 +176,11 @@ func (t *AfterTrigger) Run(ctx context.Context) {
 		}
 
 		sym := ti.Candidate.Candidate.Symbol
-		expectedBid := t.strategy.ExpectedBidAtEntry(sym)
-
 		if err := t.strategy.Execute(ctx, ti); err != nil {
 			slog.Error("AfterTrigger: strategy execute failed", "symbol", sym, "error", err)
 		}
 
+		expectedBid := t.strategy.ExpectedBidAtEntry(sym)
 		latencyMs := float64(time.Since(fireTime).Microseconds()) / 1000.0
 		slog.Info("after_trigger_fired",
 			"symbol", sym,

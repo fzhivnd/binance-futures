@@ -42,7 +42,7 @@ var tfConfigs = map[domain.Timeframe]PatternConfig{
 		EveningStarBody: 0.28,
 		DojiThreshold:   0.09,
 		TrendLookback:   9,
-		MinCandleRange:  0.002,
+		MinCandleRange:  0.0012,
 		ATRMultiplier:   0.50,
 	},
 	domain.Timeframe5m: {
@@ -51,7 +51,7 @@ var tfConfigs = map[domain.Timeframe]PatternConfig{
 		EveningStarBody: 0.25,
 		DojiThreshold:   0.08,
 		TrendLookback:   13,
-		MinCandleRange:  0.003,
+		MinCandleRange:  0.0018,
 		ATRMultiplier:   0.35,
 	},
 }
@@ -91,10 +91,13 @@ func DetectPatterns(candles []domain.Candle, tf domain.Timeframe, atr1h float64,
 		return nil
 	}
 
-	// ATR-relative filter: pattern candle must be significant vs recent volatility
+	// ATR-relative filter: pattern candle must be significant vs recent volatility.
+	// Only applied when ATR is meaningful (atr1h > 0) and the candle is truly tiny
+	// relative to expected moves — threshold lowered to 0.3 to avoid filtering out
+	// valid patterns on low-volatility coins.
 	if atr1h > 0 {
 		tfATR := atr1h * cfg.ATRMultiplier
-		if candleRange < tfATR*0.5 {
+		if candleRange < tfATR*0.3 {
 			return nil
 		}
 	}

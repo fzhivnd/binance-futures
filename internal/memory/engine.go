@@ -267,12 +267,13 @@ func (e *Engine) ValidateSkips(ctx context.Context, checkPrice func(symbol strin
 		return nil
 	}
 
-	pending, err := e.repo.GetPendingSkipValidations(ctx, 2*time.Hour)
+	pending, err := e.repo.GetPendingSkipValidations(ctx, 110*time.Minute)
 	if err != nil {
 		return err
 	}
-
+	slog.Info("start skip validations", "pending", len(pending))
 	for _, mem := range pending {
+		slog.Info("skip validation", "symbol", mem.Symbol, "createdAt", mem.CreatedAt)
 		outcome, profitPct, err := checkPrice(mem.Symbol, mem.CreatedAt)
 		if err != nil {
 			slog.Warn("skip validation price check failed", "symbol", mem.Symbol, "error", err)

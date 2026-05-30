@@ -65,6 +65,12 @@ func (s *Scheduler) tick(ctx context.Context) {
 		return
 	}
 
+	// The AFTER window belongs to AfterTrigger — no new candidates can be usefully
+	// evaluated after settlement has already fired.
+	if window == WindowAfter {
+		return
+	}
+
 	// Stop scanning for new candidates from T-3m to settlement.
 	// Intent firing above continues uninterrupted during this window.
 	next := NextFundingTime(time.Now().UTC())
@@ -73,7 +79,7 @@ func (s *Scheduler) tick(ctx context.Context) {
 	}
 
 	interval := s.cfg.GetScanIntervalEarly()
-	if window == WindowLastMinute || window == WindowAfter {
+	if window == WindowLastMinute {
 		interval = s.cfg.GetScanIntervalLate()
 	}
 

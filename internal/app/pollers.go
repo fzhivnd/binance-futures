@@ -26,7 +26,7 @@ func (a *App) oiPoller(ctx context.Context, client *exchange.BinanceClient) {
 
 func (a *App) runOICycle(ctx context.Context, client *exchange.BinanceClient) {
 	symbols := a.engine.GetTopNegativeFundingSymbols(20)
-	slog.Info("oi poller cycle started", "symbols", len(symbols))
+	//slog.Info("oi poller cycle started", "symbols", len(symbols))
 	updated := 0
 	for _, sym := range symbols {
 		oi, err := client.GetOpenInterest(ctx, sym)
@@ -37,7 +37,7 @@ func (a *App) runOICycle(ctx context.Context, client *exchange.BinanceClient) {
 		a.engine.UpdateOI(sym, oi.OpenInterest)
 		updated++
 	}
-	slog.Info("oi poller cycle done", "updated", updated, "total", len(symbols))
+	//slog.Info("oi poller cycle done", "updated", updated, "total", len(symbols))
 }
 
 func (a *App) klineSubscriber(ctx context.Context) {
@@ -55,10 +55,10 @@ func (a *App) klineSubscriber(ctx context.Context) {
 			if len(newSymbols) == 0 {
 				continue
 			}
-			slog.Info("kline subscriber cycle started", "symbols", len(newSymbols))
+			//slog.Info("kline subscriber cycle started", "symbols", len(newSymbols))
 			a.updateKlineSubscriptions(ctx, currentSymbols, newSymbols)
 			currentSymbols = newSymbols
-			slog.Info("kline subscriber cycle done", "symbols", len(currentSymbols))
+			//slog.Info("kline subscriber cycle done", "symbols", len(currentSymbols))
 		}
 	}
 }
@@ -89,7 +89,7 @@ func (a *App) fundingIntervalRefresher(ctx context.Context, client *exchange.Bin
 		for _, fi := range list {
 			a.engine.SetFundingInterval(fi.Symbol, fi.FundingIntervalHours)
 		}
-		slog.Info("funding intervals refreshed", "symbols", len(list))
+		//slog.Info("funding intervals refreshed", "symbols", len(list))
 	}
 }
 
@@ -109,19 +109,25 @@ func (a *App) keepAliveListenKey(ctx context.Context, client *exchange.BinanceCl
 	}
 }
 
+// startSkipValidator fires once per funding cycle at T+2h after each settlement
+// (i.e. 02:00, 06:00, 10:00, 14:00, 18:00, 22:00 UTC). This gives the market 2
+// full hours after settlement to reveal whether a skipped setup would have paid off.
 func (a *App) startSkipValidator(ctx context.Context) {
-	delay := a.cfg.Memory.GetSkipValidationDelay()
-	ticker := time.NewTicker(delay)
-	defer ticker.Stop()
-
 	for {
+		next := scheduler.NextFundingTime(time.Now().UTC()).Add(2 * time.Hour)
+		delay := time.Until(next)
+		if delay < 0 {
+			delay = time.Second
+		}
+
 		select {
 		case <-ctx.Done():
 			return
-		case <-ticker.C:
-			if err := a.memoryEngine.ValidateSkips(ctx, a.checkHistoricalPrice); err != nil {
-				slog.Error("skip validation failed", "error", err)
-			}
+		case <-time.After(delay):
+		}
+
+		if err := a.memoryEngine.ValidateSkips(ctx, a.checkHistoricalPrice); err != nil {
+			slog.Error("skip validation failed", "error", err)
 		}
 	}
 }
