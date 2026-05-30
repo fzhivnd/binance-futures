@@ -143,7 +143,7 @@ func (a *App) scanFn(ctx context.Context, window scheduler.WindowType) error {
 		math.Abs(lc.score-top[0].CompositeScore) < 5 &&
 		lc.btcTrend == btcTrend &&
 		time.Since(lc.calledAt) < cooldown {
-		slog.Debug("skipping LLM call: inputs unchanged",
+		slog.Info("skipping LLM call: inputs unchanged",
 			"symbol", top[0].Candidate.Symbol,
 			"age", time.Since(lc.calledAt).Round(time.Second),
 		)
@@ -195,6 +195,13 @@ func (a *App) scanFn(ctx context.Context, window scheduler.WindowType) error {
 			"reason", decision.SkipReason,
 			"queue_depth", a.intentQueue.PendingCount(),
 		)
+		// A late-cycle skip is a fresh reassessment — cancel any stale queued intent
+		// for the same symbol so it cannot fire in a later window (e.g. AFTER).
+		// FRONTRUN skips are excluded: there are still multiple windows remaining in
+		// the cycle so the LLM may take a different view at LAST_MINUTE or AFTER.
+		if window != scheduler.WindowFrontrun && len(top) > 0 {
+			a.intentQueue.CancelBySymbol(top[0].Candidate.Symbol)
+		}
 		if a.cfg.Memory.EmbedSkips {
 			go func() {
 				bgCtx := context.Background()

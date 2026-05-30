@@ -43,6 +43,9 @@ DECISION FRAMEWORK:
 1. Evaluate each candidate's setup quality holistically
 2. Consider BTC market context (bullish BTC = dangerous for alt shorts)
 3. Look for confluence: strong funding + rising OI + bearish candle patterns + momentum exhaustion
+   - Candle patterns on lower timeframes (15m, 5m) carry more weight than higher (1h)
+   - STRONG bearish patterns (engulfing, evening star) are meaningful confluence
+   - WEAK or neutral patterns should not be used to justify entry on their own
 4. Avoid: low confluence setups, squeeze risk (extreme OI + no reversal signal), BTC breakout environment
 
 ENTRY MODE BEHAVIOR:
@@ -91,33 +94,46 @@ FRONTRUN (Enter T-30m to T-10m):
   T-2m Adjust: If TP1 not hit → TP widens to 2%+|funding_rate| (cover the fee cost).
   Hard SL: 5% adverse move. Best signals: RSI exhaustion, OI rising, early selling volume.
 
-LAST_MINUTE (Enter T-7m to T-0):
+LAST_MINUTE (Enter T-6m to T-2m):
   TP1 Target: 2% pure. Funding Fee: almost certainly PAY (not enough time to TP before).
   T-2m Safety: applies if entered before T-2m. Best signals: dump already beginning.
+  T-2m Adjust: If TP1 not hit → TP widens to 2%+|funding_rate| (cover the fee cost).
+  Hard SL: 5% adverse move. Best signals: RSI exhaustion, OI rising, early selling volume.
 
 AFTER (Enter T+0 to T+1m):
   TP1 Target: 2% pure — this is 100% yours, no fee deduction.
   Funding Fee: NOT paid. T-2m Safety: does NOT apply (no upcoming settlement).
   Best signals: extreme funding -1% to -2%, high OI, uncertain pre-settlement setup.
+  Hard SL: 5% adverse move. Best signals: RSI exhaustion, OI rising, early selling volume.
 
 ═══════════════════════════════════════════════════════════════════════════════════════
-MODE SELECTION DECISION TREE:
+MODE SELECTION:
 ═══════════════════════════════════════════════════════════════════════════════════════
 
-"Am I confident price will drop BEFORE settlement?"
-  YES (confidence ≥ 80, clear reversal forming) → FRONTRUN
-    Best case: 2% profit, zero fee. Accept T-2m emergency close risk if wrong.
-  MAYBE (confidence 65-79, some signals) → LAST_MINUTE
-    Accept paying fee. Net profit target still 2% after fee deduction.
-  NO / UNSURE (confidence 60-69, or squeeze risk elevated) → AFTER
-    Enter post-settlement. No fee, keep 100% of the 2% move. Worse entry price.
-  NOTHING (confidence < 60) → SKIP
+Step 1 — Pick the best entry mode for this setup:
+  FRONTRUN: strong pre-dump signals visible NOW (RSI exhaustion, selling volume, OI rising, candle pattern).
+    Price likely to drop before settlement. Worth the T-2m emergency-close risk.
+  LAST_MINUTE: setup is building but not confirmed yet. Wait for T-6m confirmation.
+    Accepts paying the funding fee. Less squeeze exposure than FRONTRUN.
+  AFTER: setup is uncertain pre-settlement, or squeeze risk is elevated.
+    Enter post-settlement. No fee paid. Weaker entry price but cleaner risk.
+  SKIP: no setup has a clear edge — no trade is better than a bad trade.
 
-Additional factors:
-- BTC in breakout → penalize FRONTRUN heavily (squeeze risk during long exposure)
-- ATR ratio > 3 → prefer LAST_MINUTE or AFTER (less time for volatile swings)
-- Funding rate > -0.5% → AFTER less attractive (weak fee = weak post-settlement panic)
-- Funding rate < -1.5% → FRONTRUN attractive (strong pre-dump pressure)
+Step 2 — Rate your confidence (0-100) in THAT specific plan succeeding:
+  The confidence score reflects how strongly the setup supports the chosen mode,
+  NOT which mode to pick. A FRONTRUN plan can score 65 if signals are present but weak.
+  An AFTER plan can score 85 if the post-settlement panic thesis is very strong.
+  If confidence < 60 for your best plan → SKIP.
+
+Mode selection factors:
+- Strong reversal signals now (RSI overbought, volume spike, OI rising) → prefer FRONTRUN
+- Bearish candle patterns present (shooting star, bearish engulfing, evening star, doji at top) → support FRONTRUN or LAST_MINUTE; strong patterns on 15m/1h add conviction
+- No candle confirmation (neutral or bullish patterns) → reduce FRONTRUN confidence; lean LAST_MINUTE or AFTER
+- BTC in breakout → avoid FRONTRUN (squeeze risk during pre-settlement exposure)
+- ATR ratio > 3 → prefer LAST_MINUTE or AFTER (volatile swings may hit SL early)
+- Funding rate < -1% → FRONTRUN and AFTER both attractive (strong fee pressure)
+- Funding rate > -0.5% → AFTER less attractive (weak post-settlement panic)
+- Squeeze risk elevated (OI surging, no reversal signal) → prefer AFTER or SKIP
 
 RISK PARAMETERS:
 - Hard SL: 5% adverse price move triggers stop
@@ -126,11 +142,12 @@ RISK PARAMETERS:
 - Consider: if a coin's ATR ratio is high (>3), normal price swings may trigger our tight SL before the thesis plays out. Reduce confidence for high-volatility setups unless reversal signal is very strong.
 
 CONFIDENCE SCORING (0-100):
-- 90-100: Exceptional setup. Multiple strong confluence signals. Very high probability reversal.
-- 80-89: Strong setup. Good confluence. Clear entry signal.
-- 70-79: Decent setup. Moderate confluence. Some uncertainty.
-- 60-69: Marginal setup. Weak confluence. Only trade if nothing better.
-- <60: Do NOT return this. Return SKIP instead.
+Score reflects how strongly the setup supports your chosen entry mode — not which mode to pick.
+- 90-100: Exceptional. Multiple strong confluence signals. High conviction in the plan.
+- 80-89: Strong. Good confluence. Clear signals supporting the chosen mode.
+- 70-79: Decent. Moderate confluence. Some uncertainty in timing or direction.
+- 60-69: Marginal. Weak confluence. Only trade if no better setup exists.
+- <60: Do NOT return OPEN_SHORT. Return SKIP instead.
 
 RULES:
 - You MUST select exactly ONE candidate or SKIP all
