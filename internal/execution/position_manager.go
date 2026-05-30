@@ -168,8 +168,7 @@ func (m *PositionManager) check(ctx context.Context, pos domain.Position) {
 
 	// === BREAKEVEN LOGIC (only applies before TP1 fills) ===
 	if !pos.BreakevenMoved && !pos.TP1Filled {
-		leveragedPnl := rawPnlPct * float64(pos.Leverage)
-		if leveragedPnl > m.cfg.Execution.BreakevenActivationPct &&
+		if rawPnlPct > m.cfg.Execution.BreakevenActivationPct &&
 			time.Since(pos.OpenedAt) >= 6*time.Minute {
 			if pos.SLOrderID != "" {
 				if err := m.executor.CancelOrder(ctx, pos.Symbol, pos.SLOrderID); err != nil {
@@ -907,6 +906,11 @@ func (m *PositionManager) handleTrailingFill(ctx context.Context, pos *domain.Po
 	}
 	avgClose := computeAvgClosePrice(*pos, o.AvgPrice)
 	pnl := (pos.EntryPrice - avgClose) * pos.OriginalQty
+	feePaid := float64(0)
+	if pos.FundingFeePaid {
+		feePaid = pos.FundingFeePaidPct * pos.OriginalQty * pos.EntryPrice
+	}
+	pnl -= feePaid
 	pnl = math.Round(pnl*1e8) / 1e8
 	m.persistClose(ctx, *pos, avgClose, pnl, "WIN", "TP_TRAIL")
 }
@@ -918,6 +922,11 @@ func (m *PositionManager) handleTrailingSLFill(ctx context.Context, pos *domain.
 	}
 	avgClose := computeAvgClosePrice(*pos, o.AvgPrice)
 	pnl := (pos.EntryPrice - avgClose) * pos.OriginalQty
+	feePaid := float64(0)
+	if pos.FundingFeePaid {
+		feePaid = pos.FundingFeePaidPct * pos.OriginalQty * pos.EntryPrice
+	}
+	pnl -= feePaid
 	pnl = math.Round(pnl*1e8) / 1e8
 	result := "PARTIAL_WIN"
 	if pnl <= 0 {
@@ -936,6 +945,11 @@ func (m *PositionManager) handleHardSLFill(ctx context.Context, pos *domain.Posi
 	if pos.Side == domain.SideBuy {
 		pnl = (o.AvgPrice - pos.EntryPrice) * pos.OriginalQty
 	}
+	feePaid := float64(0)
+	if pos.FundingFeePaid {
+		feePaid = pos.FundingFeePaidPct * pos.OriginalQty * pos.EntryPrice
+	}
+	pnl -= feePaid
 	pnl = math.Round(pnl*1e8) / 1e8
 
 	result := "LOSS"
@@ -943,6 +957,9 @@ func (m *PositionManager) handleHardSLFill(ctx context.Context, pos *domain.Posi
 	if pos.BreakevenMoved {
 		result = "BREAKEVEN"
 		closeReason = "BREAKEVEN_SL"
+		if pos.FundingFeePaid {
+			closeReason += " WITH FUNDING FEE PAID"
+		}
 	}
 	m.persistClose(ctx, *pos, o.AvgPrice, pnl, result, closeReason)
 }

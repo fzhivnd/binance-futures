@@ -85,7 +85,8 @@ func (r *PGMemoryRepository) FindSimilar(
 		var m domain.TradeMemory
 		var action string
 		var similarity float64
-		var outcome, lesson, entryMode, candlePatterns, btcTrend string
+		var outcome, entryMode, candlePatterns, btcTrend string
+		var lesson *string
 		var tradeID *uuid.UUID
 
 		err := rows.Scan(
@@ -104,7 +105,9 @@ func (r *PGMemoryRepository) FindSimilar(
 		}
 		m.Action = domain.TradeAction(action)
 		m.Outcome = outcome
-		m.Lesson = lesson
+		if lesson != nil {
+			m.Lesson = *lesson
+		}
 		m.EntryMode = entryMode
 		m.CandlePatterns = candlePatterns
 		m.BTCTrend = btcTrend
@@ -152,7 +155,8 @@ func (r *PGMemoryRepository) GetByTradeID(ctx context.Context, tradeID uuid.UUID
 	`, tradeID)
 
 	var m domain.TradeMemory
-	var action, outcome, lesson, entryMode, candlePatterns, btcTrend string
+	var action, outcome, entryMode, candlePatterns, btcTrend string
+	var lesson *string
 	var tid *uuid.UUID
 
 	err := row.Scan(
@@ -170,7 +174,9 @@ func (r *PGMemoryRepository) GetByTradeID(ctx context.Context, tradeID uuid.UUID
 	}
 	m.Action = domain.TradeAction(action)
 	m.Outcome = outcome
-	m.Lesson = lesson
+	if lesson != nil {
+		m.Lesson = *lesson
+	}
 	m.EntryMode = entryMode
 	m.CandlePatterns = candlePatterns
 	m.BTCTrend = btcTrend
