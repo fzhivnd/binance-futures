@@ -77,6 +77,7 @@ func (a *App) backfillCandles(ctx context.Context, symbols []string, existing ma
 		{"4h", 9},
 	}
 
+	// VERIFIED, COMMENT LOG
 	//slog.Info("candle backfill started", "symbol", len(symbols))
 	for _, sym := range symbols {
 		if existing[sym] {

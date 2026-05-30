@@ -170,7 +170,7 @@ func (m *PositionManager) check(ctx context.Context, pos domain.Position) {
 	if !pos.BreakevenMoved && !pos.TP1Filled {
 		leveragedPnl := rawPnlPct * float64(pos.Leverage)
 		if leveragedPnl > m.cfg.Execution.BreakevenActivationPct &&
-			time.Since(pos.OpenedAt) >= 5*time.Minute {
+			time.Since(pos.OpenedAt) >= 6*time.Minute {
 			if pos.SLOrderID != "" {
 				if err := m.executor.CancelOrder(ctx, pos.Symbol, pos.SLOrderID); err != nil {
 					slog.Warn("cancel SL for breakeven failed", "symbol", pos.Symbol, "error", err)
@@ -926,14 +926,25 @@ func (m *PositionManager) handleTrailingSLFill(ctx context.Context, pos *domain.
 	m.persistClose(ctx, *pos, avgClose, pnl, result, "TP_TRAIL")
 }
 
-// handleHardSLFill fires when the hard 5% stop-loss triggers (worst case).
+// handleHardSLFill fires when the SL order triggers. If breakeven was already moved,
+// the same SLOrderID points to the breakeven stop — classify as BREAKEVEN, not LOSS.
 func (m *PositionManager) handleHardSLFill(ctx context.Context, pos *domain.Position, o exchange.OrderTradeUpdate) {
 	if pos.TPOrderID != "" {
 		_ = m.executor.CancelOrder(ctx, pos.Symbol, pos.TPOrderID)
 	}
 	pnl := (pos.EntryPrice - o.AvgPrice) * pos.OriginalQty
+	if pos.Side == domain.SideBuy {
+		pnl = (o.AvgPrice - pos.EntryPrice) * pos.OriginalQty
+	}
 	pnl = math.Round(pnl*1e8) / 1e8
-	m.persistClose(ctx, *pos, o.AvgPrice, pnl, "LOSS", "HARD_SL")
+
+	result := "LOSS"
+	closeReason := "HARD_SL"
+	if pos.BreakevenMoved {
+		result = "BREAKEVEN"
+		closeReason = "BREAKEVEN_SL"
+	}
+	m.persistClose(ctx, *pos, o.AvgPrice, pnl, result, closeReason)
 }
 
 func (m *PositionManager) recordClose(ctx context.Context, pos domain.Position, exitPrice float64, result string, closeReason string) {
