@@ -118,8 +118,16 @@ func (r *PGMemoryRepository) FindSimilar(
 func (r *PGMemoryRepository) UpdateOutcome(ctx context.Context, id uuid.UUID, outcome string, profitPct float64, holdMinutes int) error {
 	_, err := r.pool.Exec(ctx, `
 		UPDATE trade_memories SET outcome=$1, profit_pct=$2, hold_minutes=$3
+		WHERE id=$4
+	`, outcome, profitPct, holdMinutes, id)
+	return err
+}
+
+func (r *PGMemoryRepository) UpdateOutcomeByTradeID(ctx context.Context, tradeID uuid.UUID, outcome string, profitPct float64, holdMinutes int) error {
+	_, err := r.pool.Exec(ctx, `
+		UPDATE trade_memories SET outcome=$1, profit_pct=$2, hold_minutes=$3
 		WHERE trade_id=$4
-`, outcome, profitPct, holdMinutes, id)
+	`, outcome, profitPct, holdMinutes, tradeID)
 	return err
 }
 

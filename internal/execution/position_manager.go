@@ -980,7 +980,7 @@ func (m *PositionManager) persistClose(ctx context.Context, pos domain.Position,
 		outcome := mapResultToMemoryOutcome(result)
 		profitPct := pnl / (pos.EntryPrice * pos.OriginalQty) * float64(pos.Leverage) * 100
 		holdMin := int(now.Sub(pos.OpenedAt).Minutes())
-		if err := m.memoryRepo.UpdateOutcome(ctx, pos.TradeID, outcome, profitPct, holdMin); err != nil {
+		if err := m.memoryRepo.UpdateOutcomeByTradeID(ctx, pos.TradeID, outcome, profitPct, holdMin); err != nil {
 			slog.Error("update trade memory outcome", "symbol", pos.Symbol, "error", err)
 		}
 	}
