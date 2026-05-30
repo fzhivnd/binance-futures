@@ -975,13 +975,16 @@ func (m *PositionManager) persistClose(ctx context.Context, pos domain.Position,
 		}
 	}
 
-	// Phase 4: update trade_memories with outcome
+	// Phase 4: update trade_memories with outcome, then generate lesson now that outcome is known
 	if m.memoryRepo != nil && pos.TradeID != uuid.Nil {
 		outcome := mapResultToMemoryOutcome(result)
 		profitPct := pnl / (pos.EntryPrice * pos.OriginalQty) * float64(pos.Leverage) * 100
 		holdMin := int(now.Sub(pos.OpenedAt).Minutes())
 		if err := m.memoryRepo.UpdateOutcomeByTradeID(ctx, pos.TradeID, outcome, profitPct, holdMin); err != nil {
 			slog.Error("update trade memory outcome", "symbol", pos.Symbol, "error", err)
+		}
+		if m.memoryEngine != nil {
+			go m.memoryEngine.GenerateLessonForTrade(context.Background(), pos.TradeID)
 		}
 	}
 

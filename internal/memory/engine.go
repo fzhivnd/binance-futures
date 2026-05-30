@@ -114,12 +114,6 @@ func (e *Engine) RecordTrade(
 		FundingBucket:   FundingBucket(trade.FundingRate * 100),
 	}
 
-	lesson, err := e.summarizer.Summarize(ctx, mem)
-	if err != nil {
-		slog.Warn("lesson summarization failed", "error", err)
-	}
-	mem.Lesson = lesson
-
 	if err := e.repo.Insert(ctx, mem, embedding); err != nil {
 		return err
 	}
@@ -258,6 +252,30 @@ func (e *Engine) RetrieveSimilar(
 	)
 
 	return similar, nil
+}
+
+// GenerateLessonForTrade fetches the stored memory for a trade, summarizes it, and persists the lesson.
+// Called after trade close so the outcome fields are already populated.
+func (e *Engine) GenerateLessonForTrade(ctx context.Context, tradeID uuid.UUID) {
+	if !e.enabled {
+		return
+	}
+	mem, err := e.repo.GetByTradeID(ctx, tradeID)
+	if err != nil {
+		slog.Warn("GenerateLessonForTrade: memory not found", "trade_id", tradeID, "error", err)
+		return
+	}
+	lesson, err := e.summarizer.Summarize(ctx, mem)
+	if err != nil {
+		slog.Warn("lesson summarization failed", "trade_id", tradeID, "error", err)
+		return
+	}
+	if lesson == "" {
+		return
+	}
+	if err := e.repo.UpdateLesson(ctx, mem.ID, lesson); err != nil {
+		slog.Error("GenerateLessonForTrade: update lesson", "trade_id", tradeID, "error", err)
+	}
 }
 
 // ValidateSkips checks skipped trades to determine if the skip was correct.
