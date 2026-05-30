@@ -14,7 +14,7 @@ type ScanFunc func(ctx context.Context, window WindowType) error
 
 // IntentQueue is satisfied by intent.Queue, avoiding a circular import.
 type IntentQueue interface {
-	Tick(ctx context.Context, currentWindow WindowType)
+	Tick(ctx context.Context, currentWindow WindowType, timeUntilFunding time.Duration)
 	ClearAfterSettlement()
 }
 
@@ -57,7 +57,9 @@ func (s *Scheduler) tick(ctx context.Context) {
 		if window == WindowNone {
 			s.intentQueue.ClearAfterSettlement()
 		} else {
-			s.intentQueue.Tick(ctx, window)
+			now := time.Now()
+			timeUntilFunding := NextFundingTime(now).Sub(now)
+			s.intentQueue.Tick(ctx, window, timeUntilFunding)
 		}
 	}
 

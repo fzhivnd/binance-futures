@@ -322,7 +322,7 @@ func (a *App) Run(
 
 	frontrunInterval := time.Duration(a.cfg.LLM.FrontrunExecIntervalSecs) * time.Second
 	intentHandler := execution.NewIntentHandler(a.execEng, a.riskEngine, a.indEngine, a.executor, a.cfg.Trading.Leverage)
-	a.intentQueue = intent.NewQueue(intentHandler.Fire, frontrunInterval)
+	a.intentQueue = intent.NewQueue(intentHandler.Fire, frontrunInterval, a.cfg.LLM.FrontrunFireMinutes)
 
 	a.sched = scheduler.NewScheduler(&a.cfg.Scheduler, cache, a.scanFn)
 	a.sched.SetIntentQueue(a.intentQueue)

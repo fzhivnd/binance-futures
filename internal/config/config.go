@@ -123,6 +123,7 @@ type LLMConfig struct {
 	TopCandidates            int    `yaml:"top_candidates"`
 	MinConfidence            int    `yaml:"min_confidence"`
 	FrontrunExecIntervalSecs int    `yaml:"frontrun_exec_interval_secs"` // how often to execute best FRONTRUN intent (default 300 = 5m)
+	FrontrunFireMinutes      int    `yaml:"frontrun_fire_minutes"`       // earliest T-N at which a FRONTRUN intent may fire (default 20)
 	CallCooldownSecs         int    `yaml:"call_cooldown_secs"`          // min gap between LLM calls with similar inputs (default 300 = 5m)
 }
 
@@ -239,7 +240,7 @@ func setDefaults(cfg *Config) {
 		cfg.Execution.TpPct = 2.0
 	}
 	if cfg.Execution.BreakevenActivationPct == 0 {
-		cfg.Execution.BreakevenActivationPct = 1.0
+		cfg.Execution.BreakevenActivationPct = 2
 	}
 	if cfg.Execution.SlippageBps == 0 {
 		cfg.Execution.SlippageBps = 1
@@ -252,6 +253,9 @@ func setDefaults(cfg *Config) {
 	}
 	if cfg.Scheduler.WindowStartMinutes == 0 {
 		cfg.Scheduler.WindowStartMinutes = 30
+	}
+	if cfg.LLM.FrontrunFireMinutes == 0 {
+		cfg.LLM.FrontrunFireMinutes = 20
 	}
 	if cfg.WebSocket.PingInterval == "" {
 		cfg.WebSocket.PingInterval = "2m"
