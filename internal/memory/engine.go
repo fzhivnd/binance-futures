@@ -267,7 +267,7 @@ func (e *Engine) ValidateSkips(ctx context.Context, checkPrice func(symbol strin
 		return nil
 	}
 
-	pending, err := e.repo.GetPendingSkipValidations(ctx, 2*time.Hour)
+	pending, err := e.repo.GetPendingSkipValidations(ctx, 110*time.Minute)
 	if err != nil {
 		return err
 	}

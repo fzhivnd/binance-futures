@@ -109,19 +109,25 @@ func (a *App) keepAliveListenKey(ctx context.Context, client *exchange.BinanceCl
 	}
 }
 
+// startSkipValidator fires once per funding cycle at T+2h after each settlement
+// (i.e. 02:00, 06:00, 10:00, 14:00, 18:00, 22:00 UTC). This gives the market 2
+// full hours after settlement to reveal whether a skipped setup would have paid off.
 func (a *App) startSkipValidator(ctx context.Context) {
-	delay := a.cfg.Memory.GetSkipValidationDelay()
-	ticker := time.NewTicker(delay)
-	defer ticker.Stop()
-
 	for {
+		next := scheduler.NextFundingTime(time.Now().UTC()).Add(2 * time.Hour)
+		delay := time.Until(next)
+		if delay < 0 {
+			delay = time.Second
+		}
+
 		select {
 		case <-ctx.Done():
 			return
-		case <-ticker.C:
-			if err := a.memoryEngine.ValidateSkips(ctx, a.checkHistoricalPrice); err != nil {
-				slog.Error("skip validation failed", "error", err)
-			}
+		case <-time.After(delay):
+		}
+
+		if err := a.memoryEngine.ValidateSkips(ctx, a.checkHistoricalPrice); err != nil {
+			slog.Error("skip validation failed", "error", err)
 		}
 	}
 }

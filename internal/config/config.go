@@ -158,7 +158,6 @@ type MemoryConfig struct {
 	TopSimilar          int     `yaml:"top_similar"`
 	MinSimilarity       float64 `yaml:"min_similarity"`
 	EmbedSkips          bool    `yaml:"embed_skips"`
-	SkipValidationDelay string  `yaml:"skip_validation_delay"`
 	MaxMemoryAge        string  `yaml:"max_memory_age"`
 	SummarizerModel     string  `yaml:"summarizer_model"`
 }
@@ -406,9 +405,6 @@ func setDefaults(cfg *Config) {
 	if cfg.Memory.MinSimilarity == 0 {
 		cfg.Memory.MinSimilarity = 0.75
 	}
-	if cfg.Memory.SkipValidationDelay == "" {
-		cfg.Memory.SkipValidationDelay = "2h"
-	}
 	if cfg.Memory.MaxMemoryAge == "" {
 		cfg.Memory.MaxMemoryAge = "90d"
 	}
@@ -498,12 +494,4 @@ func (c *MemoryConfig) GetMaxMemoryAge() time.Duration {
 		return d
 	}
 	return 90 * 24 * time.Hour
-}
-
-// GetSkipValidationDelay parses the skip_validation_delay string.
-func (c *MemoryConfig) GetSkipValidationDelay() time.Duration {
-	if d, err := time.ParseDuration(c.SkipValidationDelay); err == nil {
-		return d
-	}
-	return 2 * time.Hour
 }

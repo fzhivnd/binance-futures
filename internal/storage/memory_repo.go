@@ -173,9 +173,13 @@ func (r *PGMemoryRepository) GetByTradeID(ctx context.Context, tradeID uuid.UUID
 func (r *PGMemoryRepository) GetPendingSkipValidations(ctx context.Context, olderThan time.Duration) ([]domain.TradeMemory, error) {
 	cutoff := time.Now().Add(-olderThan)
 	rows, err := r.pool.Query(ctx, `
-		SELECT id, symbol, action, created_at, funding_rate, daily_roi,
+		SELECT id, symbol, action, created_at,
+			funding_rate, daily_roi,
+			oi_delta_1h, oi_delta_15m,
+			rsi_14_15m, rsi_7_5m, atr_ratio, vol_change_5m,
+			volume_spike, momentum_loss, candle_patterns,
+			composite_score, entry_mode, minutes_to_settle,
 			btc_trend, btc_momentum, btc_breakout, btc_rsi, btc_change_1h,
-			oi_delta_1h, rsi_14_15m, candle_patterns, composite_score,
 			btc_regime, funding_bucket
 		FROM trade_memories
 		WHERE action = 'SKIP' AND outcome IS NULL AND created_at < $1
@@ -190,11 +194,15 @@ func (r *PGMemoryRepository) GetPendingSkipValidations(ctx context.Context, olde
 	var memories []domain.TradeMemory
 	for rows.Next() {
 		var m domain.TradeMemory
-		var action, btcTrend, candlePatterns string
+		var action, btcTrend, candlePatterns, entryMode string
 		if err := rows.Scan(
-			&m.ID, &m.Symbol, &action, &m.CreatedAt, &m.FundingRate, &m.DailyROI,
+			&m.ID, &m.Symbol, &action, &m.CreatedAt,
+			&m.FundingRate, &m.DailyROI,
+			&m.OIDelta1h, &m.OIDelta15m,
+			&m.RSI14_15m, &m.RSI7_5m, &m.ATRRatio, &m.VolChange5m,
+			&m.VolumeSpike, &m.MomentumLoss, &candlePatterns,
+			&m.CompositeScore, &entryMode, &m.MinutesToSettle,
 			&btcTrend, &m.BTCMomentum, &m.BTCBreakout, &m.BTCRSI, &m.BTCChange1h,
-			&m.OIDelta1h, &m.RSI14_15m, &candlePatterns, &m.CompositeScore,
 			&m.BTCRegime, &m.FundingBucket,
 		); err != nil {
 			return nil, err
@@ -202,6 +210,7 @@ func (r *PGMemoryRepository) GetPendingSkipValidations(ctx context.Context, olde
 		m.Action = domain.TradeAction(action)
 		m.BTCTrend = btcTrend
 		m.CandlePatterns = candlePatterns
+		m.EntryMode = entryMode
 		memories = append(memories, m)
 	}
 	return memories, rows.Err()
