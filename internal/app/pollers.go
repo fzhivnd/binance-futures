@@ -26,6 +26,7 @@ func (a *App) oiPoller(ctx context.Context, client *exchange.BinanceClient) {
 
 func (a *App) runOICycle(ctx context.Context, client *exchange.BinanceClient) {
 	symbols := a.engine.GetTopNegativeFundingSymbols(20)
+	// VERIFIED, COMMENT LOG
 	//slog.Info("oi poller cycle started", "symbols", len(symbols))
 	updated := 0
 	for _, sym := range symbols {
@@ -55,6 +56,7 @@ func (a *App) klineSubscriber(ctx context.Context) {
 			if len(newSymbols) == 0 {
 				continue
 			}
+			// VERIFIED, COMMENT LOG
 			//slog.Info("kline subscriber cycle started", "symbols", len(newSymbols))
 			a.updateKlineSubscriptions(ctx, currentSymbols, newSymbols)
 			currentSymbols = newSymbols
@@ -89,6 +91,7 @@ func (a *App) fundingIntervalRefresher(ctx context.Context, client *exchange.Bin
 		for _, fi := range list {
 			a.engine.SetFundingInterval(fi.Symbol, fi.FundingIntervalHours)
 		}
+		// VERIFIED, COMMENT LOG
 		//slog.Info("funding intervals refreshed", "symbols", len(list))
 	}
 }
@@ -119,6 +122,7 @@ func (a *App) startSkipValidator(ctx context.Context) {
 		if delay < 0 {
 			delay = time.Second
 		}
+		slog.Info("skip validator sleeping until T+2h ", "wake_at", delay)
 
 		select {
 		case <-ctx.Done():

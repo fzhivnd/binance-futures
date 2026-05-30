@@ -17,27 +17,29 @@ type ExecuteFn func(ctx context.Context, sc *domain.ScoredCandidate, decision *d
 // Queue holds multiple pending trade intents ranked by LLM confidence.
 //
 // Execution rules:
-//   - FRONTRUN window: fire the highest-confidence eligible intent every frontrunInterval (default 5m).
-//     The interval prevents executing on every 1m scan tick; later scans may surface better candidates.
+//   - FRONTRUN window: fire the highest-confidence eligible intent every frontrunInterval (default 5m),
+//     but only once timeUntilFunding ≤ frontrunFireWindow (default 20m).
 //   - LAST_MINUTE window: fire the highest-confidence eligible intent exactly once on window entry.
 //   - AFTER window: fire the highest-confidence eligible intent exactly once on window entry.
 //
 // Enqueue always replaces an existing pending intent for the same symbol with the latest
 // LLM recommendation, regardless of confidence or entry mode.
 type Queue struct {
-	mu               sync.Mutex
-	intents          []*TradeIntent // sorted by confidence descending
-	execFn           ExecuteFn
-	frontrunInterval time.Duration
-	lastFrontrunExec time.Time
-	firedInWindow    map[scheduler.WindowType]bool // one fire allowed per window type per cycle
+	mu                 sync.Mutex
+	intents            []*TradeIntent // sorted by confidence descending
+	execFn             ExecuteFn
+	frontrunInterval   time.Duration
+	frontrunFireWindow time.Duration // max time-until-funding at which FRONTRUN may fire
+	lastFrontrunExec   time.Time
+	firedInWindow      map[scheduler.WindowType]bool // one fire allowed per window type per cycle
 }
 
-func NewQueue(execFn ExecuteFn, frontrunInterval time.Duration) *Queue {
+func NewQueue(execFn ExecuteFn, frontrunInterval time.Duration, frontrunFireMinutes int) *Queue {
 	return &Queue{
-		execFn:           execFn,
-		frontrunInterval: frontrunInterval,
-		firedInWindow:    make(map[scheduler.WindowType]bool),
+		execFn:             execFn,
+		frontrunInterval:   frontrunInterval,
+		frontrunFireWindow: time.Duration(frontrunFireMinutes) * time.Minute,
+		firedInWindow:      make(map[scheduler.WindowType]bool),
 	}
 }
 
@@ -76,28 +78,32 @@ func (q *Queue) Enqueue(intent *TradeIntent) {
 }
 
 // Tick is called every 1s by the scheduler.
-func (q *Queue) Tick(ctx context.Context, currentWindow scheduler.WindowType) {
+func (q *Queue) Tick(ctx context.Context, currentWindow scheduler.WindowType, timeUntilFunding time.Duration) {
 	q.mu.Lock()
 	q.expireLocked()
 
 	switch currentWindow {
 	case scheduler.WindowFrontrun:
-		q.tickFrontrunLocked(ctx)
+		q.tickFrontrunLocked(ctx, timeUntilFunding)
 	case scheduler.WindowLastMinute, scheduler.WindowAfter:
 		q.tickTransitionLocked(ctx, currentWindow)
 	}
 	q.mu.Unlock()
 }
 
-// tickFrontrunLocked executes the best eligible intent on the FRONTRUN interval.
+// tickFrontrunLocked executes the best eligible intent on the FRONTRUN interval,
+// but only once timeUntilFunding ≤ frontrunFireWindow (e.g. T-20m).
 // Must be called with q.mu held.
-func (q *Queue) tickFrontrunLocked(ctx context.Context) {
+func (q *Queue) tickFrontrunLocked(ctx context.Context, timeUntilFunding time.Duration) {
 	if q.firedInWindow[scheduler.WindowFrontrun] {
 		return
 	}
-	if time.Since(q.lastFrontrunExec) < q.frontrunInterval {
+	if timeUntilFunding > q.frontrunFireWindow {
 		return
 	}
+	//if time.Since(q.lastFrontrunExec) < q.frontrunInterval {
+	//	return
+	//}
 
 	intent := q.bestEligibleLocked(scheduler.WindowFrontrun)
 	if intent == nil {

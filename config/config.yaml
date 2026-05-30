@@ -12,7 +12,7 @@ binance:
   testnet: false
 
 trading:
-  cooldown_minutes: 15  # not configurable via DB
+  cooldown_minutes: 10  # not configurable via DB
 
 funding:
   top_candidates: 10    # not configurable via DB
