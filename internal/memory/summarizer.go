@@ -78,7 +78,7 @@ Outcome: %s | PnL: %.2f%% | Hold time: %d minutes
 
 Generate a concise lesson (1-2 sentences) about what drove this outcome.`,
 		memory.Symbol, memory.Action, memory.EntryMode,
-		memory.FundingRate*100, memory.FundingBucket, memory.DailyROI*100,
+		memory.FundingRate*100, memory.FundingBucket, memory.DailyROI,
 		memory.OIDelta1h, memory.OIDelta15m,
 		memory.RSI14_15m, memory.RSI7_5m,
 		memory.ATRRatio, memory.VolChange5m*100, memory.VolumeSpike,
