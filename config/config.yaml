@@ -19,7 +19,7 @@ funding:
 
 execution:
   slippage_bps: 1
-  trailing_callback_rate: 1.25
+  trailing_callback_rate: 1.05
 
 scheduler:
   scan_interval_early: "1m"
@@ -69,7 +69,7 @@ llm:
   top_candidates: 3
   min_confidence: 60
   frontrun_exec_interval_secs: 180  # execute best FRONTRUN intent every 5m
-  call_cooldown_secs: 300           # skip LLM call if inputs unchanged within this window
+  call_cooldown_secs: 180           # skip LLM call if inputs unchanged within this window
 
 telegram:
   enabled: true

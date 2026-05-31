@@ -166,21 +166,20 @@ func (l *LiveExecutor) GetPosition(ctx context.Context, symbol string) (*domain.
 }
 
 func (l *LiveExecutor) GetAccountBalance(ctx context.Context) (*domain.Balance, error) {
-	// TODO: FORCE BALANCE TO $100 DURING TESTING PHASE
-	//resp, err := l.client.GetAccount(ctx)
-	//if err != nil {
-	//	return nil, err
-	//}
-	//for _, a := range resp.Assets {
-	//	if a.Asset == "USDT" {
-	//		return &domain.Balance{
-	//			Asset:            "USDT",
-	//			TotalBalance:     a.WalletBalance,
-	//			AvailableBalance: a.AvailableBalance,
-	//		}, nil
-	//	}
-	//}
-	return &domain.Balance{Asset: "USDT", TotalBalance: 100, AvailableBalance: 100}, nil
+	resp, err := l.client.GetAccount(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for _, a := range resp.Assets {
+		if a.Asset == "USDT" {
+			return &domain.Balance{
+				Asset:            "USDT",
+				TotalBalance:     a.WalletBalance,
+				AvailableBalance: a.AvailableBalance,
+			}, nil
+		}
+	}
+	return nil, fmt.Errorf("USDT asset not found in account response")
 }
 
 func (l *LiveExecutor) SetLeverage(ctx context.Context, symbol string, leverage int) error {

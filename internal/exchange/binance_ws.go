@@ -58,7 +58,7 @@ func (w *WSConnection) Run(ctx context.Context) {
 			slog.Warn("ws connect failed", "error", err)
 			w.failures++
 			if w.failures >= w.maxFailures {
-				slog.Error("ws max failures reached, activating kill switch")
+				slog.Error("ws max failures reached, activating kill switch", "url", w.url)
 				if w.onKillSwitch != nil {
 					w.onKillSwitch()
 				}

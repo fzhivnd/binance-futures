@@ -35,7 +35,7 @@ func (s *FundingScanner) Scan(ctx context.Context) ([]domain.Candidate, error) {
 
 	var candidates []domain.Candidate
 	for symbol, rate := range rates {
-		if rate > s.cfg.MaxRate || rate < s.cfg.MinRate {
+		if rate >= s.cfg.MaxRate || rate <= s.cfg.MinRate {
 			continue
 		}
 		price, ok := s.market.GetPrice(symbol)
