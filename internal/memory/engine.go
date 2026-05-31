@@ -238,7 +238,7 @@ func (e *Engine) RetrieveSimilar(
 		if s.Similarity > topSimilarity {
 			topSimilarity = s.Similarity
 		}
-		if s.Outcome == "WIN" || s.Outcome == "PARTIAL_WIN" {
+		if s.Outcome == "WIN" || s.Outcome == "PARTIAL_WIN" || s.Outcome == "SKIP_MISSED" {
 			winCount++
 		}
 	}
