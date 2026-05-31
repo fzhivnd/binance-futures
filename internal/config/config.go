@@ -333,7 +333,7 @@ func setDefaults(cfg *Config) {
 
 	// Phase 5: Split TP + force-SL defaults
 	if cfg.Execution.TrailingCallbackRate == 0 {
-		cfg.Execution.TrailingCallbackRate = 1.0
+		cfg.Execution.TrailingCallbackRate = 1.25
 	}
 	if cfg.Execution.TP1SizePct == 0 {
 		cfg.Execution.TP1SizePct = 50
