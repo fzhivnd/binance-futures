@@ -68,7 +68,7 @@ llm:
   max_rpm: 20
   top_candidates: 3
   min_confidence: 60
-  frontrun_exec_interval_secs: 300  # execute best FRONTRUN intent every 5m
+  frontrun_exec_interval_secs: 180  # execute best FRONTRUN intent every 5m
   call_cooldown_secs: 300           # skip LLM call if inputs unchanged within this window
 
 telegram:

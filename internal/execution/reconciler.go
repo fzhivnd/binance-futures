@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"math"
 	"time"
 
 	"github.com/google/uuid"
@@ -94,13 +95,13 @@ func Reconcile(
 			continue
 		}
 
-		// Case 3: in both — verify order IDs still live.
+		// Case 3: in both — verify order IDs still live and prices are correct.
 		orders := ordersBySymbol[sym]
 		needsSL, needsTP := verifyProtection(cached, orders)
 		if needsSL || needsTP {
-			slog.Warn("reconcile: position missing live orders, re-placing",
+			slog.Warn("reconcile: position needs order correction, re-placing",
 				"symbol", sym, "needs_sl", needsSL, "needs_tp", needsTP)
-			if err := replaceMissingOrders(ctx, sym, cached, needsSL, needsTP, executor, cache); err != nil {
+			if err := replaceMissingOrders(ctx, sym, cached, needsSL, needsTP, orders, executor, cache); err != nil {
 				slog.Error("reconcile: replace orders failed", "symbol", sym, "error", err)
 			} else {
 				reconciled++
@@ -248,35 +249,82 @@ func rehydratePosition(
 	return nil
 }
 
+// priceTolerancePct is the maximum allowed deviation between the cached SL/TP
+// price and the live order stop price before we consider it stale and re-place.
+const priceTolerancePct = 0.001 // 0.1%
+
 // verifyProtection checks whether the cached SL/TP order IDs still exist in
-// the live orders returned by Binance. Returns (needsSL, needsTP).
+// the live orders returned by Binance, and that their prices haven't drifted.
+// Returns (needsSL, needsTP).
 func verifyProtection(pos domain.Position, liveOrders []exchange.OpenOrderResponse) (bool, bool) {
-	liveIDs := make(map[string]bool, len(liveOrders))
+	liveByID := make(map[string]exchange.OpenOrderResponse, len(liveOrders))
 	for _, o := range liveOrders {
-		liveIDs[fmt.Sprintf("%d", o.OrderID)] = true
+		liveByID[fmt.Sprintf("%d", o.OrderID)] = o
 	}
-	needsSL := pos.SLOrderID != "" && !liveIDs[pos.SLOrderID]
-	needsTP := pos.TPOrderID != "" && !liveIDs[pos.TPOrderID]
-	// Also flag if order IDs are empty (were never placed).
+
+	needsSL := false
+	needsTP := false
+
 	if pos.SLOrderID == "" {
 		needsSL = true
+	} else if o, exists := liveByID[pos.SLOrderID]; !exists {
+		needsSL = true
+	} else if pos.StopLoss > 0 && o.StopPrice > 0 {
+		drift := math.Abs(o.StopPrice-pos.StopLoss) / pos.StopLoss
+		if drift > priceTolerancePct {
+			slog.Warn("reconcile: SL price drifted, will re-place",
+				"symbol", pos.Symbol,
+				"cached_sl", pos.StopLoss,
+				"live_sl", o.StopPrice,
+				"drift_pct", drift*100,
+			)
+			needsSL = true
+		}
 	}
+
 	if pos.TPOrderID == "" {
 		needsTP = true
+	} else if o, exists := liveByID[pos.TPOrderID]; !exists {
+		needsTP = true
+	} else if pos.TakeProfit > 0 && o.StopPrice > 0 {
+		drift := math.Abs(o.StopPrice-pos.TakeProfit) / pos.TakeProfit
+		if drift > priceTolerancePct {
+			slog.Warn("reconcile: TP price drifted, will re-place",
+				"symbol", pos.Symbol,
+				"cached_tp", pos.TakeProfit,
+				"live_tp", o.StopPrice,
+				"drift_pct", drift*100,
+			)
+			needsTP = true
+		}
 	}
+
 	return needsSL, needsTP
 }
 
-// replaceMissingOrders re-places SL/TP for a position that already exists in cache.
+// replaceMissingOrders cancels any stale SL/TP orders and re-places correct ones.
+// liveOrders is used to cancel existing orders whose prices have drifted.
 func replaceMissingOrders(
 	ctx context.Context,
 	symbol string,
 	pos domain.Position,
 	needsSL, needsTP bool,
+	liveOrders []exchange.OpenOrderResponse,
 	executor Executor,
 	cache storage.StateCache,
 ) error {
+	// Cancel any existing stale order before re-placing (avoids duplicate orders).
+	liveByID := make(map[string]bool, len(liveOrders))
+	for _, o := range liveOrders {
+		liveByID[fmt.Sprintf("%d", o.OrderID)] = true
+	}
+
 	if needsSL {
+		if pos.SLOrderID != "" && liveByID[pos.SLOrderID] {
+			if err := executor.CancelOrder(ctx, symbol, pos.SLOrderID); err != nil {
+				slog.Warn("replaceMissingOrders: cancel stale SL failed", "symbol", symbol, "error", err)
+			}
+		}
 		slOrder, err := executor.PlaceStopMarketOrder(ctx, domain.OrderRequest{
 			Symbol:     symbol,
 			Side:       domain.SideBuy,
@@ -294,6 +342,11 @@ func replaceMissingOrders(
 	}
 
 	if needsTP {
+		if pos.TPOrderID != "" && liveByID[pos.TPOrderID] {
+			if err := executor.CancelOrder(ctx, symbol, pos.TPOrderID); err != nil {
+				slog.Warn("replaceMissingOrders: cancel stale TP failed", "symbol", symbol, "error", err)
+			}
+		}
 		tp1Qty := pos.OriginalQty * tp1SizeFraction
 		tpOrder, err := executor.PlaceStopLimitOrder(ctx, domain.OrderRequest{
 			Symbol:     symbol,

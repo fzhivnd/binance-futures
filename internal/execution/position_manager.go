@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"math"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -42,6 +43,9 @@ type PositionManager struct {
 	indEngine     *indicator.Engine
 	notifier      *notify.Notifier
 	fundingInfo   fundingInfoGetter // Phase 8: for pre-settlement check
+	// posLocks provides per-symbol mutual exclusion between the 1s tick loop
+	// (check) and asynchronous WS fill events (HandleUserDataEvent).
+	posLocks sync.Map // map[string]*sync.Mutex
 }
 
 func NewPositionManager(
@@ -89,6 +93,15 @@ func (m *PositionManager) SetFundingInfoGetter(fi fundingInfoGetter) {
 	m.fundingInfo = fi
 }
 
+// lockPosition returns the mutex for a symbol, creating it on first use.
+// Always defer unlock immediately after acquiring: mu := m.lockPosition(sym); defer mu.Unlock()
+func (m *PositionManager) lockPosition(symbol string) *sync.Mutex {
+	v, _ := m.posLocks.LoadOrStore(symbol, &sync.Mutex{})
+	mu := v.(*sync.Mutex)
+	mu.Lock()
+	return mu
+}
+
 func (m *PositionManager) Run(ctx context.Context) {
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
@@ -114,6 +127,9 @@ func (m *PositionManager) checkAll(ctx context.Context) {
 }
 
 func (m *PositionManager) check(ctx context.Context, pos domain.Position) {
+	mu := m.lockPosition(pos.Symbol)
+	defer mu.Unlock()
+
 	currentPrice, ok := m.market.GetPrice(pos.Symbol)
 	if !ok || currentPrice == 0 {
 		return
@@ -472,6 +488,8 @@ func (m *PositionManager) HandleUserDataEvent(event exchange.UserDataEvent) {
 			} else {
 				tradeTime = time.Now()
 			}
+			mu := m.lockPosition(o.Symbol)
+			defer mu.Unlock()
 			m.finalizeSLTP(ctx, pending, fillPrice, o.FilledQty, tradeTime)
 			return
 		}
@@ -513,6 +531,9 @@ func (m *PositionManager) HandleUserDataEvent(event exchange.UserDataEvent) {
 	if pos == nil {
 		return
 	}
+
+	mu := m.lockPosition(o.Symbol)
+	defer mu.Unlock()
 
 	switch orderIDStr {
 	case pos.TPOrderID:
@@ -574,10 +595,7 @@ func (m *PositionManager) finalizeSLTP(
 	tp1Qty := filledQty * tp1SizePct
 	tpLimit := takeProfit * 0.99
 
-	needsSL := true
-	needsTP := true
-
-	slOrder, err := m.executor.PlaceStopMarketOrder(ctx, domain.OrderRequest{
+	slOrder, slErr := m.executor.PlaceStopMarketOrder(ctx, domain.OrderRequest{
 		Symbol:     pending.Symbol,
 		Side:       domain.SideBuy,
 		Type:       domain.OrderTypeStopMarket,
@@ -585,13 +603,28 @@ func (m *PositionManager) finalizeSLTP(
 		StopPrice:  stopLoss,
 		ReduceOnly: true,
 	})
-	if err != nil {
-		slog.Error("finalizeSLTP: place SL failed", "symbol", pending.Symbol, "error", err)
-	} else {
-		needsSL = false
+	if slErr != nil {
+		slog.Error("finalizeSLTP: place SL failed, position will not be activated",
+			"symbol", pending.Symbol, "error", slErr)
+		// Schedule retry — the entry fill is real, so we must keep trying.
+		pp := domain.PendingProtection{
+			Symbol:     pending.Symbol,
+			NeedsSL:    true,
+			NeedsTP:    true,
+			EntryPrice: avgFillPrice,
+			Quantity:   filledQty,
+			TP1Qty:     tp1Qty,
+			StopLoss:   stopLoss,
+			TakeProfit: takeProfit,
+		}
+		if err := m.cache.SetPendingProtection(ctx, pp); err != nil {
+			slog.Error("finalizeSLTP: set pending protection after SL failure", "symbol", pending.Symbol, "error", err)
+		}
+		return
 	}
+	slOrderID := slOrder.OrderID
 
-	tpOrder, err := m.executor.PlaceStopLimitOrder(ctx, domain.OrderRequest{
+	tpOrder, tpErr := m.executor.PlaceStopLimitOrder(ctx, domain.OrderRequest{
 		Symbol:     pending.Symbol,
 		Side:       domain.SideBuy,
 		Type:       domain.OrderTypeTakeProfit,
@@ -600,19 +633,29 @@ func (m *PositionManager) finalizeSLTP(
 		Price:      tpLimit,
 		ReduceOnly: true,
 	})
-	if err != nil {
-		slog.Error("finalizeSLTP: place TP1 failed", "symbol", pending.Symbol, "error", err)
-	} else {
-		needsTP = false
+	if tpErr != nil {
+		slog.Error("finalizeSLTP: place TP1 failed, cancelling SL to retry both",
+			"symbol", pending.Symbol, "error", tpErr)
+		// Cancel the placed SL so both are retried atomically.
+		if cancelErr := m.executor.CancelOrder(ctx, pending.Symbol, slOrderID); cancelErr != nil {
+			slog.Error("finalizeSLTP: cancel SL after TP failure", "symbol", pending.Symbol, "error", cancelErr)
+		}
+		pp := domain.PendingProtection{
+			Symbol:     pending.Symbol,
+			NeedsSL:    true,
+			NeedsTP:    true,
+			EntryPrice: avgFillPrice,
+			Quantity:   filledQty,
+			TP1Qty:     tp1Qty,
+			StopLoss:   stopLoss,
+			TakeProfit: takeProfit,
+		}
+		if err := m.cache.SetPendingProtection(ctx, pp); err != nil {
+			slog.Error("finalizeSLTP: set pending protection after TP failure", "symbol", pending.Symbol, "error", err)
+		}
+		return
 	}
-
-	var slOrderID, tpOrderID string
-	if slOrder != nil {
-		slOrderID = slOrder.OrderID
-	}
-	if tpOrder != nil {
-		tpOrderID = tpOrder.OrderID
-	}
+	tpOrderID := tpOrder.OrderID
 
 	tradeID := uuid.New()
 	isPaper := m.cfg.App.Mode == "paper"
@@ -715,22 +758,6 @@ func (m *PositionManager) finalizeSLTP(
 		})
 	}
 
-	// If either order failed, schedule a retry via PendingProtection.
-	if needsSL || needsTP {
-		pp := domain.PendingProtection{
-			Symbol:     pending.Symbol,
-			NeedsSL:    needsSL,
-			NeedsTP:    needsTP,
-			EntryPrice: avgFillPrice,
-			Quantity:   filledQty,
-			TP1Qty:     tp1Qty,
-			StopLoss:   stopLoss,
-			TakeProfit: takeProfit,
-		}
-		if err := m.cache.SetPendingProtection(ctx, pp); err != nil {
-			slog.Error("finalizeSLTP: set pending protection", "symbol", pending.Symbol, "error", err)
-		}
-	}
 }
 
 // retryProtection attempts to place missing SL/TP orders for an unprotected position.

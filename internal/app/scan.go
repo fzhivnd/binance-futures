@@ -13,6 +13,31 @@ import (
 	"futures/internal/scheduler"
 )
 
+// filterOccupiedSymbols removes candidates whose symbol either has an active
+// position or already has a pending intent in the queue, so the LLM never sees
+// a symbol we are already committed to.
+func (a *App) filterOccupiedSymbols(ctx context.Context, candidates []domain.Candidate) []domain.Candidate {
+	activeSymbols, err := a.riskEngine.ActiveSymbols(ctx)
+	if err != nil {
+		slog.Warn("could not fetch active symbols, skipping occupied-symbol filter", "error", err)
+		return candidates
+	}
+
+	out := candidates[:0]
+	for _, c := range candidates {
+		if activeSymbols[c.Symbol] {
+			slog.Info("candidate excluded: active position", "symbol", c.Symbol)
+			continue
+		}
+		if a.intentQueue.HasPendingSymbol(c.Symbol) {
+			slog.Info("candidate excluded: pending intent", "symbol", c.Symbol)
+			continue
+		}
+		out = append(out, c)
+	}
+	return out
+}
+
 func (a *App) scanFn(ctx context.Context, window scheduler.WindowType) error {
 	scanStart := time.Now()
 	defer func() {
@@ -53,6 +78,12 @@ func (a *App) scanFn(ctx context.Context, window scheduler.WindowType) error {
 	candidates = scanner.FilterByVolume(candidates, a.filteringMinVolume())
 	if len(candidates) == 0 {
 		slog.Info("no candidates after volume filter", "window", window)
+		return nil
+	}
+
+	candidates = a.filterOccupiedSymbols(ctx, candidates)
+	if len(candidates) == 0 {
+		slog.Info("no candidates after occupied-symbol filter", "window", window)
 		return nil
 	}
 
@@ -139,7 +170,6 @@ func (a *App) scanFn(ctx context.Context, window scheduler.WindowType) error {
 	cooldown := time.Duration(a.cfg.LLM.CallCooldownSecs) * time.Second
 	if lc := a.lastLLMCall; lc != nil &&
 		lc.window == window &&
-		lc.symbol == top[0].Candidate.Symbol &&
 		math.Abs(lc.score-top[0].CompositeScore) < 5 &&
 		lc.btcTrend == btcTrend &&
 		time.Since(lc.calledAt) < cooldown {
@@ -181,10 +211,15 @@ func (a *App) scanFn(ctx context.Context, window scheduler.WindowType) error {
 		"symbol", decision.Symbol,
 		"confidence", decision.Confidence,
 	)
-
+	selectedScore := float64(0)
+	for _, t := range top {
+		if decision.Symbol == t.Candidate.Symbol {
+			selectedScore = t.CompositeScore
+		}
+	}
 	a.lastLLMCall = &llmCallState{
-		symbol:   top[0].Candidate.Symbol,
-		score:    top[0].CompositeScore,
+		symbol:   decision.Symbol,
+		score:    selectedScore,
 		btcTrend: btcTrend,
 		window:   window,
 		calledAt: time.Now(),
