@@ -19,39 +19,39 @@ type PatternConfig struct {
 
 var tfConfigs = map[domain.Timeframe]PatternConfig{
 	domain.Timeframe1h: {
-		WickBodyRatio:   2.0,
+		WickBodyRatio:   2.5,
 		WickRejectRatio: 0.60,
-		EveningStarBody: 0.30,
-		DojiThreshold:   0.10,
-		TrendLookback:   4,
-		MinCandleRange:  0.001,
+		EveningStarBody: 0.25,
+		DojiThreshold:   0.08,
+		TrendLookback:   5,
+		MinCandleRange:  0.0020,
 		ATRMultiplier:   1.0,
 	},
 	domain.Timeframe30m: {
-		WickBodyRatio:   2.2,
-		WickRejectRatio: 0.55,
-		EveningStarBody: 0.30,
-		DojiThreshold:   0.10,
-		TrendLookback:   5,
-		MinCandleRange:  0.0015,
-		ATRMultiplier:   0.70,
-	},
-	domain.Timeframe15m: {
-		WickBodyRatio:   2.5,
-		WickRejectRatio: 0.50,
-		EveningStarBody: 0.28,
-		DojiThreshold:   0.09,
-		TrendLookback:   9,
-		MinCandleRange:  0.0012,
-		ATRMultiplier:   0.50,
-	},
-	domain.Timeframe5m: {
-		WickBodyRatio:   3.0,
-		WickRejectRatio: 0.45,
+		WickBodyRatio:   2.8,
+		WickRejectRatio: 0.62,
 		EveningStarBody: 0.25,
 		DojiThreshold:   0.08,
-		TrendLookback:   13,
-		MinCandleRange:  0.0018,
+		TrendLookback:   6,
+		MinCandleRange:  0.0025,
+		ATRMultiplier:   0.75,
+	},
+	domain.Timeframe15m: {
+		WickBodyRatio:   3.0,
+		WickRejectRatio: 0.65,
+		EveningStarBody: 0.22,
+		DojiThreshold:   0.07,
+		TrendLookback:   8,
+		MinCandleRange:  0.0030,
+		ATRMultiplier:   0.55,
+	},
+	domain.Timeframe5m: {
+		WickBodyRatio:   3.5,
+		WickRejectRatio: 0.70,
+		EveningStarBody: 0.20,
+		DojiThreshold:   0.06,
+		TrendLookback:   12,
+		MinCandleRange:  0.0040,
 		ATRMultiplier:   0.35,
 	},
 }
@@ -79,6 +79,7 @@ func DetectPatterns(candles []domain.Candle, tf domain.Timeframe, atr1h float64,
 	upperWick := c.High - math.Max(c.Open, c.Close)
 	lowerWick := math.Min(c.Open, c.Close) - c.Low
 	candleRange := c.High - c.Low
+	bodyPosition := (math.Max(c.Open, c.Close) - c.Low) / candleRange
 
 	if candleRange == 0 {
 		return nil
@@ -97,7 +98,7 @@ func DetectPatterns(candles []domain.Candle, tf domain.Timeframe, atr1h float64,
 	// valid patterns on low-volatility coins.
 	if atr1h > 0 {
 		tfATR := atr1h * cfg.ATRMultiplier
-		if candleRange < tfATR*0.3 {
+		if candleRange < tfATR*0.5 {
 			return nil
 		}
 	}
@@ -105,7 +106,11 @@ func DetectPatterns(candles []domain.Candle, tf domain.Timeframe, atr1h float64,
 	var signals []domain.CandleSignal
 
 	// Shooting Star: small body at bottom, long upper wick, after uptrend
-	if upperWick >= cfg.WickBodyRatio*bodySize && lowerWick < bodySize && p.Close < c.High {
+	if upperWick >= cfg.WickBodyRatio*bodySize &&
+		lowerWick <= bodySize*0.5 &&
+		bodyPosition > 0.65 &&
+		body < 0 &&
+		p.Close < c.High {
 		if isUptrend(candles, cfg.TrendLookback) {
 			sig := domain.CandleSignal{
 				Timeframe: tf,
@@ -117,20 +122,24 @@ func DetectPatterns(candles []domain.Candle, tf domain.Timeframe, atr1h float64,
 	}
 
 	// Bearish Engulfing: current red body fully engulfs previous green body
-	prevBody := p.Close - p.Open
-	if body < 0 && prevBody > 0 {
-		if c.Open >= p.Close && c.Close <= p.Open {
-			sig := domain.CandleSignal{
-				Timeframe: tf,
-				Pattern:   domain.PatternBearishEngulfing,
-				Strength:  domain.StrengthStrong,
-			}
-			signals = append(signals, adjustStrength(sig, c.Volume, avgVolume))
+	currBody := math.Abs(c.Close - c.Open)
+	prevBody := math.Abs(p.Close - p.Open)
+	if body < 0 &&
+		prevBody > 0 &&
+		currBody > prevBody*1.2 &&
+		c.Close < p.Open {
+		sig := domain.CandleSignal{
+			Timeframe: tf,
+			Pattern:   domain.PatternBearishEngulfing,
+			Strength:  domain.StrengthStrong,
 		}
+		signals = append(signals, adjustStrength(sig, c.Volume, avgVolume))
 	}
 
 	// Upper Wick Rejection: wick > cfg.WickRejectRatio of range, bearish body
-	if upperWick/candleRange > cfg.WickRejectRatio && body < 0 {
+	if upperWick/candleRange > cfg.WickRejectRatio &&
+		upperWick > lowerWick*2 &&
+		body < 0 {
 		sig := domain.CandleSignal{
 			Timeframe: tf,
 			Pattern:   domain.PatternUpperWickReject,
@@ -146,7 +155,9 @@ func DetectPatterns(candles []domain.Candle, tf domain.Timeframe, atr1h float64,
 		pBodySize := math.Abs(prevBody)
 		if ppBody > 0 && body < 0 {
 			avgBody := (math.Abs(ppBody) + math.Abs(body)) / 2
-			if pBodySize < avgBody*cfg.EveningStarBody {
+			midpoint := pp.Open + (pp.Close-pp.Open)/2
+			if pBodySize < avgBody*cfg.EveningStarBody &&
+				c.Close < midpoint {
 				sig := domain.CandleSignal{
 					Timeframe: tf,
 					Pattern:   domain.PatternEveningStar,
@@ -159,7 +170,7 @@ func DetectPatterns(candles []domain.Candle, tf domain.Timeframe, atr1h float64,
 
 	// Doji After Pump: strong green candle followed by doji-like current
 	pRange := math.Abs(p.High - p.Low)
-	if prevBody > 0 && pRange > 0 && prevBody/pRange > 0.6 {
+	if prevBody > 0 && pRange > 0 && prevBody/pRange > 0.7 && pRange > candleRange {
 		if bodySize/candleRange < cfg.DojiThreshold {
 			sig := domain.CandleSignal{
 				Timeframe: tf,
@@ -171,13 +182,18 @@ func DetectPatterns(candles []domain.Candle, tf domain.Timeframe, atr1h float64,
 	}
 
 	// Failed Breakout: made new high vs previous but closed below previous high
-	if c.High > p.High && c.Close < p.High && body < 0 {
-		sig := domain.CandleSignal{
-			Timeframe: tf,
-			Pattern:   domain.PatternFailedBreakout,
-			Strength:  domain.StrengthMedium,
+	if p.High > 0 {
+		breakoutPct := (c.High - p.High) / p.High
+		if breakoutPct > 0.002 &&
+			c.Close < p.High &&
+			body < 0 {
+			sig := domain.CandleSignal{
+				Timeframe: tf,
+				Pattern:   domain.PatternFailedBreakout,
+				Strength:  domain.StrengthMedium,
+			}
+			signals = append(signals, adjustStrength(sig, c.Volume, avgVolume))
 		}
-		signals = append(signals, adjustStrength(sig, c.Volume, avgVolume))
 	}
 
 	return signals
@@ -191,11 +207,15 @@ func isUptrend(candles []domain.Candle, lookback int) bool {
 	}
 	start := candles[len(candles)-lookback-1]
 	end := candles[len(candles)-2] // exclude the signal candle itself
-	if end.Close <= start.Close {
+	if start.Close <= 0 {
+		return false
+	}
+	gainPct := (end.Close - start.Close) / start.Close
+	if gainPct < 0.01 {
 		return false
 	}
 	window := candles[len(candles)-lookback-1 : len(candles)-1]
-	return countGreenCandles(window) > lookback/2
+	return countGreenCandles(window) >= lookback*2/3
 }
 
 func countGreenCandles(candles []domain.Candle) int {
@@ -214,9 +234,9 @@ func adjustStrength(sig domain.CandleSignal, volume float64, avgVolume float64) 
 		return sig
 	}
 	ratio := volume / avgVolume
-	if ratio > 2.0 && sig.Strength == domain.StrengthMedium {
+	if ratio > 1.5 && sig.Strength == domain.StrengthMedium {
 		sig.Strength = domain.StrengthStrong
-	} else if ratio < 0.5 && sig.Strength == domain.StrengthStrong {
+	} else if ratio < 0.7 && sig.Strength == domain.StrengthStrong {
 		sig.Strength = domain.StrengthMedium
 	}
 	return sig

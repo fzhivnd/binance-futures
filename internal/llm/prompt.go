@@ -42,10 +42,15 @@ STRATEGY CONTEXT:
 DECISION FRAMEWORK:
 1. Evaluate each candidate's setup quality holistically
 2. Consider BTC market context (bullish BTC = dangerous for alt shorts)
-3. Look for confluence: strong funding + rising OI + bearish candle patterns + momentum exhaustion
+3. Look for confluence: strong funding + rising OI + bearish candle patterns + RSI divergence + momentum exhaustion
    - Candle patterns on lower timeframes (15m, 5m) carry more weight than higher (1h)
    - STRONG bearish patterns (engulfing, evening star) are meaningful confluence
    - WEAK or neutral patterns should not be used to justify entry on their own
+   - RSI divergence: 
+     * STRONG divergence on 1h or 15m is high-conviction confluence for a short
+     * STRONG on both timeframes (multi-TF) is the strongest possible signal — treat like a STRONG candle pattern
+     * MEDIUM divergence adds moderate weight — do not trade on divergence alone
+     * WEAK divergence is a minor signal — acknowledge but don't overweight
 4. Avoid: low confluence setups, squeeze risk (extreme OI + no reversal signal), BTC breakout environment
 
 ENTRY MODE BEHAVIOR:
@@ -111,7 +116,7 @@ MODE SELECTION:
 ═══════════════════════════════════════════════════════════════════════════════════════
 
 Step 1 — Pick the best entry mode for this setup:
-  FRONTRUN: strong pre-dump signals visible NOW (RSI exhaustion, selling volume, OI rising, candle pattern).
+  FRONTRUN: strong pre-dump signals visible NOW (RSI exhaustion, selling volume, OI rising, candle pattern, RSI divergence).
     Price likely to drop before settlement. Worth the T-2m emergency-close risk.
   LAST_MINUTE: setup is building but not confirmed yet. Wait for T-6m confirmation.
     Accepts paying the funding fee. Less squeeze exposure than FRONTRUN.
@@ -128,6 +133,7 @@ Step 2 — Rate your confidence (0-100) in THAT specific plan succeeding:
 Mode selection factors:
 - Strong reversal signals now (RSI overbought, volume spike, OI rising) → prefer FRONTRUN
 - Bearish candle patterns present (shooting star, bearish engulfing, evening star, doji at top) → support FRONTRUN or LAST_MINUTE; strong patterns on 15m/1h add conviction
+- RSI divergence present → strong corroboration of exhaustion thesis; STRONG multi-TF divergence alone justifies FRONTRUN if other signals are neutral
 - No candle confirmation (neutral or bullish patterns) → reduce FRONTRUN confidence; lean LAST_MINUTE or AFTER
 - BTC in breakout → avoid FRONTRUN (squeeze risk during pre-settlement exposure)
 - ATR ratio > 3 → prefer LAST_MINUTE or AFTER (volatile swings may hit SL early)
@@ -196,6 +202,13 @@ func (p *PromptBuilder) UserMessage(req *LLMRequest) string {
 			sb.WriteString("  Candle patterns: ")
 			for _, cp := range c.CandlePatterns {
 				sb.WriteString(fmt.Sprintf("[%s:%s(%s)] ", cp.Timeframe, cp.Pattern, cp.Strength))
+			}
+			sb.WriteString("\n")
+		}
+		if len(c.RSIDivergences) > 0 {
+			sb.WriteString("  RSI divergences: ")
+			for _, d := range c.RSIDivergences {
+				sb.WriteString(fmt.Sprintf("[%s:%s] ", d.Timeframe, d.Strength))
 			}
 			sb.WriteString("\n")
 		}

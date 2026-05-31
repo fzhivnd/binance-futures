@@ -12,7 +12,7 @@ func DefaultScoringConfig() *domain.ScoringConfig {
 		Name:    "default",
 		Version: 1,
 		Weights: domain.ScoringWeights{
-			Funding: 25, OI: 15, BTC: 10, Candle: 20, Volume: 10, ROI: 15, Volatility: 5,
+			Funding: 25, OI: 15, BTC: 10, Candle: 20, Volume: 10, ROI: 15, Volatility: 5, RSIDivergence: 10,
 		},
 		Thresholds: []domain.ScoringThreshold{
 			{Category: "oi", TierOrder: 1, MinValue: minVal(15), Multiplier: 1.00},

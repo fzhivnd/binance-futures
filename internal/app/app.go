@@ -37,30 +37,29 @@ type llmCallState struct {
 	calledAt time.Time
 }
 
-const symbolCooldownDuration = 5 * time.Minute
+const symbolCooldownDuration = 10 * time.Minute
 
 type App struct {
-	cfg            *config.Config
-	engine         *market.MarketEngine
-	scanner        *scanner.FundingScanner
-	executor       execution.Executor
-	execEng        *execution.ExecutionEngine
-	posMgr         *execution.PositionManager
-	sched          *scheduler.Scheduler
-	wsMarkPx       *exchange.WSConnection
-	wsKlines       *exchange.WSConnection
-	wsUserData     *exchange.WSConnection
-	indEngine      *indicator.Engine
-	scorer         *scoring.Scorer
-	riskEngine     *risk.Engine
-	drawdown       *risk.DrawdownTracker
-	llmEngine      *llm.DecisionEngine
-	intentQueue    *intent.Queue
-	lastLLMCall    *llmCallState
-	symbolCooldown map[string]time.Time
-	memoryEngine   *memory.Engine
-	binanceClient  *exchange.BinanceClient
-	// Phase 8
+	cfg             *config.Config
+	engine          *market.MarketEngine
+	scanner         *scanner.FundingScanner
+	executor        execution.Executor
+	execEng         *execution.ExecutionEngine
+	posMgr          *execution.PositionManager
+	sched           *scheduler.Scheduler
+	wsMarkPx        *exchange.WSConnection
+	wsKlines        *exchange.WSConnection
+	wsUserData      *exchange.WSConnection
+	indEngine       *indicator.Engine
+	scorer          *scoring.Scorer
+	riskEngine      *risk.Engine
+	drawdown        *risk.DrawdownTracker
+	llmEngine       *llm.DecisionEngine
+	intentQueue     *intent.Queue
+	lastLLMCall     *llmCallState
+	symbolCooldown  map[string]time.Time
+	memoryEngine    *memory.Engine
+	binanceClient   *exchange.BinanceClient
 	bookTickerCache *market.BookTickerCache
 	afterTrigger    *execution.AfterTrigger
 }

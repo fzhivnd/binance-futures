@@ -311,12 +311,12 @@ func (m *PositionManager) shouldCheckForceSL(pos domain.Position, rawPnlPct floa
 		return false
 	}
 
-	gatePct := m.cfg.Execution.ForceSLPnlGatePct // e.g. -0.5
+	gatePct := m.cfg.Execution.ForceSLPnlGatePct // e.g. -1.5
 	if rawPnlPct >= gatePct {
 		return false // winning or barely negative — no check needed
 	}
 
-	escalatePct := m.cfg.Execution.ForceSLEscalatePnlPct // e.g. -2.0
+	escalatePct := m.cfg.Execution.ForceSLEscalatePnlPct // e.g. -2.5
 	var intervalSec int
 	if rawPnlPct < escalatePct {
 		intervalSec = m.cfg.Execution.ForceSLFastIntervalSec // every 1min when severe
@@ -1111,6 +1111,11 @@ func (m *PositionManager) checkPreSettlementAll(ctx context.Context) {
 	}
 }
 
+func preSettlementThreshold(fundingRate float64) float64 {
+	abs := math.Abs(fundingRate)
+	return math.Abs(0.04 - abs)
+}
+
 // checkPreSettlement fires the T-2m check for a FRONTRUN or LASTMINUTE position.
 func (m *PositionManager) checkPreSettlement(ctx context.Context, pos domain.Position) {
 	if pos.EntryMode != domain.EntryModeFrontrun && pos.EntryMode != domain.EntryModeLastMinute {
@@ -1140,7 +1145,7 @@ func (m *PositionManager) checkPreSettlement(ctx context.Context, pos domain.Pos
 	// raw price move against us (positive = price went up = bad for short)
 	rawMoveAgainst := (currentPrice - pos.EntryPrice) / pos.EntryPrice
 
-	threshold := m.cfg.PreSettlement.EmergencyCloseThreshold * math.Abs(pos.FundingRateAtEntry)
+	threshold := preSettlementThreshold(pos.FundingRateAtEntry)
 
 	if rawMoveAgainst > threshold {
 		// Rule 1: emergency close to avoid paying funding fee on a losing position.

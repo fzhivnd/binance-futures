@@ -63,8 +63,11 @@ func (s *Scorer) Score(c domain.Candidate, ind *domain.IndicatorSnapshot, btc *d
 	// 7. Volatility
 	bd.VolatilityScore = evalThreshold(cfg, "volatility", ind.ATRRatio) * cfg.Weights.Volatility
 
+	// 8. RSI Divergence
+	bd.RSIDivergenceScore = evalRSIDivergence(ind.RSIDivergences) * cfg.Weights.RSIDivergence
+
 	composite := bd.FundingScore + bd.OIScore + bd.BTCScore +
-		bd.CandleScore + bd.VolumeScore + bd.ROIScore + bd.VolatilityScore
+		bd.CandleScore + bd.VolumeScore + bd.ROIScore + bd.VolatilityScore + bd.RSIDivergenceScore
 
 	confidence, sizePct := mapScoreToConfidence(cfg.ConfidenceTiers, composite)
 
@@ -230,6 +233,76 @@ func scoreCandlePatterns(
 	}
 
 	return (normalized + bonus) * maxScore
+}
+
+// evalRSIDivergence resolves the strongest divergence condition across all detected
+// divergences and returns the matching multiplier from thresholds.
+func evalRSIDivergence(divs []domain.RSIDivergence) float64 {
+	condition := rsidivCondition(divs)
+	rsiThreshold := []domain.ScoringThreshold{
+		// RSI divergence scoring tiers
+		{Category: "rsi_divergence", TierOrder: 1, Multiplier: 1.00, Condition: "strong_multitf"},
+		{Category: "rsi_divergence", TierOrder: 2, Multiplier: 0.80, Condition: "strong"},
+		{Category: "rsi_divergence", TierOrder: 3, Multiplier: 0.60, Condition: "strong_multitf"},
+		{Category: "rsi_divergence", TierOrder: 4, Multiplier: 0.40, Condition: "medium"},
+		{Category: "rsi_divergence", TierOrder: 5, Multiplier: 0.20, Condition: "weak"},
+		{Category: "rsi_divergence", TierOrder: 6, Multiplier: 0.00, Condition: "none"},
+	}
+	for _, t := range rsiThreshold {
+		if t.Category == "rsi_divergence" && t.Condition == condition {
+			return t.Multiplier
+		}
+	}
+	return 0
+}
+
+// rsidivCondition maps a set of divergences to the highest-priority condition string.
+func rsidivCondition(divs []domain.RSIDivergence) string {
+	if len(divs) == 0 {
+		return "none"
+	}
+
+	tfCount := make(map[domain.Timeframe]domain.PatternStrength)
+	for _, d := range divs {
+		if cur, ok := tfCount[d.Timeframe]; !ok || strengthRank(d.Strength) > strengthRank(cur) {
+			tfCount[d.Timeframe] = d.Strength
+		}
+	}
+
+	strongCount, mediumCount := 0, 0
+	for _, s := range tfCount {
+		switch s {
+		case domain.StrengthStrong:
+			strongCount++
+		case domain.StrengthMedium:
+			mediumCount++
+		}
+	}
+
+	switch {
+	case strongCount >= 2:
+		return "strong_multitf"
+	case strongCount == 1:
+		return "strong"
+	case mediumCount >= 2:
+		return "medium_multitf"
+	case mediumCount == 1:
+		return "medium"
+	default:
+		return "weak"
+	}
+}
+
+func strengthRank(s domain.PatternStrength) int {
+	switch s {
+	case domain.StrengthStrong:
+		return 3
+	case domain.StrengthMedium:
+		return 2
+	case domain.StrengthWeak:
+		return 1
+	}
+	return 0
 }
 
 func mapScoreToConfidence(tiers []domain.ConfidenceTier, score float64) (string, float64) {
