@@ -151,8 +151,8 @@ func (q *Queries) GetStats(ctx context.Context, isPaper *bool) ([]StatsRow, erro
 			COUNT(*) FILTER (WHERE result = 'WIN') AS win_count,
 			COUNT(*) FILTER (WHERE result = 'LOSS') AS loss_count,
 			ROUND(
-				100.0 * COUNT(*) FILTER (WHERE result IN ('WIN', 'BREAKEVEN')) /
-				NULLIF(COUNT(*) FILTER (WHERE result IN ('WIN','LOSS', 'FORCE_SL', 'BREAKEVEN')), 0),
+				100.0 * COUNT(*) FILTER (WHERE result IN ('WIN', 'BREAKEVEN', 'PARTIAL_WIN')) /
+				NULLIF(COUNT(*) FILTER (WHERE result IN ('WIN','LOSS', 'FORCE_SL', 'BREAKEVEN', 'PARTIAL_WIN')), 0),
 			2) AS win_rate,
 			COALESCE(SUM(pnl), 0) AS total_pnl
 		FROM trades
