@@ -299,7 +299,7 @@ func setDefaults(cfg *Config) {
 		cfg.Risk.MaxDrawdownPct = 10.0
 	}
 	if cfg.Risk.MaxATRRatio == 0 {
-		cfg.Risk.MaxATRRatio = 6.0
+		cfg.Risk.MaxATRRatio = 12.5
 	}
 	if !cfg.Risk.BTCBreakoutReject {
 		cfg.Risk.BTCBreakoutReject = true
@@ -333,7 +333,7 @@ func setDefaults(cfg *Config) {
 
 	// Phase 5: Split TP + force-SL defaults
 	if cfg.Execution.TrailingCallbackRate == 0 {
-		cfg.Execution.TrailingCallbackRate = 1.0
+		cfg.Execution.TrailingCallbackRate = 1.25
 	}
 	if cfg.Execution.TP1SizePct == 0 {
 		cfg.Execution.TP1SizePct = 50

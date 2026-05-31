@@ -103,6 +103,19 @@ func (e *Engine) ActivateKillSwitch(ctx context.Context, reason string) {
 	}
 }
 
+// ActiveSymbols returns a set of symbols that currently have an open position.
+func (e *Engine) ActiveSymbols(ctx context.Context) (map[string]bool, error) {
+	positions, err := e.cache.GetActivePositions(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[string]bool, len(positions))
+	for _, p := range positions {
+		out[p.Symbol] = true
+	}
+	return out, nil
+}
+
 // EvaluateCandidate runs Phase 2 indicator-aware guards.
 func (e *Engine) EvaluateCandidate(ctx context.Context, sc *domain.ScoredCandidate, btc *domain.BTCContext) error {
 	if sc.CompositeScore < e.cfg.MinCompositeScore {

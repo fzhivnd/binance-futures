@@ -19,7 +19,7 @@ funding:
 
 execution:
   slippage_bps: 1
-  trailing_callback_rate: 1.0
+  trailing_callback_rate: 1.25
 
 scheduler:
   scan_interval_early: "1m"
@@ -56,7 +56,7 @@ scoring:
 risk:
   max_daily_losses: 2
   max_drawdown_pct: 10.0
-  max_atr_ratio: 6.0
+  max_atr_ratio: 12.5
   btc_breakout_reject: true
 
 llm:
@@ -68,7 +68,7 @@ llm:
   max_rpm: 20
   top_candidates: 3
   min_confidence: 60
-  frontrun_exec_interval_secs: 300  # execute best FRONTRUN intent every 5m
+  frontrun_exec_interval_secs: 180  # execute best FRONTRUN intent every 5m
   call_cooldown_secs: 300           # skip LLM call if inputs unchanged within this window
 
 telegram:
