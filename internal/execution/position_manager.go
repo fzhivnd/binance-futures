@@ -949,11 +949,7 @@ func (m *PositionManager) handleTrailingSLFill(ctx context.Context, pos *domain.
 	}
 	avgClose := computeAvgClosePrice(*pos, o.AvgPrice)
 	pnl := (pos.EntryPrice - avgClose) * pos.OriginalQty
-	feePaid := float64(0)
-	if pos.FundingFeePaid {
-		feePaid = pos.FundingFeePaidPct * pos.OriginalQty * pos.EntryPrice
-	}
-	pnl -= feePaid
+	pnl = calcFinalPnl(pnl, *pos)
 	pnl = math.Round(pnl*1e8) / 1e8
 	result := "PARTIAL_WIN"
 	if pnl <= 0 {
@@ -972,11 +968,7 @@ func (m *PositionManager) handleHardSLFill(ctx context.Context, pos *domain.Posi
 	if pos.Side == domain.SideBuy {
 		pnl = (o.AvgPrice - pos.EntryPrice) * pos.OriginalQty
 	}
-	feePaid := float64(0)
-	if pos.FundingFeePaid {
-		feePaid = pos.FundingFeePaidPct * pos.OriginalQty * pos.EntryPrice
-	}
-	pnl -= feePaid
+	pnl = calcFinalPnl(pnl, *pos)
 	pnl = math.Round(pnl*1e8) / 1e8
 
 	result := "LOSS"
@@ -1003,6 +995,7 @@ func (m *PositionManager) recordClose(ctx context.Context, pos domain.Position, 
 func (m *PositionManager) persistClose(ctx context.Context, pos domain.Position, avgClose float64, pnl float64, result string, closeReason string) {
 	now := time.Now()
 	id := pos.TradeID
+	pnl = calcFinalPnl(pnl, pos)
 	if id == uuid.Nil {
 		slog.Warn("persistClose: position has no TradeID, result not persisted", "symbol", pos.Symbol)
 	} else {
@@ -1283,4 +1276,14 @@ func mapResultToMemoryOutcome(result string) string {
 	default:
 		return "BREAKEVEN"
 	}
+}
+
+func calcFinalPnl(pnl float64, position domain.Position) float64 {
+	finalPnl := pnl
+	feePaid := float64(0)
+	if position.FundingFeePaid {
+		feePaid = position.FundingFeePaidPct * position.OriginalQty * position.EntryPrice
+	}
+	finalPnl -= feePaid
+	return finalPnl
 }
