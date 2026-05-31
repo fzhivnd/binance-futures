@@ -225,7 +225,7 @@ func setDefaults(cfg *Config) {
 		cfg.Trading.CooldownMinutes = 15
 	}
 	if cfg.Funding.MinRate == 0 {
-		cfg.Funding.MinRate = -0.02
+		cfg.Funding.MinRate = -0.021
 	}
 	if cfg.Funding.MaxRate == 0 {
 		cfg.Funding.MaxRate = -0.002
@@ -328,7 +328,7 @@ func setDefaults(cfg *Config) {
 		cfg.LLM.FrontrunExecIntervalSecs = 300 // 5 minutes
 	}
 	if cfg.LLM.CallCooldownSecs == 0 {
-		cfg.LLM.CallCooldownSecs = 300 // 5 minutes
+		cfg.LLM.CallCooldownSecs = 180 // 3 minutes
 	}
 
 	// Phase 5: Split TP + force-SL defaults

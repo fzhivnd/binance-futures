@@ -13,6 +13,28 @@ import (
 	"futures/internal/scheduler"
 )
 
+func (a *App) setSymbolCooldown(symbol string) {
+	if a.symbolCooldown == nil {
+		a.symbolCooldown = make(map[string]time.Time)
+	}
+	a.symbolCooldown[symbol] = time.Now()
+}
+
+func (a *App) filterCooldownSymbols(candidates []domain.Candidate) []domain.Candidate {
+	if len(a.symbolCooldown) == 0 {
+		return candidates
+	}
+	out := candidates[:0]
+	for _, c := range candidates {
+		if until, ok := a.symbolCooldown[c.Symbol]; ok && time.Since(until) < symbolCooldownDuration {
+			slog.Info("candidate excluded: LLM cooldown", "symbol", c.Symbol, "remaining", (symbolCooldownDuration - time.Since(until)).Round(time.Second))
+			continue
+		}
+		out = append(out, c)
+	}
+	return out
+}
+
 // filterOccupiedSymbols removes candidates whose symbol either has an active
 // position or already has a pending intent in the queue, so the LLM never sees
 // a symbol we are already committed to.
@@ -84,6 +106,12 @@ func (a *App) scanFn(ctx context.Context, window scheduler.WindowType) error {
 	candidates = a.filterOccupiedSymbols(ctx, candidates)
 	if len(candidates) == 0 {
 		slog.Info("no candidates after occupied-symbol filter", "window", window)
+		return nil
+	}
+
+	candidates = a.filterCooldownSymbols(candidates)
+	if len(candidates) == 0 {
+		slog.Info("no candidates after LLM cooldown filter", "window", window)
 		return nil
 	}
 
@@ -168,16 +196,20 @@ func (a *App) scanFn(ctx context.Context, window scheduler.WindowType) error {
 		btcTrend = btc.Trend
 	}
 	cooldown := time.Duration(a.cfg.LLM.CallCooldownSecs) * time.Second
-	if lc := a.lastLLMCall; lc != nil &&
-		lc.window == window &&
-		math.Abs(lc.score-top[0].CompositeScore) < 5 &&
-		lc.btcTrend == btcTrend &&
-		time.Since(lc.calledAt) < cooldown {
-		slog.Info("skipping LLM call: inputs unchanged",
-			"symbol", top[0].Candidate.Symbol,
-			"age", time.Since(lc.calledAt).Round(time.Second),
-		)
-		return nil
+	if lc := a.lastLLMCall; lc != nil {
+		withinCooldown := time.Since(lc.calledAt) < cooldown
+		inputsUnchanged := lc.window == window &&
+			math.Abs(lc.score-top[0].CompositeScore) < 5 &&
+			lc.btcTrend == btcTrend
+		if withinCooldown || inputsUnchanged {
+			slog.Info("skipping LLM call: inputs unchanged or in cooldown",
+				"symbol", top[0].Candidate.Symbol,
+				"age", time.Since(lc.calledAt).Round(time.Second),
+				"within_cooldown", withinCooldown,
+				"inputs_unchanged", inputsUnchanged,
+			)
+			return nil
+		}
 	}
 
 	var similarTrades []domain.SimilarTrade
@@ -211,6 +243,7 @@ func (a *App) scanFn(ctx context.Context, window scheduler.WindowType) error {
 		"symbol", decision.Symbol,
 		"confidence", decision.Confidence,
 	)
+	a.setSymbolCooldown(decision.Symbol)
 	selectedScore := float64(0)
 	for _, t := range top {
 		if decision.Symbol == t.Candidate.Symbol {
