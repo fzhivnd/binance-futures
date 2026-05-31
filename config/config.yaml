@@ -19,7 +19,7 @@ funding:
 
 execution:
   slippage_bps: 1
-  trailing_callback_rate: 1.25
+  trailing_callback_rate: 1.05
 
 scheduler:
   scan_interval_early: "1m"
