@@ -299,7 +299,7 @@ func setDefaults(cfg *Config) {
 		cfg.Risk.MaxDrawdownPct = 10.0
 	}
 	if cfg.Risk.MaxATRRatio == 0 {
-		cfg.Risk.MaxATRRatio = 6.0
+		cfg.Risk.MaxATRRatio = 12.5
 	}
 	if !cfg.Risk.BTCBreakoutReject {
 		cfg.Risk.BTCBreakoutReject = true
