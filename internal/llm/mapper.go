@@ -75,6 +75,13 @@ func MapToLLMRequest(
 			})
 		}
 
+		for _, div := range sc.Indicators.RSIDivergences {
+			c.RSIDivergences = append(c.RSIDivergences, LLMRSIDivergence{
+				Timeframe: string(div.Timeframe),
+				Strength:  string(div.Strength),
+			})
+		}
+
 		req.Candidates = append(req.Candidates, c)
 	}
 

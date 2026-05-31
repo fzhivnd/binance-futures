@@ -77,6 +77,8 @@ func (r *PGScoringConfigRepo) loadWeights(ctx context.Context, cfg *domain.Scori
 			cfg.Weights.ROI = maxPoints
 		case "volatility":
 			cfg.Weights.Volatility = maxPoints
+		case "rsi_divergence":
+			cfg.Weights.RSIDivergence = maxPoints
 		}
 	}
 	return rows.Err()

@@ -16,21 +16,21 @@ type ForceSLRequest struct {
 	BTCContext         LLMBTCContext      `json:"btc_context"`
 
 	// Phase 8: funding fee context
-	FundingRatePct     float64 `json:"funding_rate_pct"`      // original funding rate at entry (e.g. -0.8)
-	FundingFeePaid     bool    `json:"funding_fee_paid"`      // true if held through settlement
-	FundingFeePaidPct  float64 `json:"funding_fee_paid_pct"`  // e.g. 0.8 = 0.8% fee paid
-	EffectiveLossPct   float64 `json:"effective_loss_pct"`    // unrealized PnL + fee paid (true damage)
-	SettlementPassed   bool    `json:"settlement_passed"`     // has funding settlement occurred since entry?
+	FundingRatePct     float64 `json:"funding_rate_pct"`     // original funding rate at entry (e.g. -0.8)
+	FundingFeePaid     bool    `json:"funding_fee_paid"`     // true if held through settlement
+	FundingFeePaidPct  float64 `json:"funding_fee_paid_pct"` // e.g. 0.8 = 0.8% fee paid
+	EffectiveLossPct   float64 `json:"effective_loss_pct"`   // unrealized PnL + fee paid (true damage)
+	SettlementPassed   bool    `json:"settlement_passed"`    // has funding settlement occurred since entry?
 	MinutesSinceSettle int     `json:"minutes_since_settlement"`
-	TPWidened          bool    `json:"tp_widened"`            // whether TP was already widened at T-2m
+	TPWidened          bool    `json:"tp_widened"` // whether TP was already widened at T-2m
 }
 
 type ForceSLPriceAction struct {
-	HighSinceEntry   float64 `json:"high_since_entry_pct"`  // max adverse move (price went up = bad for short)
-	LowSinceEntry    float64 `json:"low_since_entry_pct"`   // max favorable move (price went down = good for short)
-	CurrentTrend5m   string  `json:"current_trend_5m"`      // "up" | "down" | "sideways"
-	MomentumShift    bool    `json:"momentum_shift"`        // reversal forming against us
-	VolumeIncreasing bool    `json:"volume_increasing"`     // buying pressure building
+	HighSinceEntry   float64 `json:"high_since_entry_pct"` // max adverse move (price went up = bad for short)
+	LowSinceEntry    float64 `json:"low_since_entry_pct"`  // max favorable move (price went down = good for short)
+	CurrentTrend5m   string  `json:"current_trend_5m"`     // "up" | "down" | "sideways"
+	MomentumShift    bool    `json:"momentum_shift"`       // reversal forming against us
+	VolumeIncreasing bool    `json:"volume_increasing"`    // buying pressure building
 }
 
 type ForceSLResponse struct {
@@ -64,21 +64,27 @@ type LLMBTCContext struct {
 }
 
 type LLMCandidate struct {
-	Symbol           string          `json:"symbol"`
-	FundingRate      float64         `json:"funding_rate_pct"`
-	DailyROI         float64         `json:"daily_roi_pct"`
-	ProjectedTP1Pct  float64         `json:"projected_tp1_pct"` // base TP + funding fee for pre-settlement entry
-	CompositeScore   float64         `json:"composite_score"`
-	ScoreBreakdown   LLMBreakdown    `json:"score_breakdown"`
-	RSI14_15m        float64         `json:"rsi_14_15m"`
-	RSI7_5m          float64         `json:"rsi_7_5m"`
-	OIDelta1h        float64         `json:"oi_delta_1h_pct"`
-	OIDelta15m       float64         `json:"oi_delta_15m_pct"`
-	ATRRatio         float64         `json:"atr_ratio"`
-	VolChange5m      float64         `json:"vol_change_5m_pct"`
-	VolumeSpikeFlag  bool            `json:"volume_spike"`
-	MomentumLoss     bool            `json:"momentum_loss"`
-	CandlePatterns   []LLMCandleInfo `json:"candle_patterns"`
+	Symbol          string             `json:"symbol"`
+	FundingRate     float64            `json:"funding_rate_pct"`
+	DailyROI        float64            `json:"daily_roi_pct"`
+	ProjectedTP1Pct float64            `json:"projected_tp1_pct"`
+	CompositeScore  float64            `json:"composite_score"`
+	ScoreBreakdown  LLMBreakdown       `json:"score_breakdown"`
+	RSI14_15m       float64            `json:"rsi_14_15m"`
+	RSI7_5m         float64            `json:"rsi_7_5m"`
+	OIDelta1h       float64            `json:"oi_delta_1h_pct"`
+	OIDelta15m      float64            `json:"oi_delta_15m_pct"`
+	ATRRatio        float64            `json:"atr_ratio"`
+	VolChange5m     float64            `json:"vol_change_5m_pct"`
+	VolumeSpikeFlag bool               `json:"volume_spike"`
+	MomentumLoss    bool               `json:"momentum_loss"`
+	CandlePatterns  []LLMCandleInfo    `json:"candle_patterns"`
+	RSIDivergences  []LLMRSIDivergence `json:"rsi_divergences,omitempty"`
+}
+
+type LLMRSIDivergence struct {
+	Timeframe string `json:"timeframe"`
+	Strength  string `json:"strength"`
 }
 
 type LLMBreakdown struct {

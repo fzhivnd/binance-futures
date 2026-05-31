@@ -2,6 +2,11 @@ package domain
 
 import "time"
 
+type RSIDivergence struct {
+	Timeframe Timeframe
+	Strength  PatternStrength
+}
+
 type CandlePattern string
 
 const (
@@ -48,7 +53,8 @@ type IndicatorSnapshot struct {
 	VolChange5m float64
 	VolumeSpike bool
 
-	Patterns []CandleSignal
+	Patterns       []CandleSignal
+	RSIDivergences []RSIDivergence
 
 	MomentumLoss bool
 }

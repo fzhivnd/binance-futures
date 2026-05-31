@@ -12,13 +12,14 @@ type ScoringConfig struct {
 }
 
 type ScoringWeights struct {
-	Funding    float64
-	OI         float64
-	BTC        float64
-	Candle     float64
-	Volume     float64
-	ROI        float64
-	Volatility float64
+	Funding       float64
+	OI            float64
+	BTC           float64
+	Candle        float64
+	Volume        float64
+	ROI           float64
+	Volatility    float64
+	RSIDivergence float64
 }
 
 type ScoringThreshold struct {

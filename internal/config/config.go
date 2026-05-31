@@ -342,16 +342,16 @@ func setDefaults(cfg *Config) {
 		cfg.Execution.ForceSLStartMin = 5
 	}
 	if cfg.Execution.ForceSLPnlGatePct == 0 {
-		cfg.Execution.ForceSLPnlGatePct = -0.5
+		cfg.Execution.ForceSLPnlGatePct = -1.5
 	}
 	if cfg.Execution.ForceSLEscalatePnlPct == 0 {
-		cfg.Execution.ForceSLEscalatePnlPct = -2.0
+		cfg.Execution.ForceSLEscalatePnlPct = -2.5
 	}
 	if cfg.Execution.ForceSLSlowIntervalSec == 0 {
 		cfg.Execution.ForceSLSlowIntervalSec = 300
 	}
 	if cfg.Execution.ForceSLFastIntervalSec == 0 {
-		cfg.Execution.ForceSLFastIntervalSec = 60
+		cfg.Execution.ForceSLFastIntervalSec = 90
 	}
 	if cfg.Execution.ForceSLTimeoutSec == 0 {
 		cfg.Execution.ForceSLTimeoutSec = 20

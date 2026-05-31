@@ -20,6 +20,10 @@ funding:
 execution:
   slippage_bps: 1
   trailing_callback_rate: 1.05
+  force_sl_pnl_gate_pct: -1.5
+  force_sl_escalate_pnl_pct: -2.5
+  force_sl_slow_interval_sec: 300
+  force_sl_fast_interval_sec: 90
 
 scheduler:
   scan_interval_early: "1m"

@@ -39,6 +39,14 @@ func BuildFeatureText(
 		sb.WriteString("\n")
 	}
 
+	if len(snap.RSIDivergences) > 0 {
+		sb.WriteString("rsi_divergences: ")
+		for _, d := range snap.RSIDivergences {
+			sb.WriteString(fmt.Sprintf("%s:%s ", d.Timeframe, d.Strength))
+		}
+		sb.WriteString("\n")
+	}
+
 	if btc != nil {
 		sb.WriteString(fmt.Sprintf("btc_trend: %s | btc_momentum: %d | btc_rsi: %.1f | btc_breakout: %v | btc_change_1h: %+.2f%%\n",
 			btc.Trend, btc.MomentumScore, btc.RSI14_1h, btc.IsBreakout, btc.PriceChange1h))

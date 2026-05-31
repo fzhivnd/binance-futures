@@ -11,11 +11,12 @@ type ScoredCandidate struct {
 }
 
 type ScoreBreakdown struct {
-	FundingScore    float64
-	OIScore         float64
-	BTCScore        float64
-	CandleScore     float64
-	VolumeScore     float64
-	ROIScore        float64
-	VolatilityScore float64
+	FundingScore       float64
+	OIScore            float64
+	BTCScore           float64
+	CandleScore        float64
+	VolumeScore        float64
+	ROIScore           float64
+	VolatilityScore    float64
+	RSIDivergenceScore float64
 }

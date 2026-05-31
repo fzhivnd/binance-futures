@@ -90,6 +90,18 @@ func (e *Engine) Compute(_ context.Context, symbol string) (*domain.IndicatorSna
 	// MomentumLoss: RSI on both timeframes declining + OI flat/down
 	snap.MomentumLoss = snap.RSI14_15m < 50 && snap.RSI7_5m < 50 && snap.OIDelta1h <= 0
 
+	// RSI divergence on 1h and 15m (need rsiPeriod+lookback closed candles)
+	for _, tf := range []domain.Timeframe{domain.Timeframe1h, domain.Timeframe15m} {
+		limit := 14 + 22 // period + lookback + forming candle + buffer
+		raw := e.market.GetCandles(symbol, tf, limit)
+		if len(raw) > 1 {
+			closed := raw[:len(raw)-1]
+			if div := DetectRSIDivergence(closed, tf); div != nil {
+				snap.RSIDivergences = append(snap.RSIDivergences, *div)
+			}
+		}
+	}
+
 	return snap, nil
 }
 

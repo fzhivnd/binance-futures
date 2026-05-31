@@ -75,6 +75,7 @@ func (e *DecisionEngine) Evaluate(
 			"volume_spike", c.VolumeSpikeFlag,
 			"momentum_loss", c.MomentumLoss,
 			"candle_patterns", c.CandlePatterns,
+			"rsi_divergence", c.RSIDivergences,
 		)
 	}
 
