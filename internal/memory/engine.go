@@ -304,7 +304,7 @@ func (e *Engine) ValidateSkips(ctx context.Context, checkPrice func(symbol strin
 		}
 
 		mem.Outcome = outcome
-		mem.ProfitPct = profitPct
+		mem.ProfitPct = profitPct * 20
 		lesson, _ := e.summarizer.Summarize(ctx, &mem)
 		if lesson != "" {
 			_ = e.repo.UpdateLesson(ctx, mem.ID, lesson)
