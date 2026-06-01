@@ -414,9 +414,11 @@
 
   // ---- Helpers ----
   function fmtTs(ts) {
-    if (!ts) return '—';
-    const d = new Date(ts);
-    return d.toLocaleDateString() + ' ' + d.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
+      if (!ts) return '—';
+      return new Date(ts)
+          .toISOString()
+          .slice(0, 16)
+          .replace('T', ' ') + ' UTC';
   }
 
   function fmt8(v) {
