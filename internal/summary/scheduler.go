@@ -24,7 +24,7 @@ func NewDailyScheduler(service *Service, onComplete func(context.Context, *domai
 func (d *DailyScheduler) Run(ctx context.Context) {
 	for {
 		now := time.Now().UTC()
-		nextMidnight := now.Truncate(24 * time.Hour).Add(24 * time.Hour)
+		nextMidnight := now.Truncate(24 * time.Hour).Add(24 * time.Hour).Add(1 * time.Hour)
 		delay := nextMidnight.Sub(now)
 
 		select {
@@ -34,7 +34,7 @@ func (d *DailyScheduler) Run(ctx context.Context) {
 		}
 
 		// Generate summary for the day that just ended.
-		yesterday := time.Now().UTC().Add(-1 * time.Second).Truncate(24 * time.Hour)
+		yesterday := time.Now().UTC().Truncate(24 * time.Hour).Add(-24 * time.Hour)
 		sum, err := d.service.GenerateAndStore(ctx, yesterday)
 		if err != nil {
 			slog.Error("daily summary generation failed", "date", yesterday, "error", err)
