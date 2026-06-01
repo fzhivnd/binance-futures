@@ -70,7 +70,7 @@ func (a *App) scanFn(ctx context.Context, window scheduler.WindowType) error {
 	// AFTER-mode intent queued from the pre-settlement evaluation — the queue tick
 	// fires it without needing another LLM call.
 	if window == scheduler.WindowAfter && a.intentQueue.HasAfterIntent() {
-		slog.Debug("after window: intent already queued, skipping scan")
+		slog.Info("after window: intent already queued, skipping scan")
 		return nil
 	}
 
@@ -113,6 +113,18 @@ func (a *App) scanFn(ctx context.Context, window scheduler.WindowType) error {
 	if len(candidates) == 0 {
 		slog.Info("no candidates after LLM cooldown filter", "window", window)
 		return nil
+	}
+
+	// Skip LLM call during the first 3 minutes of the frontrun window (T-30m to
+	// T-27m) to allow candle backfill to finish processing.
+	if window == scheduler.WindowFrontrun {
+		next := scheduler.NextFundingTime(time.Now().UTC())
+		if timeUntilFunding := time.Until(next); timeUntilFunding > 29*time.Minute {
+			slog.Info("frontrun early gate: skipping LLM call until T-29m",
+				"time_until_funding", timeUntilFunding.Round(time.Second),
+			)
+			return nil
+		}
 	}
 
 	btc, err := a.indEngine.ComputeBTCContext(ctx)
