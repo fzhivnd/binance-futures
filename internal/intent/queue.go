@@ -31,7 +31,7 @@ type Queue struct {
 	frontrunInterval   time.Duration
 	frontrunFireWindow time.Duration // max time-until-funding at which FRONTRUN may fire
 	lastFrontrunExec   time.Time
-	firedInWindow      map[scheduler.WindowType]bool // one fire allowed per window type per cycle
+	firedInWindow      map[scheduler.WindowType]int // one fire allowed per window type per cycle
 }
 
 func NewQueue(execFn ExecuteFn, frontrunInterval time.Duration, frontrunFireMinutes int) *Queue {
@@ -39,7 +39,7 @@ func NewQueue(execFn ExecuteFn, frontrunInterval time.Duration, frontrunFireMinu
 		execFn:             execFn,
 		frontrunInterval:   frontrunInterval,
 		frontrunFireWindow: time.Duration(frontrunFireMinutes) * time.Minute,
-		firedInWindow:      make(map[scheduler.WindowType]bool),
+		firedInWindow:      make(map[scheduler.WindowType]int),
 	}
 }
 
@@ -95,7 +95,7 @@ func (q *Queue) Tick(ctx context.Context, currentWindow scheduler.WindowType, ti
 // but only once timeUntilFunding ≤ frontrunFireWindow (e.g. T-20m).
 // Must be called with q.mu held.
 func (q *Queue) tickFrontrunLocked(ctx context.Context, timeUntilFunding time.Duration) {
-	if q.firedInWindow[scheduler.WindowFrontrun] {
+	if q.firedInWindow[scheduler.WindowFrontrun] >= 2 {
 		return
 	}
 	if timeUntilFunding > q.frontrunFireWindow {
@@ -132,7 +132,7 @@ func (q *Queue) tickFrontrunLocked(ctx context.Context, timeUntilFunding time.Du
 			slog.Info("intent skipped (FRONTRUN), window not marked fired", "symbol", intent.Symbol)
 			continue
 		} else {
-			q.firedInWindow[scheduler.WindowFrontrun] = true
+			q.firedInWindow[scheduler.WindowFrontrun] += 1
 			if err != nil {
 				slog.Error("intent execution failed", "symbol", intent.Symbol, "window", scheduler.WindowFrontrun, "latency_ms", latencyMs, "error", err)
 			} else {
@@ -150,7 +150,7 @@ func (q *Queue) ClaimAfterIntent() *TradeIntent {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 
-	if q.firedInWindow[scheduler.WindowAfter] {
+	if q.firedInWindow[scheduler.WindowAfter] >= 1 {
 		return nil
 	}
 	intents := q.bestEligibleLocked(scheduler.WindowAfter)
@@ -160,7 +160,7 @@ func (q *Queue) ClaimAfterIntent() *TradeIntent {
 	intent := intents[0]
 	intent.Status = IntentFired
 	q.removeByIndexLocked(intent)
-	q.firedInWindow[scheduler.WindowAfter] = true
+	q.firedInWindow[scheduler.WindowAfter] += 1
 	return intent
 }
 
@@ -168,7 +168,7 @@ func (q *Queue) ClaimAfterIntent() *TradeIntent {
 func (q *Queue) PeekAfterSymbol() (string, bool) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
-	if q.firedInWindow[scheduler.WindowAfter] {
+	if q.firedInWindow[scheduler.WindowAfter] >= 1 {
 		return "", false
 	}
 	intents := q.bestEligibleLocked(scheduler.WindowAfter)
@@ -182,7 +182,7 @@ func (q *Queue) PeekAfterSymbol() (string, bool) {
 func (q *Queue) HasAfterIntent() bool {
 	q.mu.Lock()
 	defer q.mu.Unlock()
-	if q.firedInWindow[scheduler.WindowAfter] {
+	if q.firedInWindow[scheduler.WindowAfter] >= 1 {
 		return false
 	}
 	return len(q.bestEligibleLocked(scheduler.WindowAfter)) != 0
@@ -191,9 +191,15 @@ func (q *Queue) HasAfterIntent() bool {
 // tickTransitionLocked fires the best eligible intent exactly once per window type per funding cycle.
 // Must be called with q.mu held.
 func (q *Queue) tickTransitionLocked(ctx context.Context, currentWindow scheduler.WindowType) {
-	if q.firedInWindow[currentWindow] {
+	limit := 2
+	if currentWindow == scheduler.WindowAfter {
+		limit = 1
+	}
+
+	if q.firedInWindow[currentWindow] >= limit {
 		return
 	}
+
 	intents := q.bestEligibleLocked(currentWindow)
 	if intents == nil || len(intents) == 0 {
 		return
@@ -220,7 +226,7 @@ func (q *Queue) tickTransitionLocked(ctx context.Context, currentWindow schedule
 			slog.Info("intent skipped, window not marked fired", "symbol", intent.Symbol, "window", currentWindow)
 			continue
 		} else {
-			q.firedInWindow[currentWindow] = true
+			q.firedInWindow[currentWindow] += 1
 			if err != nil {
 				slog.Error("intent execution failed", "symbol", intent.Symbol, "window", currentWindow, "latency_ms", latencyMs, "error", err)
 			} else {
@@ -340,7 +346,7 @@ func (q *Queue) ClearAfterSettlement() {
 	}
 	q.intents = q.intents[:0]
 	q.lastFrontrunExec = time.Time{}
-	q.firedInWindow = make(map[scheduler.WindowType]bool)
+	q.firedInWindow = make(map[scheduler.WindowType]int)
 }
 
 // windowReady returns true when the current window is at or past the target entry mode.

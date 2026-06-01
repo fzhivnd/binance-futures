@@ -76,6 +76,7 @@ func (e *DecisionEngine) Evaluate(
 			"momentum_loss", c.MomentumLoss,
 			"candle_patterns", c.CandlePatterns,
 			"rsi_divergence", c.RSIDivergences,
+			"similar_trades", req.SimilarTrades,
 		)
 	}
 

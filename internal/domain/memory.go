@@ -58,9 +58,11 @@ type TradeMemory struct {
 
 // SimilarTrade is the compact form injected into LLM prompts.
 type SimilarTrade struct {
-	Outcome    string
-	ProfitPct  float64
-	Similarity float64
-	Lesson     string
-	DaysAgo    int
+	Outcome     string
+	ProfitPct   float64
+	Similarity  float64
+	Lesson      string
+	DaysAgo     int
+	EntryMode   string
+	FundingRate float64 // funding rate at decision time (e.g. -0.8)
 }

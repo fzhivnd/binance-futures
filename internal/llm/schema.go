@@ -47,11 +47,13 @@ type LLMRequest struct {
 }
 
 type LLMSimilarTrade struct {
-	Outcome    string  `json:"outcome"`
-	ProfitPct  float64 `json:"profit_pct"`
-	Similarity float64 `json:"similarity"`
-	Lesson     string  `json:"lesson"`
-	DaysAgo    int     `json:"days_ago"`
+	Outcome     string  `json:"outcome"`
+	ProfitPct   float64 `json:"profit_pct"`
+	Similarity  float64 `json:"similarity"`
+	Lesson      string  `json:"lesson"`
+	DaysAgo     int     `json:"days_ago"`
+	EntryMode   string  `json:"entry_mode,omitempty"`
+	FundingRate float64 `json:"funding_rate_pct,omitempty"`
 }
 
 type LLMBTCContext struct {

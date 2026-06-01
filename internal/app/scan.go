@@ -234,7 +234,7 @@ func (a *App) scanFn(ctx context.Context, window scheduler.WindowType) error {
 		topSnap := top[0].Indicators
 		similar, serr := a.memoryEngine.RetrieveSimilar(ctx,
 			topSnap, btc, &top[0].Candidate,
-			top[0].CompositeScore, "", minsToSettle,
+			top[0].CompositeScore, string(window), minsToSettle,
 		)
 		if serr != nil {
 			slog.Warn("memory retrieval failed, proceeding without", "error", serr)
