@@ -155,7 +155,7 @@ func FormatFundingEvent(e FundingEvent) string {
 	return fmt.Sprintf(
 		"*FUNDING SETTLEMENT*\n\n"+
 			"Symbol: `%s`\n"+
-			"Funding Rate: `%.1f%%`\n"+
+			"Funding Rate: `%.4f%%`\n"+
 			"Fee Paid: `%.4f USDT`",
 		escapeMarkdownV2(e.Symbol),
 		e.FundingRate, e.FeePaid)
