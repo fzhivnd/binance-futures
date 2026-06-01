@@ -293,18 +293,19 @@ func (e *Engine) ValidateSkips(ctx context.Context, checkPrice func(symbol strin
 	for _, mem := range pending {
 		slog.Info("skip validation", "symbol", mem.Symbol, "createdAt", mem.CreatedAt)
 		outcome, profitPct, err := checkPrice(mem.Symbol, mem.CreatedAt)
+		tradeROI := profitPct * 20
 		if err != nil {
 			slog.Warn("skip validation price check failed", "symbol", mem.Symbol, "error", err)
 			continue
 		}
 
-		if err := e.repo.UpdateOutcome(ctx, mem.ID, outcome, profitPct, 0); err != nil {
+		if err := e.repo.UpdateOutcome(ctx, mem.ID, outcome, tradeROI, 0); err != nil {
 			slog.Error("failed to update skip outcome", "id", mem.ID, "error", err)
 			continue
 		}
 
 		mem.Outcome = outcome
-		mem.ProfitPct = profitPct * 20
+		mem.ProfitPct = tradeROI
 		lesson, _ := e.summarizer.Summarize(ctx, &mem)
 		if lesson != "" {
 			_ = e.repo.UpdateLesson(ctx, mem.ID, lesson)

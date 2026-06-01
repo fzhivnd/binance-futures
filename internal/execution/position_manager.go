@@ -933,11 +933,6 @@ func (m *PositionManager) handleTrailingFill(ctx context.Context, pos *domain.Po
 	}
 	avgClose := computeAvgClosePrice(*pos, o.AvgPrice)
 	pnl := (pos.EntryPrice - avgClose) * pos.OriginalQty
-	feePaid := float64(0)
-	if pos.FundingFeePaid {
-		feePaid = pos.FundingFeePaidPct * pos.OriginalQty * pos.EntryPrice
-	}
-	pnl -= feePaid
 	pnl = math.Round(pnl*1e8) / 1e8
 	m.persistClose(ctx, *pos, avgClose, pnl, "WIN", "TP_TRAIL")
 }
@@ -949,7 +944,6 @@ func (m *PositionManager) handleTrailingSLFill(ctx context.Context, pos *domain.
 	}
 	avgClose := computeAvgClosePrice(*pos, o.AvgPrice)
 	pnl := (pos.EntryPrice - avgClose) * pos.OriginalQty
-	pnl = calcFinalPnl(pnl, *pos)
 	pnl = math.Round(pnl*1e8) / 1e8
 	result := "PARTIAL_WIN"
 	if pnl <= 0 {
@@ -968,7 +962,6 @@ func (m *PositionManager) handleHardSLFill(ctx context.Context, pos *domain.Posi
 	if pos.Side == domain.SideBuy {
 		pnl = (o.AvgPrice - pos.EntryPrice) * pos.OriginalQty
 	}
-	pnl = calcFinalPnl(pnl, *pos)
 	pnl = math.Round(pnl*1e8) / 1e8
 
 	result := "LOSS"

@@ -115,12 +115,13 @@ func (a *App) scanFn(ctx context.Context, window scheduler.WindowType) error {
 		return nil
 	}
 
-	// Skip LLM call during the first 3 minutes of the frontrun window (T-30m to
-	// T-27m) to allow candle backfill to finish processing.
+	// Skip LLM call during the first 10 minutes of the frontrun window (T-30m to
+	// T-20m) to allow candle backfill to finish processing.
+
 	if window == scheduler.WindowFrontrun {
 		next := scheduler.NextFundingTime(time.Now().UTC())
-		if timeUntilFunding := time.Until(next); timeUntilFunding > 29*time.Minute {
-			slog.Info("frontrun early gate: skipping LLM call until T-29m",
+		if timeUntilFunding := time.Until(next); timeUntilFunding > 20*time.Minute {
+			slog.Info("frontrun early gate: skipping LLM call until T-20m",
 				"time_until_funding", timeUntilFunding.Round(time.Second),
 			)
 			return nil
@@ -168,35 +169,6 @@ func (a *App) scanFn(ctx context.Context, window scheduler.WindowType) error {
 		return scored[i].CompositeScore > scored[j].CompositeScore
 	})
 
-	if !a.cfg.LLM.Enabled || a.llmEngine == nil {
-		best := scored[0]
-
-		slog.Info("top scored candidate",
-			"symbol", best.Candidate.Symbol,
-			"score", best.CompositeScore,
-			"confidence", best.Confidence,
-			"funding", best.Candidate.FundingRate,
-		)
-
-		if window == scheduler.WindowLastMinute {
-			rate := best.Candidate.FundingRate
-			if rate < -0.01 || rate > -0.002 {
-				slog.Info("last-minute window: funding rate outside allowed range, skipping",
-					"symbol", best.Candidate.Symbol,
-					"funding", rate,
-					"allowed", "-0.2% to -1%",
-				)
-				return nil
-			}
-		}
-
-		if err := a.riskEngine.EvaluateCandidate(ctx, best, btc); err != nil {
-			slog.Info("candidate rejected by risk engine", "symbol", best.Candidate.Symbol, "reason", err)
-			return nil
-		}
-		return a.execEng.ExecuteScored(ctx, best, window)
-	}
-
 	topN := a.cfg.LLM.TopCandidates
 	if topN > len(scored) {
 		topN = len(scored)
@@ -211,7 +183,7 @@ func (a *App) scanFn(ctx context.Context, window scheduler.WindowType) error {
 	if lc := a.lastLLMCall; lc != nil {
 		withinCooldown := time.Since(lc.calledAt) < cooldown
 		inputsUnchanged := lc.window == window &&
-			math.Abs(lc.score-top[0].CompositeScore) < 5 &&
+			math.Abs(lc.score-top[0].CompositeScore) < 2.5 &&
 			lc.btcTrend == btcTrend
 		if withinCooldown || inputsUnchanged {
 			slog.Info("skipping LLM call: inputs unchanged or in cooldown",
