@@ -216,26 +216,60 @@ func (p *PromptBuilder) UserMessage(req *LLMRequest) string {
 	}
 
 	if len(req.SimilarTrades) > 0 {
-		sb.WriteString("=== SIMILAR PAST TRADES ===\n")
-		sb.WriteString("Historical setups with similar conditions:\n\n")
+		sb.WriteString("=== SIMILAR PAST TRADES (memory-enhanced context) ===\n")
+		sb.WriteString("These are historical setups that most closely match the current candidates.\n")
+		sb.WriteString("Use them to calibrate confidence — recent losses/force-closes are strong signals to SKIP or reduce confidence.\n\n")
 
 		winCount := 0
+		lossCount := 0
+		forceSLCount := 0
 		for i, t := range req.SimilarTrades {
-			if t.Outcome == "WIN" || t.Outcome == "PARTIAL_WIN" {
+			switch t.Outcome {
+			case "WIN", "PARTIAL_WIN":
 				winCount++
+			case "LOSS":
+				lossCount++
+			case "FORCE_SL":
+				forceSLCount++
 			}
-			sb.WriteString(fmt.Sprintf("[%d] %.0f%% similar | %s %.2f%% | %dd ago\n",
-				i+1, t.Similarity*100, t.Outcome, t.ProfitPct, t.DaysAgo))
+
+			entryModeStr := ""
+			if t.EntryMode != "" {
+				entryModeStr = fmt.Sprintf(" | entry=%s", t.EntryMode)
+			}
+			fundingStr := ""
+			if t.FundingRate != 0 {
+				fundingStr = fmt.Sprintf(" | funding=%.2f%%", t.FundingRate)
+			}
+			profitSign := "+"
+			if t.ProfitPct < 0 {
+				profitSign = ""
+			}
+			sb.WriteString(fmt.Sprintf("[%d] %.0f%% match | %s | P&L: %s%.2f%%%s%s | %dd ago\n",
+				i+1, t.Similarity*100, t.Outcome, profitSign, t.ProfitPct, entryModeStr, fundingStr, t.DaysAgo))
 			if t.Lesson != "" {
-				sb.WriteString(fmt.Sprintf("    Lesson: \"%s\"\n", t.Lesson))
+				sb.WriteString(fmt.Sprintf("    → Lesson: %s\n", t.Lesson))
 			}
 		}
+
 		total := len(req.SimilarTrades)
-		sb.WriteString(fmt.Sprintf("\nWin rate of similar setups: %.0f%% (%d/%d)\n\n",
-			float64(winCount)/float64(total)*100, winCount, total))
+		sb.WriteString(fmt.Sprintf("\nSummary: %d/%d profitable", winCount, total))
+		if lossCount > 0 {
+			sb.WriteString(fmt.Sprintf(", %d hard stop-loss", lossCount))
+		}
+		if forceSLCount > 0 {
+			sb.WriteString(fmt.Sprintf(", %d force-closed early", forceSLCount))
+		}
+		sb.WriteString("\n")
+		if lossCount+forceSLCount >= 2 {
+			sb.WriteString("WARNING: Multiple similar setups ended in loss/force-close — apply strong skepticism.\n")
+		} else if winCount == total && total >= 2 {
+			sb.WriteString("NOTE: All similar setups were profitable — supports taking this trade if confluence is present.\n")
+		}
+		sb.WriteString("\n")
 	} else {
 		sb.WriteString("=== SIMILAR PAST TRADES ===\n")
-		sb.WriteString("No similar past trades found (new setup pattern).\n\n")
+		sb.WriteString("No similar past trades found — this is a novel setup pattern. Decide purely on current data.\n\n")
 	}
 
 	sb.WriteString("Evaluate these candidates and provide your trade decision.")

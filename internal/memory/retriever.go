@@ -52,11 +52,13 @@ func (r *Retriever) FindSimilar(
 		daysAgo := int(now.Sub(res.Memory.CreatedAt).Hours() / 24)
 
 		similar = append(similar, domain.SimilarTrade{
-			Outcome:    res.Memory.Outcome,
-			ProfitPct:  res.Memory.ProfitPct,
-			Similarity: res.Similarity,
-			Lesson:     res.Memory.Lesson,
-			DaysAgo:    daysAgo,
+			Outcome:     res.Memory.Outcome,
+			ProfitPct:   res.Memory.ProfitPct,
+			Similarity:  res.Similarity,
+			Lesson:      res.Memory.Lesson,
+			DaysAgo:     daysAgo,
+			EntryMode:   res.Memory.EntryMode,
+			FundingRate: res.Memory.FundingRate,
 		})
 	}
 

@@ -319,7 +319,7 @@ func setDefaults(cfg *Config) {
 		cfg.LLM.MaxRPM = 30
 	}
 	if cfg.LLM.TopCandidates == 0 {
-		cfg.LLM.TopCandidates = 5
+		cfg.LLM.TopCandidates = 3
 	}
 	if cfg.LLM.MinConfidence == 0 {
 		cfg.LLM.MinConfidence = 60
@@ -404,7 +404,7 @@ func setDefaults(cfg *Config) {
 		cfg.Memory.EmbeddingDimensions = 1536
 	}
 	if cfg.Memory.TopSimilar == 0 {
-		cfg.Memory.TopSimilar = 5
+		cfg.Memory.TopSimilar = 3
 	}
 	if cfg.Memory.MinSimilarity == 0 {
 		cfg.Memory.MinSimilarity = 0.75

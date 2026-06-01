@@ -72,10 +72,10 @@ func (e *Engine) Compute(_ context.Context, symbol string) (*domain.IndicatorSna
 	// +1 on each to account for the still-forming candle that gets stripped before DetectPatterns.
 	// Minimums: 1h needs 5 closed (lookback 4+1), 30m needs 6, 15m needs 10, 5m needs 14.
 	tfFetchCounts := map[domain.Timeframe]int{
-		domain.Timeframe1h:  21,
-		domain.Timeframe30m: 16,
-		domain.Timeframe15m: 41,
-		domain.Timeframe5m:  21,
+		domain.Timeframe1h:  80,
+		domain.Timeframe30m: 80,
+		domain.Timeframe15m: 80,
+		domain.Timeframe5m:  80,
 	}
 	for _, tf := range []domain.Timeframe{domain.Timeframe1h, domain.Timeframe30m, domain.Timeframe15m, domain.Timeframe5m} {
 		candles := e.market.GetCandles(symbol, tf, tfFetchCounts[tf])

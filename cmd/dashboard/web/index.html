@@ -147,7 +147,7 @@
           <th>Time</th><th>Symbol</th><th>Side</th><th>Mode</th>
           <th>Lev</th><th>Conf</th><th>LLM</th>
           <th>Funding</th><th>24h Chg</th><th>ROI%</th>
-          <th>Entry</th><th>Size (USDT)</th><th>Exit</th><th>PnL</th>
+          <th>Entry</th><th>Margin (USDT)</th><th>Exit</th><th>PnL</th>
           <th>Result</th><th>Close</th><th>Type</th>
         </tr>
       </thead>
@@ -347,7 +347,11 @@
         const pnl     = t.PnL != null ? parseFloat(t.PnL) : null;
         const pnlStr  = pnl != null ? (pnl >= 0 ? '+' : '') + pnl.toFixed(4) : '—';
         const pnlCls  = pnl == null ? 'zero' : pnl > 0 ? 'pos' : pnl < 0 ? 'neg' : 'zero';
-        const notional = t.Quantity && t.EntryPrice ? (parseFloat(t.Quantity) * parseFloat(t.EntryPrice)).toFixed(2) : '—';
+        var lev = 1;
+        if (t.Leverage && t.Leverage != 0) {
+            lev = t.Leverage;
+        }
+        const notional = t.Quantity && t.EntryPrice  && t.Leverage ? (parseFloat(t.Quantity) * parseFloat(t.EntryPrice) / parseFloat(lev)).toFixed(2) : '—';
         return `<tr>
           <td>${fmtTs(t.CreatedAt)}</td>
           <td><strong>${t.Symbol}</strong></td>

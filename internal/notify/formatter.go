@@ -28,7 +28,7 @@ func FormatTradeOpened(e TradeOpenedEvent) string {
 	return fmt.Sprintf(
 		"*SHORT OPENED* \\[%s\\]\n\n"+
 			"Symbol: `%s`\n"+
-			"Entry: `$%s` \\| Size: `$%.2f`\n"+
+			"Entry: `$%s` \\| Margin: `$%.2f`\n"+
 			"Leverage: `%dx`\n"+
 			"SL: `$%s` \\| TP: `$%s`\n"+
 			"Mode: `%s` \\| Confidence: `%d`\n"+
@@ -37,7 +37,7 @@ func FormatTradeOpened(e TradeOpenedEvent) string {
 		escapeMarkdownV2(e.Symbol),
 		escapeMarkdownV2(e.Symbol),
 		escapeMarkdownV2(fmt.Sprintf("%.8g", e.EntryPrice)),
-		e.Quantity*e.EntryPrice,
+		e.Quantity*e.EntryPrice/float64(e.Leverage),
 		e.Leverage,
 		escapeMarkdownV2(fmt.Sprintf("%.8g", e.StopLoss)),
 		escapeMarkdownV2(fmt.Sprintf("%.8g", e.TakeProfit)),
