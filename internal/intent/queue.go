@@ -104,12 +104,13 @@ func (q *Queue) tickFrontrunLocked(ctx context.Context, timeUntilFunding time.Du
 	//if time.Since(q.lastFrontrunExec) < q.frontrunInterval {
 	//	return
 	//}
-	for index, _ := range q.intents {
-		slog.Info("check intent", "index", index)
-		intent := q.bestEligibleLocked(scheduler.WindowFrontrun)
-		if intent == nil {
-			return
-		}
+	intents := q.bestEligibleLocked(scheduler.WindowFrontrun)
+	if intents == nil || len(intents) == 0 {
+		return
+	}
+
+	for index, intent := range intents {
+		slog.Info("check intent", "index", index, "symbol", intent.Symbol)
 
 		intent.Status = IntentFired
 		q.removeByIndexLocked(intent)
@@ -152,10 +153,11 @@ func (q *Queue) ClaimAfterIntent() *TradeIntent {
 	if q.firedInWindow[scheduler.WindowAfter] {
 		return nil
 	}
-	intent := q.bestEligibleLocked(scheduler.WindowAfter)
-	if intent == nil {
+	intents := q.bestEligibleLocked(scheduler.WindowAfter)
+	if intents == nil || len(intents) == 0 {
 		return nil
 	}
+	intent := intents[0]
 	intent.Status = IntentFired
 	q.removeByIndexLocked(intent)
 	q.firedInWindow[scheduler.WindowAfter] = true
@@ -169,11 +171,11 @@ func (q *Queue) PeekAfterSymbol() (string, bool) {
 	if q.firedInWindow[scheduler.WindowAfter] {
 		return "", false
 	}
-	intent := q.bestEligibleLocked(scheduler.WindowAfter)
-	if intent == nil {
+	intents := q.bestEligibleLocked(scheduler.WindowAfter)
+	if intents == nil || len(intents) == 0 {
 		return "", false
 	}
-	return intent.Symbol, true
+	return intents[0].Symbol, true
 }
 
 // HasAfterIntent returns true if there is at least one pending AFTER-eligible intent.
@@ -183,7 +185,7 @@ func (q *Queue) HasAfterIntent() bool {
 	if q.firedInWindow[scheduler.WindowAfter] {
 		return false
 	}
-	return q.bestEligibleLocked(scheduler.WindowAfter) != nil
+	return len(q.bestEligibleLocked(scheduler.WindowAfter)) != 0
 }
 
 // tickTransitionLocked fires the best eligible intent exactly once per window type per funding cycle.
@@ -192,14 +194,12 @@ func (q *Queue) tickTransitionLocked(ctx context.Context, currentWindow schedule
 	if q.firedInWindow[currentWindow] {
 		return
 	}
-
-	for index, _ := range q.intents {
-		slog.Info("check intent", "index", index)
-		intent := q.bestEligibleLocked(currentWindow)
-		if intent == nil {
-			return
-		}
-
+	intents := q.bestEligibleLocked(currentWindow)
+	if intents == nil || len(intents) == 0 {
+		return
+	}
+	for index, intent := range intents {
+		slog.Info("check intent", "index", index, "symbol", intent.Symbol)
 		intent.Status = IntentFired
 		q.removeByIndexLocked(intent)
 
@@ -234,13 +234,14 @@ func (q *Queue) tickTransitionLocked(ctx context.Context, currentWindow schedule
 // bestEligibleLocked returns the highest-confidence pending intent that can fire
 // in the given window, or nil if none exists. Must be called with q.mu held.
 // intents is already sorted by confidence desc, so the first match is the best.
-func (q *Queue) bestEligibleLocked(currentWindow scheduler.WindowType) *TradeIntent {
+func (q *Queue) bestEligibleLocked(currentWindow scheduler.WindowType) []*TradeIntent {
+	var eligible []*TradeIntent
 	for _, intent := range q.intents {
 		if intent.Status == IntentPending && windowReady(currentWindow, intent.TargetEntryMode) {
-			return intent
+			eligible = append(eligible, intent)
 		}
 	}
-	return nil
+	return eligible
 }
 
 // expireLocked removes intents that have passed their expiry. Must be called with q.mu held.

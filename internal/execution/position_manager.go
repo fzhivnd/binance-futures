@@ -1249,6 +1249,15 @@ func (m *PositionManager) onSettlementPassed(ctx context.Context, pos domain.Pos
 	if err := m.cache.SetActivePosition(ctx, pos); err != nil {
 		slog.Error("onSettlementPassed: update position", "symbol", pos.Symbol, "error", err)
 	}
+
+	if m.notifier != nil {
+		m.notifier.NotifyFundingSettlement(ctx, notify.FundingEvent{
+			Symbol:      pos.Symbol,
+			FundingRate: pos.FundingRateAtEntry,
+			FeePaid:     pos.FundingFeePaidPct * pos.OriginalQty * pos.EntryPrice,
+		})
+	}
+
 }
 
 // computeAvgClosePrice calculates weighted average exit price for split-leg closes.
