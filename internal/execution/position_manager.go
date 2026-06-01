@@ -184,6 +184,11 @@ func (m *PositionManager) check(ctx context.Context, pos domain.Position) {
 
 	// === BREAKEVEN LOGIC (only applies before TP1 fills) ===
 	if !pos.BreakevenMoved && !pos.TP1Filled {
+		breakevenActivationPct := m.cfg.Execution.BreakevenActivationPct
+		if pos.FundingFeePaid {
+			breakevenActivationPct += pos.FundingFeePaidPct * 100
+			slog.Info("breakeven threshold moved because funding fee paid", "FundingFeePaidPct", pos.FundingFeePaidPct)
+		}
 		if rawPnlPct > m.cfg.Execution.BreakevenActivationPct &&
 			time.Since(pos.OpenedAt) >= 6*time.Minute {
 			if pos.SLOrderID != "" {
