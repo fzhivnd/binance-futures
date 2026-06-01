@@ -969,9 +969,6 @@ func (m *PositionManager) handleHardSLFill(ctx context.Context, pos *domain.Posi
 	if pos.BreakevenMoved {
 		result = "BREAKEVEN"
 		closeReason = "BREAKEVEN_SL"
-		if pos.FundingFeePaid {
-			closeReason += " WITH FUNDING FEE PAID"
-		}
 	}
 	m.persistClose(ctx, *pos, o.AvgPrice, pnl, result, closeReason)
 }
@@ -1212,15 +1209,7 @@ func (m *PositionManager) checkSettlementPassed(ctx context.Context, pos domain.
 		return
 	}
 
-	// If the next funding time has advanced past what it was at entry, settlement occurred.
-	// We detect this by checking if next funding is now more than 1 hour in the future
-	// AND the position is old enough that a settlement could have passed.
-	holdDuration := time.Since(pos.OpenedAt)
-	if holdDuration < 10*time.Minute {
-		return // too young, settlement couldn't have passed
-	}
-
-	// If next funding is > 7 hours away, a settlement must have just occurred.
+	// If next funding is > 50 minute away, a settlement must have just occurred.
 	if time.Until(fi.NextFunding) > 50*time.Minute {
 		m.onSettlementPassed(ctx, pos)
 	}
@@ -1246,7 +1235,7 @@ func (m *PositionManager) onSettlementPassed(ctx context.Context, pos domain.Pos
 	if m.notifier != nil {
 		m.notifier.NotifyFundingSettlement(ctx, notify.FundingEvent{
 			Symbol:      pos.Symbol,
-			FundingRate: pos.FundingRateAtEntry,
+			FundingRate: pos.FundingFeePaidPct * 100,
 			FeePaid:     pos.FundingFeePaidPct * pos.OriginalQty * pos.EntryPrice,
 		})
 	}

@@ -51,10 +51,10 @@ func (a *App) filterOccupiedSymbols(ctx context.Context, candidates []domain.Can
 			slog.Info("candidate excluded: active position", "symbol", c.Symbol)
 			continue
 		}
-		if a.intentQueue.HasPendingSymbol(c.Symbol) {
-			slog.Info("candidate excluded: pending intent", "symbol", c.Symbol)
-			continue
-		}
+		//if a.intentQueue.HasPendingSymbol(c.Symbol) {
+		//	slog.Info("candidate excluded: pending intent", "symbol", c.Symbol)
+		//	continue
+		//}
 		out = append(out, c)
 	}
 	return out

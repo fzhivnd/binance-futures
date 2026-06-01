@@ -69,7 +69,7 @@ IMPORTANT — FUNDING FEE MECHANICS:
   If we can't exit in time, TP is widened at T-2m so the price drop covers the fee.
 
 FRONTRUN thesis: "Price will drop BEFORE funding settlement — exit before paying the fee."
-  → WHY: When funding is extremely negative, smart money closes longs 10-30 minutes before
+  → WHY: When funding is extremely negative, smart money closes longs 10-20 minutes before
     settlement to avoid paying the fee. This selling pressure causes a pre-settlement dump.
   → BEST CASE: TP1 hits before settlement → 2% pure profit, ZERO fee paid.
   → WORST CASE: TP1 doesn't hit → hold through settlement, pay the fee, TP widens.
@@ -93,7 +93,7 @@ AFTER thesis: "Price will dump HARD right after funding settlement — ride the 
 MODE MECHANICS & SYSTEM BEHAVIOR:
 ═══════════════════════════════════════════════════════════════════════════════════════
 
-FRONTRUN (Enter T-30m to T-10m):
+FRONTRUN (Enter T-20m to T-10m):
   TP1 Target: 2% pure. Funding Fee: we PAY if held through settlement.
   T-2m Safety: If losing > 0.75×|funding_rate| → force-closed (avoid fee on loser).
   T-2m Adjust: If TP1 not hit → TP widens to 2%+|funding_rate| (cover the fee cost).
@@ -161,7 +161,33 @@ RULES:
 - If BTC is in strong bullish breakout, heavily penalize all candidates (shorts are dangerous)
 - Provide 2-4 concise entry reasons explaining your decision
 - Flag any warnings about the setup (risks, concerns)
-- Be probabilistic in reasoning, not certain`
+- Be probabilistic in reasoning, not certain
+
+═══════════════════════════════════════════════════════════════════════════════════════
+TIME-TO-SETTLEMENT BIAS:
+═══════════════════════════════════════════════════════════════════════════════════════
+
+The remaining time until funding settlement should create a DEFAULT mode preference,
+but this is NOT a mandatory rule.
+
+Default preference by time window:
+- 20m to 10m before settlement → prefer FRONTRUN
+- 10m to 6m before settlement → prefer LAST_MINUTE
+- 6m to 0m before settlement → prefer AFTER
+- Outside these windows → use normal mode-selection logic
+
+IMPORTANT:
+- This is only a starting bias.
+- If another mode has materially stronger evidence, choose that mode instead.
+- Never force a mode solely because of time remaining.
+- Setup quality and risk always override the time-based preference.
+
+Examples:
+- 15m remaining + strong bearish reversal signals → FRONTRUN strongly preferred.
+- 15m remaining + no reversal signal + squeeze risk → LAST_MINUTE, AFTER, or SKIP may be better.
+- 8m remaining + dump already started → LAST_MINUTE preferred.
+- 8m remaining + extremely strong multi-TF RSI divergence and bearish engulfing → FRONTRUN still acceptable.
+- 3m remaining + clear pre-dump already underway → LAST_MINUTE acceptable even though AFTER is the default bias.`
 
 type PromptBuilder struct{}
 
@@ -178,7 +204,20 @@ func (p *PromptBuilder) UserMessage(req *LLMRequest) string {
 
 	t := time.Unix(req.Timestamp, 0).UTC()
 	sb.WriteString(fmt.Sprintf("Current time: %s\n", t.Format(time.RFC3339)))
-	sb.WriteString(fmt.Sprintf("Next funding settlement in: %dm\n\n", req.MinutesToSettlement))
+
+	var bias string
+	switch {
+	case req.MinutesToSettlement > 10:
+		bias = "FRONTRUN"
+	case req.MinutesToSettlement > 6:
+		bias = "LAST_MINUTE"
+	default:
+		bias = "AFTER"
+	}
+
+	sb.WriteString(fmt.Sprintf(
+		"Next funding settlement in: %dm\nPreferred mode bias: %s (override if another mode has stronger evidence)\n\n",
+		req.MinutesToSettlement, bias))
 
 	sb.WriteString("=== BTC MARKET CONTEXT ===\n")
 	sb.WriteString(fmt.Sprintf("Trend: %s | Momentum: %d/100 | Volatility: %s\n",
