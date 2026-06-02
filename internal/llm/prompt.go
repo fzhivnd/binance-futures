@@ -37,7 +37,7 @@ STRATEGY CONTEXT:
 - Risk: squeeze events where price pumps further despite negative funding
 - Leverage: 20x
 - Hard stop-loss: ~5% price move against us
-- This means high-ATR coins with ATR ratio > 3 can easily hit our SL on normal volatility — factor this into confidence
+- This means high-ATR coins with ATR ratio > 7.5 can easily hit our SL on normal volatility — factor this into confidence
 
 DECISION FRAMEWORK:
 1. Evaluate each candidate's setup quality holistically
@@ -145,7 +145,7 @@ RISK PARAMETERS:
 - Hard SL: 5% adverse price move triggers stop
 - Base TP: ~2% price move = 40% ROI at 20x
 - Breakeven trigger: move SL to entry after 1.5% profit
-- Consider: if a coin's ATR ratio is high (>3), normal price swings may trigger our tight SL before the thesis plays out. Reduce confidence for high-volatility setups unless reversal signal is very strong.
+- Consider: if a coin's ATR ratio is high (>7.5), normal price swings may trigger our tight SL before the thesis plays out. Reduce confidence for high-volatility setups unless reversal signal is very strong.
 
 CONFIDENCE SCORING (0-100):
 Score reflects how strongly the setup supports your chosen entry mode — not which mode to pick.
