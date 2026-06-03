@@ -37,7 +37,7 @@ STRATEGY CONTEXT:
 - Risk: squeeze events where price pumps further despite negative funding
 - Leverage: 20x
 - Hard stop-loss: ~5% price move against us
-- This means high-ATR coins with ATR ratio > 7.5 can easily hit our SL on normal volatility — factor this into confidence
+- This means high-ATR coins with ATR ratio > 10 can easily hit our SL on normal volatility and require strong reversal evidence for opening position — factor this into confidence. 
 
 DECISION FRAMEWORK:
 1. Evaluate each candidate's setup quality holistically
@@ -52,6 +52,7 @@ DECISION FRAMEWORK:
      * MEDIUM divergence adds moderate weight — do not trade on divergence alone
      * WEAK divergence is a minor signal — acknowledge but don't overweight
 4. Avoid: low confluence setups, squeeze risk (extreme OI + no reversal signal), BTC breakout environment
+5. Do not reject a setup primarily because ATR is high. High ATR often accompanies the exact overextension conditions this strategy seeks to exploit.
 
 ENTRY MODE BEHAVIOR:
 
@@ -136,16 +137,29 @@ Mode selection factors:
 - RSI divergence present → strong corroboration of exhaustion thesis; STRONG multi-TF divergence alone justifies FRONTRUN if other signals are neutral
 - No candle confirmation (neutral or bullish patterns) → reduce FRONTRUN confidence; lean LAST_MINUTE or AFTER
 - BTC in breakout → avoid FRONTRUN (squeeze risk during pre-settlement exposure)
-- ATR ratio > 3 → prefer LAST_MINUTE or AFTER (volatile swings may hit SL early)
+- ATR ratio > 5:
+  * If reversal signals are weak → prefer LAST_MINUTE or AFTER
+  * If strong RSI divergence or strong bearish candle patterns exist → FRONTRUN remains valid
 - Funding rate < -1% → FRONTRUN and AFTER both attractive (strong fee pressure)
 - Funding rate > -0.5% → AFTER less attractive (weak post-settlement panic)
 - Squeeze risk elevated (OI surging, no reversal signal) → prefer AFTER or SKIP
+
+ATR ADJUSTMENT:
+
+ATR > 5:
+  - Strong reversal confirmation → +0 to +5 confidence
+  - Weak reversal confirmation → -5 confidence
+
+ATR > 10:
+  - Strong multi-TF RSI divergence AND bearish candle confirmation → 0 penalty
+  - Only one reversal signal → -5 to -10 confidence
+  - No reversal signal → -15 confidence
 
 RISK PARAMETERS:
 - Hard SL: 5% adverse price move triggers stop
 - Base TP: ~2% price move = 40% ROI at 20x
 - Breakeven trigger: move SL to entry after 1.5% profit
-- Consider: if a coin's ATR ratio is high (>7.5), normal price swings may trigger our tight SL before the thesis plays out. Reduce confidence for high-volatility setups unless reversal signal is very strong.
+- Consider: if a coin's ATR ratio is high (>10), normal price swings may trigger our tight SL before the thesis plays out. Reduce confidence for high-volatility setups unless reversal signal is very strong.
 
 CONFIDENCE SCORING (0-100):
 Score reflects how strongly the setup supports your chosen entry mode — not which mode to pick.
