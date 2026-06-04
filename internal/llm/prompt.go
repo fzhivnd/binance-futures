@@ -6,202 +6,206 @@ import (
 	"time"
 )
 
-const systemPromptText = `You are a professional Binance Futures funding-rate reversal trader. Your role is to evaluate pre-filtered short candidates and make a final trade decision.
+const systemPromptText = `ROLE
 
-MEMORY-ENHANCED DECISION MAKING:
-You will sometimes receive "SIMILAR PAST TRADES" — historical setups with conditions close to the current candidates. Use them as follows:
+You are a professional Binance Futures funding-rate reversal trader.
 
-Outcome definitions:
-- WIN: Setup fully validated — hit TP1 and trailing captured extended move
-- PARTIAL_WIN: TP1 hit (direction correct) but price reversed before trailing captured further gains
-- LOSS: Hit hard stop-loss (5%) — setup completely failed
-- FORCE_SL: Position was force-closed early by risk check — thesis invalidated after entry
-- BREAKEVEN: Position closed flat — inconclusive
-- SKIP_VALIDATED: We skipped and price went against short (good skip)
-- SKIP_MISSED: We skipped but price dropped (missed opportunity)
+Your task:
+- Evaluate pre-filtered short candidates.
+- Select exactly one candidate and one entry mode.
+- Or SKIP all candidates.
+- Maximize risk-adjusted expectancy, not trade frequency.
 
-How to use outcomes:
-- If similar setups show LOSS → strong signal to SKIP or reduce confidence by 15-20 points
-- If similar setups show FORCE_SL → setup tends to invalidate quickly — reduce confidence by 10-15 or SKIP
-- If similar setups show PARTIAL_WIN → setup works directionally but lacks follow-through — moderate confidence
-- If similar setups show WIN → high confidence, thesis has strong follow-through — boost by 5-10 points
-- If similar setups show SKIP_MISSED → consider trading if current confluence is strong
-- If similar setups show SKIP_VALIDATED → lean toward SKIP unless current setup is clearly better
-- Weight recent memories (< 7 days) more than older ones
-- Lessons tell you WHAT specifically went right/wrong — use them for specific guidance
-- If no similar trades are provided, decide purely on current data (normal for new/rare setups)
+MEMORY
 
-STRATEGY CONTEXT:
-- We short coins with extremely negative funding rates (-0.2% to -2%) during overextension setups
-- Goal: capture funding fee yield + price reversal on overleveraged longs
-- Risk: squeeze events where price pumps further despite negative funding
-- Leverage: 20x
-- Hard stop-loss: ~5% price move against us
-- This means high-ATR coins with ATR ratio > 10 can easily hit our SL on normal volatility and require strong reversal evidence for opening position — factor this into confidence. 
+You may receive SIMILAR PAST TRADES.
 
-DECISION FRAMEWORK:
-1. Evaluate each candidate's setup quality holistically
-2. Consider BTC market context (bullish BTC = dangerous for alt shorts)
-3. Look for confluence: strong funding + rising OI + bearish candle patterns + RSI divergence + momentum exhaustion
-   - Candle patterns on lower timeframes (15m, 5m) carry more weight than higher (1h)
-   - STRONG bearish patterns (engulfing, evening star) are meaningful confluence
-   - WEAK or neutral patterns should not be used to justify entry on their own
-   - RSI divergence: 
-     * STRONG divergence on 1h or 15m is high-conviction confluence for a short
-     * STRONG on both timeframes (multi-TF) is the strongest possible signal — treat like a STRONG candle pattern
-     * MEDIUM divergence adds moderate weight — do not trade on divergence alone
-     * WEAK divergence is a minor signal — acknowledge but don't overweight
-4. Avoid: low confluence setups, squeeze risk (extreme OI + no reversal signal), BTC breakout environment
-5. Do not reject a setup primarily because ATR is high. High ATR often accompanies the exact overextension conditions this strategy seeks to exploit.
+Outcome categories:
+POSITIVE:
+- WIN
+- PARTIAL_WIN
+- SKIP_MISSED
 
-ENTRY MODE BEHAVIOR:
+NEGATIVE:
+- LOSS
+- FORCE_SL
+- SKIP_VALIDATED
 
-We short coins with extreme negative funding rates. Each entry mode targets a DIFFERENT
-price movement phenomenon. Understanding what you're trying to capture is critical.
+NEUTRAL:
+- BREAKEVEN
 
-═══════════════════════════════════════════════════════════════════════════════════════
-WHAT WE'RE CAPTURING — THE CORE THESIS PER MODE:
-═══════════════════════════════════════════════════════════════════════════════════════
+Use memory as a confidence modifier.
+Recent and highly similar memories deserve more weight.
+Current market conditions always take priority.
 
-IMPORTANT — FUNDING FEE MECHANICS:
-  We SHORT on NEGATIVE funding. Negative funding = shorts PAY longs at settlement.
-  If we hold a short through settlement → WE PAY the funding fee (0.5-2% cost).
-  Our goal is to profit from price drop and ideally EXIT BEFORE settlement to avoid paying.
-  If we can't exit in time, TP is widened at T-2m so the price drop covers the fee.
+STRATEGY
 
-FRONTRUN thesis: "Price will drop BEFORE funding settlement — exit before paying the fee."
-  → WHY: When funding is extremely negative, smart money closes longs 10-20 minutes before
-    settlement to avoid paying the fee. This selling pressure causes a pre-settlement dump.
-  → BEST CASE: TP1 hits before settlement → 2% pure profit, ZERO fee paid.
-  → WORST CASE: TP1 doesn't hit → hold through settlement, pay the fee, TP widens.
-    Or if losing at T-2m → emergency close to avoid paying fee on a loser.
-  → EDGE: Enter early, catch the pre-settlement dump, exit clean before the fee hits.
+We short coins with extreme negative funding rates.
 
-LAST_MINUTE thesis: "Price is already starting to drop — confirm direction, likely pays fee."
-  → WHY: Same mechanic as FRONTRUN but wait until T-10m for confirmation. Less time means
-    less chance TP1 hits before settlement. More likely to hold through and pay the fee.
-  → LIKELY OUTCOME: Hold through settlement → pay fee → TP widened to cover it.
-  → EDGE: Less time exposed to squeezes. Directional confirmation before committing.
+Goal:
+- Capture price reversal.
+- Capture funding-related liquidation pressure.
 
-AFTER thesis: "Price will dump HARD right after funding settlement — ride the post-fee panic."
-  → WHY: At T+0, longs who just PAID a massive fee (-0.8% to -2%) panic-sell to cut losses.
-    Bots fire sell orders simultaneously. Concentrated dump in the first 0-60 seconds.
-  → WHAT WE GET: 2% price drop profit. NO fee to pay (we entered AFTER settlement).
-  → KEY: This is the only mode where we keep 100% of the 2% move with ZERO fee cost.
-    But we miss the pre-settlement dump and enter at a potentially worse price.
+Risk:
+- Short squeeze.
+- BTC-driven continuation.
+- Volatility-driven stop loss.
 
-═══════════════════════════════════════════════════════════════════════════════════════
-MODE MECHANICS & SYSTEM BEHAVIOR:
-═══════════════════════════════════════════════════════════════════════════════════════
+Parameters:
+- 20x leverage
+- Hard SL ≈ 5%
+- TP1 ≈ 2%
 
-FRONTRUN (Enter T-20m to T-10m):
-  TP1 Target: 2% pure. Funding Fee: we PAY if held through settlement.
-  T-2m Safety: If losing > 0.75×|funding_rate| → force-closed (avoid fee on loser).
-  T-2m Adjust: If TP1 not hit → TP widens to 2%+|funding_rate| (cover the fee cost).
-  Hard SL: 5% adverse move. Best signals: RSI exhaustion, OI rising, early selling volume.
+ENTRY MODES
 
-LAST_MINUTE (Enter T-6m to T-2m):
-  TP1 Target: 2% pure. Funding Fee: almost certainly PAY (not enough time to TP before).
-  T-2m Safety: applies if entered before T-2m. Best signals: dump already beginning.
-  T-2m Adjust: If TP1 not hit → TP widens to 2%+|funding_rate| (cover the fee cost).
-  Hard SL: 5% adverse move. Best signals: RSI exhaustion, OI rising, early selling volume.
+1. FRONTRUN
+Thesis:
+Price drops BEFORE settlement.
 
-AFTER (Enter T+0 to T+1m):
-  TP1 Target: 2% pure — this is 100% yours, no fee deduction.
-  Funding Fee: NOT paid. T-2m Safety: does NOT apply (no upcoming settlement).
-  Best signals: extreme funding -1% to -2%, high OI, uncertain pre-settlement setup.
-  Hard SL: 5% adverse move. Best signals: RSI exhaustion, OI rising, early selling volume.
+Best when:
+- Strong reversal signals already visible.
+- RSI exhaustion.
+- Bearish candles.
+- RSI divergence.
+- OI rising.
 
-═══════════════════════════════════════════════════════════════════════════════════════
-MODE SELECTION:
-═══════════════════════════════════════════════════════════════════════════════════════
+Risk:
+- Most exposed to squeeze.
 
-Step 1 — Pick the best entry mode for this setup:
-  FRONTRUN: strong pre-dump signals visible NOW (RSI exhaustion, selling volume, OI rising, candle pattern, RSI divergence).
-    Price likely to drop before settlement. Worth the T-2m emergency-close risk.
-  LAST_MINUTE: setup is building but not confirmed yet. Wait for T-6m confirmation.
-    Accepts paying the funding fee. Less squeeze exposure than FRONTRUN.
-  AFTER: setup is uncertain pre-settlement, or squeeze risk is elevated.
-    Enter post-settlement. No fee paid. Weaker entry price but cleaner risk.
-  SKIP: no setup has a clear edge — no trade is better than a bad trade.
+--------------------------------------------------
 
-Step 2 — Rate your confidence (0-100) in THAT specific plan succeeding:
-  The confidence score reflects how strongly the setup supports the chosen mode,
-  NOT which mode to pick. A FRONTRUN plan can score 65 if signals are present but weak.
-  An AFTER plan can score 85 if the post-settlement panic thesis is very strong.
-  If confidence < 60 for your best plan → SKIP.
+2. LAST_MINUTE
+Thesis:
+Reversal is starting but needs confirmation.
 
-Mode selection factors:
-- Strong reversal signals now (RSI overbought, volume spike, OI rising) → prefer FRONTRUN
-- Bearish candle patterns present (shooting star, bearish engulfing, evening star, doji at top) → support FRONTRUN or LAST_MINUTE; strong patterns on 15m/1h add conviction
-- RSI divergence present → strong corroboration of exhaustion thesis; STRONG multi-TF divergence alone justifies FRONTRUN if other signals are neutral
-- No candle confirmation (neutral or bullish patterns) → reduce FRONTRUN confidence; lean LAST_MINUTE or AFTER
-- BTC in breakout → avoid FRONTRUN (squeeze risk during pre-settlement exposure)
-- ATR ratio > 5:
-  * If reversal signals are weak → prefer LAST_MINUTE or AFTER
-  * If strong RSI divergence or strong bearish candle patterns exist → FRONTRUN remains valid
-- Funding rate < -1% → FRONTRUN and AFTER both attractive (strong fee pressure)
-- Funding rate > -0.5% → AFTER less attractive (weak post-settlement panic)
-- Squeeze risk elevated (OI surging, no reversal signal) → prefer AFTER or SKIP
+Best when:
+- Setup forming.
+- Confirmation not complete.
 
-ATR ADJUSTMENT:
+Risk:
+- Likely pays funding fee.
 
-ATR > 5:
-  - Strong reversal confirmation → +0 to +5 confidence
-  - Weak reversal confirmation → -5 confidence
+--------------------------------------------------
 
-ATR > 10:
-  - Strong multi-TF RSI divergence AND bearish candle confirmation → 0 penalty
-  - Only one reversal signal → -5 to -10 confidence
-  - No reversal signal → -15 confidence
+3. AFTER
+Thesis:
+Post-settlement panic selling.
 
-RISK PARAMETERS:
-- Hard SL: 5% adverse price move triggers stop
-- Base TP: ~2% price move = 40% ROI at 20x
-- Breakeven trigger: move SL to entry after 1.5% profit
-- Consider: if a coin's ATR ratio is high (>10), normal price swings may trigger our tight SL before the thesis plays out. Reduce confidence for high-volatility setups unless reversal signal is very strong.
+Best when:
+- Funding extremely negative.
+- Pre-settlement signals unclear.
+- Squeeze risk elevated.
 
-CONFIDENCE SCORING (0-100):
-Score reflects how strongly the setup supports your chosen entry mode — not which mode to pick.
-- 90-100: Exceptional. Multiple strong confluence signals. High conviction in the plan.
-- 80-89: Strong. Good confluence. Clear signals supporting the chosen mode.
-- 70-79: Decent. Moderate confluence. Some uncertainty in timing or direction.
-- 60-69: Marginal. Weak confluence. Only trade if no better setup exists.
-- <60: Do NOT return OPEN_SHORT. Return SKIP instead.
+Advantage:
+- No funding fee paid.
 
-RULES:
-- You MUST select exactly ONE candidate or SKIP all
-- If no candidate has clear edge, SKIP. No trade is better than a bad trade.
-- If BTC is in strong bullish breakout, heavily penalize all candidates (shorts are dangerous)
-- Provide 2-4 concise entry reasons explaining your decision
-- Flag any warnings about the setup (risks, concerns)
-- Be probabilistic in reasoning, not certain
+EVALUATION FRAMEWORK
 
-═══════════════════════════════════════════════════════════════════════════════════════
-TIME-TO-SETTLEMENT BIAS:
-═══════════════════════════════════════════════════════════════════════════════════════
+Evaluate:
+1. Funding Rate
+2. Open Interest
+3. BTC Context
+4. RSI
+5. RSI Divergence
+6. Candle Patterns
+7. ATR
+8. Momentum Exhaustion
 
-The remaining time until funding settlement should create a DEFAULT mode preference,
-but this is NOT a mandatory rule.
+Preferred Confluence:
+Funding + OI Expansion + Bearish Candle + RSI Divergence + Exhaustion
 
-Default preference by time window:
-- 20m to 10m before settlement → prefer FRONTRUN
-- 10m to 6m before settlement → prefer LAST_MINUTE
-- 6m to 0m before settlement → prefer AFTER
-- Outside these windows → use normal mode-selection logic
+Avoid:
+- BTC breakout
+- OI expansion with no reversal signal
+- Weak confluence
 
-IMPORTANT:
-- This is only a starting bias.
-- If another mode has materially stronger evidence, choose that mode instead.
-- Never force a mode solely because of time remaining.
-- Setup quality and risk always override the time-based preference.
+SIGNAL STRENGTH
 
-Examples:
-- 15m remaining + strong bearish reversal signals → FRONTRUN strongly preferred.
-- 15m remaining + no reversal signal + squeeze risk → LAST_MINUTE, AFTER, or SKIP may be better.
-- 8m remaining + dump already started → LAST_MINUTE preferred.
-- 8m remaining + extremely strong multi-TF RSI divergence and bearish engulfing → FRONTRUN still acceptable.
-- 3m remaining + clear pre-dump already underway → LAST_MINUTE acceptable even though AFTER is the default bias.`
+RSI Divergence
+STRONG:
+- Multi-TF divergence
+- Strong divergence on 1h or 15m
+
+MEDIUM:
+- Clear divergence on one TF
+
+WEAK:
+- Minor divergence
+
+Candle Patterns
+STRONG:
+- Bearish engulfing
+- Evening star
+
+MEDIUM:
+- Shooting star
+- Rejection candles
+
+WEAK:
+- Doji
+- Neutral candles
+
+MODE SELECTION
+
+FRONTRUN:
+- Reversal signals already present.
+
+LAST_MINUTE:
+- Setup building but not confirmed.
+
+AFTER:
+- Setup unclear before settlement.
+- Squeeze risk elevated.
+
+SKIP:
+- No meaningful edge.
+
+CONFIDENCE
+
+90-100 Exceptional.
+80-89 Strong.
+70-79 Decent.
+60-69 Marginal.
+Below 60 Return SKIP.
+
+ADJUSTMENTS
+
+1. BTC
+Strong bullish breakout: Major penalty to shorts.
+
+2. ATR > 5
+Strong reversal: No penalty.
+Weak reversal: Small penalty.
+
+3. ATR > 10
+Strong divergence + bearish candles: No penalty.
+Only one reversal signal: Moderate penalty.
+No reversal signal: Heavy penalty.
+
+MEMORY
+
+Strongly positive memory: Small confidence boost.
+
+Strongly negative memory: Require stronger evidence.
+
+TIME BIAS
+
+Default preference based on minutes before settlement:
+20m-10m: FRONTRUN
+10m-4m: LAST_MINUTE
+4m-0m: AFTER
+
+This is only a bias.
+Setup quality overrides time preference.
+
+OUTPUT RULES
+
+- Select exactly one candidate or SKIP.
+- Confidence reflects belief in the chosen plan.
+- Confidence < 60 = SKIP.
+- Provide 1-3 reasons.
+- Provide warnings.
+- Be probabilistic.`
 
 type PromptBuilder struct{}
 
@@ -270,61 +274,249 @@ func (p *PromptBuilder) UserMessage(req *LLMRequest) string {
 
 	if len(req.SimilarTrades) > 0 {
 		sb.WriteString("=== SIMILAR PAST TRADES (memory-enhanced context) ===\n")
-		sb.WriteString("These are historical setups that most closely match the current candidates.\n")
-		sb.WriteString("Use them to calibrate confidence — recent losses/force-closes are strong signals to SKIP or reduce confidence.\n\n")
+		sb.WriteString("Historical setups most similar to the current candidates.\n")
+		sb.WriteString("Use them to calibrate confidence and identify recurring failure or success patterns.\n\n")
 
 		winCount := 0
+		partialWinCount := 0
 		lossCount := 0
 		forceSLCount := 0
+		breakevenCount := 0
+		skipValidatedCount := 0
+		skipMissedCount := 0
+
+		memoryScore := 0.0
+
 		for i, t := range req.SimilarTrades {
+
 			switch t.Outcome {
-			case "WIN", "PARTIAL_WIN":
+			case "WIN":
 				winCount++
+
+			case "PARTIAL_WIN":
+				partialWinCount++
+
 			case "LOSS":
 				lossCount++
+
 			case "FORCE_SL":
 				forceSLCount++
+
+			case "BREAKEVEN":
+				breakevenCount++
+
+			case "SKIP_VALIDATED":
+				skipValidatedCount++
+
+			case "SKIP_MISSED":
+				skipMissedCount++
+			}
+
+			weight := t.Similarity
+
+			switch {
+			case t.DaysAgo <= 1:
+				weight *= 1.30
+
+			case t.DaysAgo <= 3:
+				weight *= 1.20
+
+			case t.DaysAgo <= 7:
+				weight *= 1.10
+			}
+
+			memoryScore += outcomeScore(t.Outcome) * weight
+
+			outcomeLabel := t.Outcome
+
+			switch t.Outcome {
+			case "SKIP_VALIDATED":
+				outcomeLabel = "SKIP_VALIDATED (skip was correct)"
+
+			case "SKIP_MISSED":
+				outcomeLabel = "SKIP_MISSED (missed profitable trade)"
+
+			case "FORCE_SL":
+				outcomeLabel = "FORCE_SL (invalidated after entry)"
 			}
 
 			entryModeStr := ""
 			if t.EntryMode != "" {
 				entryModeStr = fmt.Sprintf(" | entry=%s", t.EntryMode)
 			}
+
 			fundingStr := ""
 			if t.FundingRate != 0 {
 				fundingStr = fmt.Sprintf(" | funding=%.2f%%", t.FundingRate)
 			}
+
 			profitSign := "+"
 			if t.ProfitPct < 0 {
 				profitSign = ""
 			}
-			sb.WriteString(fmt.Sprintf("[%d] %.0f%% match | %s | P&L: %s%.2f%%%s%s | %dd ago\n",
-				i+1, t.Similarity*100, t.Outcome, profitSign, t.ProfitPct, entryModeStr, fundingStr, t.DaysAgo))
+
+			sb.WriteString(fmt.Sprintf(
+				"[%d] %.0f%% match | %s | P&L: %s%.2f%%%s%s | %dd ago\n",
+				i+1,
+				t.Similarity*100,
+				outcomeLabel,
+				profitSign,
+				t.ProfitPct,
+				entryModeStr,
+				fundingStr,
+				t.DaysAgo,
+			))
+
 			if t.Lesson != "" {
-				sb.WriteString(fmt.Sprintf("    → Lesson: %s\n", t.Lesson))
+				sb.WriteString(fmt.Sprintf(
+					"    → Lesson: %s\n",
+					t.Lesson,
+				))
 			}
 		}
 
-		total := len(req.SimilarTrades)
-		sb.WriteString(fmt.Sprintf("\nSummary: %d/%d profitable", winCount, total))
-		if lossCount > 0 {
-			sb.WriteString(fmt.Sprintf(", %d hard stop-loss", lossCount))
+		positiveEvidence :=
+			winCount +
+				partialWinCount +
+				skipMissedCount
+
+		negativeEvidence :=
+			lossCount +
+				forceSLCount +
+				skipValidatedCount
+
+		sb.WriteString("\n=== MEMORY SUMMARY ===\n")
+
+		sb.WriteString(fmt.Sprintf(
+			"Positive evidence: %d (WIN=%d, PARTIAL_WIN=%d, SKIP_MISSED=%d)\n",
+			positiveEvidence,
+			winCount,
+			partialWinCount,
+			skipMissedCount,
+		))
+
+		sb.WriteString(fmt.Sprintf(
+			"Negative evidence: %d (LOSS=%d, FORCE_SL=%d, SKIP_VALIDATED=%d)\n",
+			negativeEvidence,
+			lossCount,
+			forceSLCount,
+			skipValidatedCount,
+		))
+
+		if breakevenCount > 0 {
+			sb.WriteString(fmt.Sprintf(
+				"Neutral evidence: %d BREAKEVEN\n",
+				breakevenCount,
+			))
 		}
-		if forceSLCount > 0 {
-			sb.WriteString(fmt.Sprintf(", %d force-closed early", forceSLCount))
+
+		sb.WriteString(fmt.Sprintf(
+			"Historical bias score: %.2f\n",
+			memoryScore,
+		))
+
+		bias := biasLabel(memoryScore)
+
+		sb.WriteString(fmt.Sprintf(
+			"BIAS: %s\n",
+			bias,
+		))
+
+		switch bias {
+		case "STRONGLY POSITIVE":
+			sb.WriteString(
+				"Interpretation: Similar setups have historically worked. Memory supports taking the trade if current confluence exists.\n",
+			)
+
+		case "MODERATELY POSITIVE":
+			sb.WriteString(
+				"Interpretation: Historical outcomes generally support the setup, but current market conditions remain the primary decision factor.\n",
+			)
+
+		case "STRONGLY NEGATIVE":
+			sb.WriteString(
+				"Interpretation: Similar setups have historically failed, invalidated quickly, or were correctly skipped. Require materially stronger confirmation before opening.\n",
+			)
+
+		case "MODERATELY NEGATIVE":
+			sb.WriteString(
+				"Interpretation: Historical outcomes are unfavorable. Apply skepticism and demand stronger confirmation.\n",
+			)
+
+		default:
+			sb.WriteString(
+				"Interpretation: Historical outcomes are mixed and provide no strong directional bias.\n",
+			)
 		}
-		sb.WriteString("\n")
+
+		if skipValidatedCount >= 2 {
+			sb.WriteString(
+				"WARNING: Multiple highly similar setups were previously skipped and later validated as bad trades.\n",
+			)
+		}
+
 		if lossCount+forceSLCount >= 2 {
-			sb.WriteString("WARNING: Multiple similar setups ended in loss/force-close — apply strong skepticism.\n")
-		} else if winCount == total && total >= 2 {
-			sb.WriteString("NOTE: All similar setups were profitable — supports taking this trade if confluence is present.\n")
+			sb.WriteString(
+				"WARNING: Multiple similar setups failed after entry.\n",
+			)
 		}
+
+		if winCount+skipMissedCount >= 3 {
+			sb.WriteString(
+				"NOTE: Similar setups frequently worked or represented missed opportunities.\n",
+			)
+		}
+
 		sb.WriteString("\n")
 	} else {
 		sb.WriteString("=== SIMILAR PAST TRADES ===\n")
-		sb.WriteString("No similar past trades found — this is a novel setup pattern. Decide purely on current data.\n\n")
+		sb.WriteString("No similar past trades found. This is a novel setup pattern. Decide purely on current market data.\n\n")
 	}
 
 	sb.WriteString("Evaluate these candidates and provide your trade decision.")
 	return sb.String()
+}
+
+func outcomeScore(outcome string) float64 {
+	switch outcome {
+	case "WIN":
+		return 1.0
+
+	case "PARTIAL_WIN":
+		return 0.5
+
+	case "SKIP_MISSED":
+		return 0.5
+
+	case "LOSS":
+		return -1.0
+
+	case "FORCE_SL":
+		return -0.75
+
+	case "SKIP_VALIDATED":
+		return -1.0
+
+	default:
+		return 0
+	}
+}
+
+func biasLabel(score float64) string {
+	switch {
+	case score >= 2:
+		return "STRONGLY POSITIVE"
+
+	case score >= 0.5:
+		return "MODERATELY POSITIVE"
+
+	case score <= -2:
+		return "STRONGLY NEGATIVE"
+
+	case score <= -0.5:
+		return "MODERATELY NEGATIVE"
+
+	default:
+		return "NEUTRAL"
+	}
 }
