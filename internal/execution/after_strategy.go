@@ -113,7 +113,7 @@ func (s *AfterExecutionStrategy) adjustSizeForDepth(ctx context.Context, symbol 
 	spread, _ := s.bookTicker.SpreadBps(symbol)
 	slog.Info("after_spread_bps", "symbol", symbol, "spread", spread)
 
-	fullThreshold := afCfg.FullSizeDepthMultiplier * desiredUSDT // e.g. 3x
+	fullThreshold := afCfg.FullSizeDepthMultiplier * desiredUSDT
 	halfThreshold := 1.5 * desiredUSDT
 	minThreshold := afCfg.MinBidDepthMultiplier * desiredUSDT
 

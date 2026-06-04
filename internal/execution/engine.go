@@ -125,7 +125,7 @@ func (e *ExecutionEngine) execute(
 	if err != nil {
 		return err
 	}
-	if len(positions) >= e.cfg.Trading.MaxPositions {
+	if len(positions) > e.cfg.Trading.MaxPositions {
 		slog.Info("skipping trade: max positions reached", "symbol", candidate.Symbol)
 		return domain.ErrSkipped
 	}
@@ -137,7 +137,7 @@ func (e *ExecutionEngine) execute(
 	}
 
 	lossCount, err := e.cache.GetDailyLossCount(ctx)
-	if err == nil && lossCount >= e.cfg.Risk.MaxDailyLosses {
+	if err == nil && lossCount > e.cfg.Risk.MaxDailyLosses {
 		slog.Warn("daily loss limit reached, skipping", "symbol", candidate.Symbol)
 		return domain.ErrSkipped
 	}
@@ -146,11 +146,12 @@ func (e *ExecutionEngine) execute(
 	if err != nil {
 		return fmt.Errorf("get balance: %w", err)
 	}
-	if balance.AvailableBalance < 50 {
+	if balance.AvailableBalance < 10 { // for testing live trade
 		return fmt.Errorf("insufficient balance: %.2f", balance.AvailableBalance)
 	}
 
-	margin := balance.AvailableBalance * positionSizePct / 100
+	//margin := balance.AvailableBalance * positionSizePct / 100
+	margin := 1.0 // for testing live trade
 	qty := margin * float64(e.cfg.Trading.Leverage) / candidate.MarkPrice
 
 	order, err := e.executor.PlaceMarketOrder(ctx, domain.OrderRequest{
