@@ -225,7 +225,7 @@ func setDefaults(cfg *Config) {
 		cfg.Trading.CooldownMinutes = 15
 	}
 	if cfg.Funding.MinRate == 0 {
-		cfg.Funding.MinRate = -0.021
+		cfg.Funding.MinRate = -0.022
 	}
 	if cfg.Funding.MaxRate == 0 {
 		cfg.Funding.MaxRate = -0.002
