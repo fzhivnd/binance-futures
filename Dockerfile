@@ -23,6 +23,3 @@ COPY --from=builder /bin/dashboard .
 
 COPY config/config.yaml ./config/config.yaml
 COPY migrations ./migrations
-
-ENTRYPOINT ["./bot"]
-CMD ["-config", "config/config.yaml"]
