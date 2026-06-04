@@ -58,7 +58,7 @@ scoring:
 
 
 risk:
-  max_daily_losses: 2
+  max_daily_losses: 3
   max_drawdown_pct: 10.0
   max_atr_ratio: 12.5
   btc_breakout_reject: true
