@@ -115,7 +115,7 @@ func FormatDailySummary(s *domain.DailySummary) string {
 		"%s *DAILY SUMMARY* \\[%s\\]\n"+
 			"Date: `%s`\n\n"+
 			"Trades: `%d`\n"+
-			"Wins: `%d` \\| Losses: `%d`\n"+
+			"Wins: `%d` \\| Losses: `%d` \\| Breakeven: `%d`\n"+
 			"Win Rate: `%.1f%%`\n"+
 			"Total PnL: `%s%.4f USDT`\n"+
 			"Mode: `%s`",
@@ -123,7 +123,7 @@ func FormatDailySummary(s *domain.DailySummary) string {
 		escapeMarkdownV2(s.TradeDate.Format("2006-01-02")),
 		escapeMarkdownV2(s.TradeDate.Format("2006-01-02")),
 		s.TradeCount,
-		s.WinCount, s.LossCount,
+		s.WinCount, s.LossCount, s.TradeCount-s.WinCount-s.LossCount,
 		s.WinRate,
 		pnlSign, s.TotalPnL,
 		mode,
