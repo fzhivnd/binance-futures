@@ -169,11 +169,11 @@
     <table>
       <thead>
         <tr>
-          <th>Date</th><th>Trades</th><th>Wins</th><th>Losses</th><th>Win Rate</th><th>Total PnL</th><th>Type</th>
+          <th>Date</th><th>Trades</th><th>Wins</th><th>Losses</th><th>BreakEven</th><th>Win Rate</th><th>Total PnL</th><th>Type</th>
         </tr>
       </thead>
       <tbody id="summary-body">
-        <tr><td colspan="7" class="loading">Loading…</td></tr>
+        <tr><td colspan="8" class="loading">Loading…</td></tr>
       </tbody>
     </table>
   </div>
@@ -396,11 +396,13 @@
         const pnl = parseFloat(s.TotalPnL);
         const pnlStr = (pnl >= 0 ? '+' : '') + pnl.toFixed(4);
         const pnlCls = pnl > 0 ? 'pos' : pnl < 0 ? 'neg' : 'zero';
+        const breakEvenCount = s.TradeCount - s.WinCount - s.LossCount;
         return `<tr>
           <td>${s.TradeDate.slice(0, 10)}</td>
           <td>${s.TradeCount}</td>
           <td style="color:#4ade80">${s.WinCount}</td>
           <td style="color:#f87171">${s.LossCount}</td>
+          <td style="color:#818cf8">${breakEvenCount}</td>
           <td>${parseFloat(s.WinRate).toFixed(1)}%</td>
           <td class="pnl ${pnlCls}">${pnlStr}</td>
           <td><span class="badge ${s.IsPaper ? 'paper' : 'live'}">${s.IsPaper ? 'paper' : 'live'}</span></td>
