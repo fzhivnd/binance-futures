@@ -188,13 +188,18 @@ func (m *PositionManager) check(ctx context.Context, pos domain.Position) {
 		if pos.FundingFeePaid {
 			breakevenActivationPct += pos.FundingFeePaidPct * 100
 		}
-		if rawPnlPct > m.cfg.Execution.BreakevenActivationPct &&
-			time.Since(pos.OpenedAt) >= 6*time.Minute {
+		if rawPnlPct > breakevenActivationPct &&
+			time.Since(pos.OpenedAt) >= 10*time.Minute {
 			if pos.SLOrderID != "" {
 				if err := m.executor.CancelOrder(ctx, pos.Symbol, pos.SLOrderID); err != nil {
 					slog.Warn("cancel SL for breakeven failed", "symbol", pos.Symbol, "error", err)
 				}
 			}
+			stopPrice := pos.EntryPrice
+			if pos.FundingFeePaid {
+				stopPrice -= pos.FundingFeePaidPct * pos.EntryPrice
+			}
+
 			newSL, err := m.executor.PlaceStopMarketOrder(ctx, domain.OrderRequest{
 				Symbol:     pos.Symbol,
 				Side:       domain.SideBuy,
@@ -249,7 +254,11 @@ func (m *PositionManager) checkPaperFills(ctx context.Context, pos *domain.Posit
 	if !pos.TP1Filled {
 		// Hard SL: price rose above stop loss (SHORT loses when price goes up).
 		if currentPrice >= pos.StopLoss {
-			slog.Info("paper_sl_hit", "symbol", pos.Symbol, "price", currentPrice, "sl", pos.StopLoss)
+			if pos.BreakevenMoved {
+				slog.Info("paper_breakeven_hit", "symbol", pos.Symbol)
+			} else {
+				slog.Info("paper_sl_hit", "symbol", pos.Symbol, "price", currentPrice, "sl", pos.StopLoss)
+			}
 			m.handleHardSLFill(ctx, pos, fakeOrder(pos.SLOrderID, pos.StopLoss, pos.Quantity))
 			return true
 		}
@@ -949,6 +958,7 @@ func (m *PositionManager) handleTrailingSLFill(ctx context.Context, pos *domain.
 	avgClose := computeAvgClosePrice(*pos, o.AvgPrice)
 	pnl := (pos.EntryPrice - avgClose) * pos.OriginalQty
 	pnl = math.Round(pnl*1e8) / 1e8
+	pnl = calcFinalPnl(pnl, *pos)
 	result := "PARTIAL_WIN"
 	if pnl <= 0 {
 		result = "BREAKEVEN"
@@ -972,6 +982,9 @@ func (m *PositionManager) handleHardSLFill(ctx context.Context, pos *domain.Posi
 	closeReason := "HARD_SL"
 	if pos.BreakevenMoved {
 		result = "BREAKEVEN"
+		if pnl > 0 {
+			result = "PARTIAL_WIN"
+		}
 		closeReason = "BREAKEVEN_SL"
 	}
 	m.persistClose(ctx, *pos, o.AvgPrice, pnl, result, closeReason)
