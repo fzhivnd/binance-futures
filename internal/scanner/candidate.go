@@ -9,7 +9,7 @@ type CandleProvider interface {
 
 func mapFundingToScore(rate float64) float64 {
 	switch {
-	case rate >= -0.002:
+	case rate > -0.002:
 		return 0
 	case rate >= -0.005:
 		// linear 40–60 between -0.002 and -0.005
@@ -19,7 +19,7 @@ func mapFundingToScore(rate float64) float64 {
 		// linear 60–80 between -0.005 and -0.01
 		t := (rate - (-0.005)) / (-0.01 - (-0.005))
 		return 60 + t*20
-	case rate > -0.02:
+	case rate >= -0.021:
 		// linear 80–90 between -0.01 and -0.02
 		t := (rate - (-0.01)) / (-0.02 - (-0.01))
 		return 80 + t*10
