@@ -306,7 +306,7 @@ func setDefaults(cfg *Config) {
 	}
 	// Phase 3: LLM defaults
 	if cfg.LLM.Model == "" {
-		cfg.LLM.Model = "gpt-4.1-mini"
+		cfg.LLM.Model = "gpt-5-mini"
 	}
 
 	if cfg.LLM.TimeoutSecs == 0 {
@@ -404,7 +404,7 @@ func setDefaults(cfg *Config) {
 		cfg.Memory.EmbeddingDimensions = 1536
 	}
 	if cfg.Memory.TopSimilar == 0 {
-		cfg.Memory.TopSimilar = 3
+		cfg.Memory.TopSimilar = 5
 	}
 	if cfg.Memory.MinSimilarity == 0 {
 		cfg.Memory.MinSimilarity = 0.75
@@ -413,7 +413,7 @@ func setDefaults(cfg *Config) {
 		cfg.Memory.MaxMemoryAge = "90d"
 	}
 	if cfg.Memory.SummarizerModel == "" {
-		cfg.Memory.SummarizerModel = "gpt-4.1-mini"
+		cfg.Memory.SummarizerModel = "gpt-5-mini"
 	}
 }
 

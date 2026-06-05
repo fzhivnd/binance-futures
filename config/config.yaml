@@ -85,7 +85,7 @@ memory:
   enabled: true
   embedding_model: "text-embedding-3-small"
   embedding_dimensions: 1536
-  top_similar: 3
+  top_similar: 5
   min_similarity: 0.75
   embed_skips: true
   max_memory_age: "90d"
