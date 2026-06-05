@@ -115,7 +115,7 @@ func (a *App) scanFn(ctx context.Context, window scheduler.WindowType) error {
 		return nil
 	}
 
-	// Skip LLM call during the first 10 minutes of the frontrun window (T-30m to
+	// Skip LLM call during the first 20 minutes of the frontrun window (T-40m to
 	// T-20m) to allow candle backfill to finish processing.
 
 	if window == scheduler.WindowFrontrun {
