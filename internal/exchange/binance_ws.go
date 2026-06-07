@@ -104,8 +104,8 @@ func (w *WSConnection) connect(ctx context.Context) error {
 }
 
 func (w *WSConnection) readLoop(ctx context.Context, conn *websocket.Conn) error {
-	staleTicker := time.NewTicker(w.staleTimeout / 2)
-	defer staleTicker.Stop()
+	//staleTicker := time.NewTicker(w.staleTimeout / 2)
+	//defer staleTicker.Stop()
 
 	pingTicker := time.NewTicker(w.pingInterval)
 	defer pingTicker.Stop()
@@ -144,14 +144,14 @@ func (w *WSConnection) readLoop(ctx context.Context, conn *websocket.Conn) error
 				return fmt.Errorf("ping: %w", err)
 			}
 
-		case <-staleTicker.C:
-			w.mu.Lock()
-			last := w.lastMessage
-			w.mu.Unlock()
-			if time.Since(last) > w.staleTimeout {
-				conn.Close(websocket.StatusNormalClosure, "stale")
-				return fmt.Errorf("stale connection: no message for %s", w.staleTimeout)
-			}
+			//case <-staleTicker.C:
+			//	w.mu.Lock()
+			//	last := w.lastMessage
+			//	w.mu.Unlock()
+			//	if time.Since(last) > w.staleTimeout {
+			//		conn.Close(websocket.StatusNormalClosure, "stale")
+			//		return fmt.Errorf("stale connection: no message for %s", w.staleTimeout)
+			//	}
 		}
 	}
 }
