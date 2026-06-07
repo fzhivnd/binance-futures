@@ -32,16 +32,42 @@ func NewBinanceClient(apiKey, apiSecret, baseURL string) *BinanceClient {
 	}
 }
 
-func (c *BinanceClient) GetExchangeInfo(ctx context.Context) (*ExchangeInfoResponse, error) {
+func (c *BinanceClient) GetExchangeInfo(ctx context.Context) (*ExchangeInfoCache, error) {
 	body, err := c.get(ctx, "/fapi/v1/exchangeInfo", nil, false)
 	if err != nil {
 		return nil, err
 	}
-	var resp ExchangeInfoResponse
-	if err := json.Unmarshal(body, &resp); err != nil {
+	var raw ExchangeInfoResponse
+	if err := json.Unmarshal(body, &raw); err != nil {
 		return nil, fmt.Errorf("parse exchangeInfo: %w", err)
 	}
-	return &resp, nil
+	cache := &ExchangeInfoCache{
+		Symbols: make(map[string]SymbolRules, len(raw.Symbols)),
+	}
+	for _, s := range raw.Symbols {
+		rules := SymbolRules{
+			Symbol: s.Symbol,
+		}
+
+		for _, f := range s.Filters {
+			switch f.FilterType {
+
+			case "LOT_SIZE":
+				rules.StepSize, _ = strconv.ParseFloat(f.StepSize, 64)
+				rules.MinQty, _ = strconv.ParseFloat(f.MinQty, 64)
+				rules.MaxQty, _ = strconv.ParseFloat(f.MaxQty, 64)
+
+			case "PRICE_FILTER":
+				rules.TickSize, _ = strconv.ParseFloat(f.TickSize, 64)
+			}
+		}
+
+		if rules.StepSize > 0 && rules.TickSize > 0 {
+			cache.Symbols[s.Symbol] = rules
+		}
+	}
+
+	return cache, nil
 }
 
 func (c *BinanceClient) GetFundingInfo(ctx context.Context) ([]FundingInfoItem, error) {
@@ -111,10 +137,12 @@ func (c *BinanceClient) CancelOrder(ctx context.Context, symbol, orderID string)
 	params.Set("orderId", orderID)
 	params.Set("timestamp", strconv.FormatInt(time.Now().UnixMilli(), 10))
 
-	sig := c.sign(params.Encode())
-	params.Set("signature", sig)
+	query := params.Encode()
+	sig := c.sign(query)
 
-	_, err := c.delete(ctx, "/fapi/v1/order", params)
+	fullQuery := query + "&signature=" + sig
+
+	_, err := c.delete(ctx, "/fapi/v1/order", fullQuery)
 	return err
 }
 
@@ -136,10 +164,8 @@ func (c *BinanceClient) GetPositionRisk(ctx context.Context, symbol string) (*Po
 	params.Set("symbol", symbol)
 	params.Set("timestamp", strconv.FormatInt(time.Now().UnixMilli(), 10))
 
-	sig := c.sign(params.Encode())
-	params.Set("signature", sig)
+	body, err := c.getSigned(ctx, "/fapi/v2/positionRisk", params)
 
-	body, err := c.get(ctx, "/fapi/v2/positionRisk", params, true)
 	if err != nil {
 		return nil, err
 	}
@@ -157,9 +183,8 @@ func (c *BinanceClient) GetPositionRisk(ctx context.Context, symbol string) (*Po
 func (c *BinanceClient) GetOpenOrders(ctx context.Context) ([]OpenOrderResponse, error) {
 	params := url.Values{}
 	params.Set("timestamp", strconv.FormatInt(time.Now().UnixMilli(), 10))
-	params.Set("signature", c.sign(params.Encode()))
 
-	body, err := c.get(ctx, "/fapi/v1/openOrders", params, true)
+	body, err := c.getSigned(ctx, "/fapi/v1/openOrders", params)
 	if err != nil {
 		return nil, err
 	}
@@ -174,9 +199,8 @@ func (c *BinanceClient) GetOpenOrders(ctx context.Context) ([]OpenOrderResponse,
 func (c *BinanceClient) GetAllPositionRisk(ctx context.Context) ([]PositionRiskResponse, error) {
 	params := url.Values{}
 	params.Set("timestamp", strconv.FormatInt(time.Now().UnixMilli(), 10))
-	params.Set("signature", c.sign(params.Encode()))
 
-	body, err := c.get(ctx, "/fapi/v2/positionRisk", params, true)
+	body, err := c.getSigned(ctx, "/fapi/v2/positionRisk", params)
 	if err != nil {
 		return nil, err
 	}
@@ -398,10 +422,7 @@ func (c *BinanceClient) GetAccount(ctx context.Context) (*AccountResponse, error
 	params := url.Values{}
 	params.Set("timestamp", strconv.FormatInt(time.Now().UnixMilli(), 10))
 
-	sig := c.sign(params.Encode())
-	params.Set("signature", sig)
-
-	body, err := c.get(ctx, "/fapi/v2/account", params, true)
+	body, err := c.getSigned(ctx, "/fapi/v2/account", params)
 	if err != nil {
 		return nil, err
 	}
@@ -442,6 +463,23 @@ func (c *BinanceClient) get(ctx context.Context, path string, params url.Values,
 	return c.do(req)
 }
 
+func (c *BinanceClient) getSigned(ctx context.Context, path string, params url.Values) ([]byte, error) {
+	query := params.Encode()
+	sig := c.sign(query)
+	query = query + "&signature=" + sig
+	u := c.baseURL + path
+	if query != "" {
+		u += "?" + query
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("X-MBX-APIKEY", c.apiKey)
+	return c.do(req)
+}
+
 func (c *BinanceClient) post(ctx context.Context, path string, params url.Values) ([]byte, error) {
 	body := ""
 	if params != nil {
@@ -472,12 +510,17 @@ func (c *BinanceClient) put(ctx context.Context, path string, params url.Values)
 	return c.do(req)
 }
 
-func (c *BinanceClient) delete(ctx context.Context, path string, params url.Values) ([]byte, error) {
-	u := c.baseURL + path + "?" + params.Encode()
+func (c *BinanceClient) delete(ctx context.Context, path string, query string) ([]byte, error) {
+	u := c.baseURL + path
+	if query != "" {
+		u += "?" + query
+	}
+
 	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, u, nil)
 	if err != nil {
 		return nil, err
 	}
+
 	req.Header.Set("X-MBX-APIKEY", c.apiKey)
 	return c.do(req)
 }

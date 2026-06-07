@@ -3,6 +3,7 @@ package execution
 import (
 	"context"
 	"fmt"
+	"math"
 	"strconv"
 	"time"
 
@@ -11,11 +12,17 @@ import (
 )
 
 type LiveExecutor struct {
-	client *exchange.BinanceClient
+	client       *exchange.BinanceClient
+	exchangeInfo *exchange.ExchangeInfoCache
 }
 
-func NewLiveExecutor(client *exchange.BinanceClient) *LiveExecutor {
-	return &LiveExecutor{client: client}
+type symbolRule struct {
+	StepSize float64
+	TickSize float64
+}
+
+func NewLiveExecutor(client *exchange.BinanceClient, exchangeInfo *exchange.ExchangeInfoCache) *LiveExecutor {
+	return &LiveExecutor{client: client, exchangeInfo: exchangeInfo}
 }
 
 func (l *LiveExecutor) PlaceMarketOrder(ctx context.Context, req domain.OrderRequest) (*domain.OrderResult, error) {
@@ -23,7 +30,7 @@ func (l *LiveExecutor) PlaceMarketOrder(ctx context.Context, req domain.OrderReq
 		Symbol:   req.Symbol,
 		Side:     string(req.Side),
 		Type:     "MARKET",
-		Quantity: formatQty(req.Quantity),
+		Quantity: l.formatQty(req.Symbol, req.Quantity),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("binance market order: %w", err)
@@ -45,8 +52,8 @@ func (l *LiveExecutor) PlaceLimitOrder(ctx context.Context, req domain.OrderRequ
 		Symbol:   req.Symbol,
 		Side:     string(req.Side),
 		Type:     "LIMIT",
-		Quantity: formatQty(req.Quantity),
-		Price:    formatQty(req.Price),
+		Quantity: l.formatQty(req.Symbol, req.Quantity),
+		Price:    l.formatPrice(req.Symbol, req.Price),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("binance limit order: %w", err)
@@ -68,9 +75,9 @@ func (l *LiveExecutor) PlaceStopLimitOrder(ctx context.Context, req domain.Order
 		Symbol:     req.Symbol,
 		Side:       string(req.Side),
 		Type:       string(req.Type),
-		Quantity:   formatQty(req.Quantity),
-		Price:      formatQty(req.Price),
-		StopPrice:  formatQty(req.StopPrice),
+		Quantity:   l.formatQty(req.Symbol, req.Quantity),
+		Price:      l.formatPrice(req.Symbol, req.Price),
+		StopPrice:  l.formatPrice(req.Symbol, req.StopPrice),
 		ReduceOnly: req.ReduceOnly,
 	})
 	if err != nil {
@@ -93,8 +100,8 @@ func (l *LiveExecutor) PlaceStopMarketOrder(ctx context.Context, req domain.Orde
 		Symbol:     req.Symbol,
 		Side:       string(req.Side),
 		Type:       string(req.Type),
-		Quantity:   formatQty(req.Quantity),
-		StopPrice:  formatQty(req.StopPrice),
+		Quantity:   l.formatQty(req.Symbol, req.Quantity),
+		StopPrice:  l.formatPrice(req.Symbol, req.StopPrice),
 		ReduceOnly: req.ReduceOnly,
 	})
 	if err != nil {
@@ -117,9 +124,9 @@ func (l *LiveExecutor) PlaceTrailingStopOrder(ctx context.Context, req TrailingS
 		Symbol:       req.Symbol,
 		Side:         string(req.Side),
 		Type:         string(domain.OrderTypeTrailingStop),
-		Quantity:     formatQty(req.Quantity),
+		Quantity:     l.formatQty(req.Symbol, req.Quantity),
 		ReduceOnly:   req.ReduceOnly,
-		CallbackRate: formatQty(req.CallbackRate),
+		CallbackRate: fmt.Sprintf("%.2f", req.CallbackRate),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("binance trailing stop order: %w", err)
@@ -186,6 +193,33 @@ func (l *LiveExecutor) SetLeverage(ctx context.Context, symbol string, leverage 
 	return l.client.SetLeverage(ctx, symbol, leverage)
 }
 
-func formatQty(v float64) string {
-	return strconv.FormatFloat(v, 'f', 8, 64)
+func (l *LiveExecutor) formatQty(symbol string, v float64) string {
+	step := l.rules(symbol).StepSize
+	v = roundDown(v, step)
+	return strconv.FormatFloat(v, 'f', -1, 64)
+}
+
+func (l *LiveExecutor) formatPrice(symbol string, v float64) string {
+	tick := l.rules(symbol).TickSize
+	v = roundDown(v, tick)
+	return strconv.FormatFloat(v, 'f', -1, 64)
+}
+
+func roundDown(value, step float64) float64 {
+	if step == 0 {
+		return value
+	}
+	return math.Floor(value/step) * step
+}
+
+func (l *LiveExecutor) rules(symbol string) symbolRule {
+	r, ok := l.exchangeInfo.Symbols[symbol]
+	if !ok {
+		return symbolRule{}
+	}
+
+	return symbolRule{
+		StepSize: r.StepSize,
+		TickSize: r.TickSize,
+	}
 }

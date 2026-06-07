@@ -46,6 +46,17 @@ type ExchangeInfoResponse struct {
 	Symbols []SymbolInfo `json:"symbols"`
 }
 
+type ExchangeInfoCache struct {
+	Symbols map[string]SymbolRules
+}
+
+type SymbolRules struct {
+	Symbol   string
+	StepSize float64
+	TickSize float64
+	MinQty   float64
+	MaxQty   float64
+}
 type SymbolInfo struct {
 	Symbol       string   `json:"symbol"`
 	Status       string   `json:"status"`
