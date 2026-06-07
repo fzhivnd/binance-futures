@@ -129,7 +129,7 @@ func (a *App) Run(
 	}
 
 	if a.cfg.App.Mode == "live" {
-		a.executor = telemetry.NewInstrumentedExecutor(execution.NewLiveExecutor(binanceClient))
+		a.executor = telemetry.NewInstrumentedExecutor(execution.NewLiveExecutor(binanceClient, info))
 	} else {
 		a.executor = telemetry.NewInstrumentedExecutor(execution.NewPaperExecutor(
 			a.cfg.App.PaperBalance,
