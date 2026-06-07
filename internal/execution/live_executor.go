@@ -71,56 +71,55 @@ func (l *LiveExecutor) PlaceLimitOrder(ctx context.Context, req domain.OrderRequ
 }
 
 func (l *LiveExecutor) PlaceStopLimitOrder(ctx context.Context, req domain.OrderRequest) (*domain.OrderResult, error) {
-	resp, err := l.client.NewOrder(ctx, exchange.NewOrderRequest{
-		Symbol:     req.Symbol,
-		Side:       string(req.Side),
-		Type:       string(req.Type),
-		Quantity:   l.formatQty(req.Symbol, req.Quantity),
-		Price:      l.formatPrice(req.Symbol, req.Price),
-		StopPrice:  l.formatPrice(req.Symbol, req.StopPrice),
-		ReduceOnly: req.ReduceOnly,
+	resp, err := l.client.NewAlgoOrder(ctx, exchange.NewOrderRequest{
+		Symbol:       req.Symbol,
+		Side:         string(req.Side),
+		Type:         string(req.Type),
+		Quantity:     l.formatQty(req.Symbol, req.Quantity),
+		TriggerPrice: l.formatPrice(req.Symbol, req.Price),
+		Price:        l.formatPrice(req.Symbol, req.StopPrice),
+		ReduceOnly:   req.ReduceOnly,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("binance stop-limit order: %w", err)
 	}
 	return &domain.OrderResult{
-		OrderID:   strconv.FormatInt(resp.OrderID, 10),
+		OrderID:   strconv.FormatInt(resp.AlgoId, 10),
 		Symbol:    resp.Symbol,
 		Side:      domain.Side(resp.Side),
-		FillPrice: resp.AvgPrice,
-		Quantity:  resp.ExecutedQty,
-		Status:    resp.Status,
+		FillPrice: resp.Price,
+		Quantity:  resp.Quantity,
+		Status:    resp.AlgoStatus,
 		IsPaper:   false,
 		Timestamp: time.UnixMilli(resp.UpdateTime),
 	}, nil
 }
 
 func (l *LiveExecutor) PlaceStopMarketOrder(ctx context.Context, req domain.OrderRequest) (*domain.OrderResult, error) {
-	resp, err := l.client.NewOrder(ctx, exchange.NewOrderRequest{
-		Symbol:     req.Symbol,
-		Side:       string(req.Side),
-		Type:       string(req.Type),
-		Quantity:   l.formatQty(req.Symbol, req.Quantity),
-		StopPrice:  l.formatPrice(req.Symbol, req.StopPrice),
-		ReduceOnly: req.ReduceOnly,
+	resp, err := l.client.NewAlgoOrder(ctx, exchange.NewOrderRequest{
+		Symbol:        req.Symbol,
+		Side:          string(req.Side),
+		Type:          string(req.Type),
+		ClosePosition: req.ClosePosition,
+		Price:         l.formatPrice(req.Symbol, req.Price),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("binance stop-market order: %w", err)
 	}
 	return &domain.OrderResult{
-		OrderID:   strconv.FormatInt(resp.OrderID, 10),
+		OrderID:   strconv.FormatInt(resp.AlgoId, 10),
 		Symbol:    resp.Symbol,
 		Side:      domain.Side(resp.Side),
-		FillPrice: resp.AvgPrice,
-		Quantity:  resp.ExecutedQty,
-		Status:    resp.Status,
+		FillPrice: resp.Price,
+		Quantity:  resp.Quantity,
+		Status:    resp.AlgoStatus,
 		IsPaper:   false,
 		Timestamp: time.UnixMilli(resp.UpdateTime),
 	}, nil
 }
 
 func (l *LiveExecutor) PlaceTrailingStopOrder(ctx context.Context, req TrailingStopRequest) (*domain.OrderResult, error) {
-	resp, err := l.client.NewOrder(ctx, exchange.NewOrderRequest{
+	resp, err := l.client.NewAlgoOrder(ctx, exchange.NewOrderRequest{
 		Symbol:       req.Symbol,
 		Side:         string(req.Side),
 		Type:         string(domain.OrderTypeTrailingStop),
@@ -132,19 +131,19 @@ func (l *LiveExecutor) PlaceTrailingStopOrder(ctx context.Context, req TrailingS
 		return nil, fmt.Errorf("binance trailing stop order: %w", err)
 	}
 	return &domain.OrderResult{
-		OrderID:   strconv.FormatInt(resp.OrderID, 10),
+		OrderID:   strconv.FormatInt(resp.AlgoId, 10),
 		Symbol:    resp.Symbol,
 		Side:      domain.Side(resp.Side),
-		FillPrice: resp.AvgPrice,
-		Quantity:  resp.ExecutedQty,
-		Status:    resp.Status,
+		FillPrice: resp.Price,
+		Quantity:  resp.Quantity,
+		Status:    resp.AlgoStatus,
 		IsPaper:   false,
 		Timestamp: time.UnixMilli(resp.UpdateTime),
 	}, nil
 }
 
 func (l *LiveExecutor) CancelOrder(ctx context.Context, symbol string, orderID string) error {
-	return l.client.CancelOrder(ctx, symbol, orderID)
+	return l.client.CancelAlgoOrder(ctx, orderID)
 }
 
 func (l *LiveExecutor) GetPosition(ctx context.Context, symbol string) (*domain.Position, error) {

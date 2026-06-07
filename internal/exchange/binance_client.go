@@ -131,6 +131,47 @@ func (c *BinanceClient) NewOrder(ctx context.Context, req NewOrderRequest) (*New
 	return &resp, nil
 }
 
+func (c *BinanceClient) NewAlgoOrder(ctx context.Context, req NewOrderRequest) (*NewAlgoOrderResponse, error) {
+	params := url.Values{}
+	params.Set("algoType", "CONDITIONAL")
+	params.Set("symbol", req.Symbol)
+	params.Set("side", req.Side)
+	params.Set("type", req.Type)
+	if req.Quantity != "" {
+		params.Set("quantity", req.Quantity)
+	}
+	if req.ClosePosition {
+		params.Set("closePosition", "true")
+	}
+	if req.Price != "" {
+		params.Set("price", req.Price)
+		params.Set("timeInForce", "GTC")
+	}
+	if req.TriggerPrice != "" {
+		params.Set("triggerPrice", req.TriggerPrice)
+	}
+	if req.ReduceOnly {
+		params.Set("reduceOnly", "true")
+	}
+	if req.CallbackRate != "" {
+		params.Set("callbackRate", req.CallbackRate)
+	}
+	params.Set("timestamp", strconv.FormatInt(time.Now().UnixMilli(), 10))
+
+	sig := c.sign(params.Encode())
+	params.Set("signature", sig)
+
+	body, err := c.post(ctx, "/fapi/v1/algoOrder", params)
+	if err != nil {
+		return nil, err
+	}
+	var resp NewAlgoOrderResponse
+	if err := json.Unmarshal(body, &resp); err != nil {
+		return nil, fmt.Errorf("parse newOrder: %w", err)
+	}
+	return &resp, nil
+}
+
 func (c *BinanceClient) CancelOrder(ctx context.Context, symbol, orderID string) error {
 	params := url.Values{}
 	params.Set("symbol", symbol)
@@ -143,6 +184,20 @@ func (c *BinanceClient) CancelOrder(ctx context.Context, symbol, orderID string)
 	fullQuery := query + "&signature=" + sig
 
 	_, err := c.delete(ctx, "/fapi/v1/order", fullQuery)
+	return err
+}
+
+func (c *BinanceClient) CancelAlgoOrder(ctx context.Context, orderID string) error {
+	params := url.Values{}
+	params.Set("algoId", strings.TrimSpace(orderID))
+	params.Set("timestamp", strconv.FormatInt(time.Now().UnixMilli(), 10))
+
+	query := params.Encode()
+	sig := c.sign(query)
+
+	fullQuery := query + "&signature=" + sig
+
+	_, err := c.delete(ctx, "/fapi/v1/algoOrder", fullQuery)
 	return err
 }
 
