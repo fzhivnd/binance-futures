@@ -164,12 +164,11 @@ func rehydratePosition(
 	// Place missing SL.
 	if slOrderID == "" {
 		slOrder, err := executor.PlaceStopMarketOrder(ctx, domain.OrderRequest{
-			Symbol:     symbol,
-			Side:       domain.SideBuy,
-			Type:       domain.OrderTypeStopMarket,
-			Quantity:   qty,
-			StopPrice:  stopLoss,
-			ReduceOnly: true,
+			Symbol:        symbol,
+			Side:          domain.SideBuy,
+			Type:          domain.OrderTypeStopMarket,
+			Price:         stopLoss,
+			ClosePosition: true,
 		})
 		if err != nil {
 			slog.Error("rehydrate: place SL failed", "symbol", symbol, "error", err)
@@ -187,7 +186,7 @@ func rehydratePosition(
 			Type:       domain.OrderTypeTakeProfit,
 			Quantity:   tp1Qty,
 			StopPrice:  takeProfit,
-			Price:      takeProfit * 0.99,
+			Price:      takeProfit * 0.9,
 			ReduceOnly: true,
 		})
 		if err != nil {
@@ -326,12 +325,11 @@ func replaceMissingOrders(
 			}
 		}
 		slOrder, err := executor.PlaceStopMarketOrder(ctx, domain.OrderRequest{
-			Symbol:     symbol,
-			Side:       domain.SideBuy,
-			Type:       domain.OrderTypeStopMarket,
-			Quantity:   pos.Quantity,
-			StopPrice:  pos.StopLoss,
-			ReduceOnly: true,
+			Symbol:        symbol,
+			Side:          domain.SideBuy,
+			Type:          domain.OrderTypeStopMarket,
+			Price:         pos.StopLoss,
+			ClosePosition: true,
 		})
 		if err != nil {
 			return fmt.Errorf("replace SL: %w", err)
@@ -354,7 +352,7 @@ func replaceMissingOrders(
 			Type:       domain.OrderTypeTakeProfit,
 			Quantity:   tp1Qty,
 			StopPrice:  pos.TakeProfit,
-			Price:      pos.TakeProfit * 0.99,
+			Price:      pos.TakeProfit * 0.9,
 			ReduceOnly: true,
 		})
 		if err != nil {

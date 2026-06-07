@@ -12,12 +12,12 @@ const (
 type OrderType string
 
 const (
-	OrderTypeMarket         OrderType = "MARKET"
-	OrderTypeLimit          OrderType = "LIMIT"
-	OrderTypeStop           OrderType = "STOP"                 // stop-limit SL (Binance Futures)
-	OrderTypeStopMarket     OrderType = "STOP_MARKET"          // stop-market SL — guaranteed fill, no limit price
-	OrderTypeTakeProfit     OrderType = "TAKE_PROFIT"          // take-profit-limit TP (Binance Futures)
-	OrderTypeTrailingStop   OrderType = "TRAILING_STOP_MARKET" // native Binance trailing stop
+	OrderTypeMarket       OrderType = "MARKET"
+	OrderTypeLimit        OrderType = "LIMIT"
+	OrderTypeStop         OrderType = "STOP"                 // stop-limit SL (Binance Futures)
+	OrderTypeStopMarket   OrderType = "STOP_MARKET"          // stop-market SL — guaranteed fill, no limit price
+	OrderTypeTakeProfit   OrderType = "TAKE_PROFIT"          // take-profit-limit TP (Binance Futures)
+	OrderTypeTrailingStop OrderType = "TRAILING_STOP_MARKET" // native Binance trailing stop
 )
 
 type EntryMode string
@@ -29,13 +29,14 @@ const (
 )
 
 type OrderRequest struct {
-	Symbol     string
-	Side       Side
-	Type       OrderType
-	Quantity   float64
-	Price      float64  // limit fill price
-	StopPrice  float64  // trigger price for STOP / TAKE_PROFIT orders
-	ReduceOnly bool
+	Symbol        string
+	Side          Side
+	Type          OrderType
+	Quantity      float64
+	Price         float64 // limit fill price
+	StopPrice     float64 // trigger price for STOP / TAKE_PROFIT orders
+	ReduceOnly    bool
+	ClosePosition bool
 }
 
 type OrderResult struct {

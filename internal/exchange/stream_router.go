@@ -21,6 +21,7 @@ func NewUserDataRouter(handler func(UserDataEvent)) *UserDataRouter {
 }
 
 func (r *UserDataRouter) Handle(msgType string, data []byte) {
+	slog.Info("received message", "type", msgType, "data", string(data))
 	if msgType != "ORDER_TRADE_UPDATE" {
 		return
 	}

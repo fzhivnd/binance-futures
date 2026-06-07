@@ -201,12 +201,11 @@ func (m *PositionManager) check(ctx context.Context, pos domain.Position) {
 			}
 
 			newSL, err := m.executor.PlaceStopMarketOrder(ctx, domain.OrderRequest{
-				Symbol:     pos.Symbol,
-				Side:       domain.SideBuy,
-				Type:       domain.OrderTypeStopMarket,
-				Quantity:   pos.Quantity,
-				StopPrice:  pos.EntryPrice,
-				ReduceOnly: true,
+				Symbol:        pos.Symbol,
+				Side:          domain.SideBuy,
+				Type:          domain.OrderTypeStopMarket,
+				Price:         pos.EntryPrice,
+				ClosePosition: true,
 			})
 			if err != nil {
 				slog.Error("replace SL at breakeven failed", "symbol", pos.Symbol, "error", err)
@@ -472,6 +471,7 @@ func (m *PositionManager) cancelAllOrders(ctx context.Context, pos domain.Positi
 // HandleUserDataEvent is called by the user data stream router on every ORDER_TRADE_UPDATE.
 func (m *PositionManager) HandleUserDataEvent(event exchange.UserDataEvent) {
 	o := event.Order
+	slog.Info("HandleUserDataEvent", "event", event)
 	if o.OrderStatus != "FILLED" {
 		return
 	}
@@ -519,13 +519,12 @@ func (m *PositionManager) HandleUserDataEvent(event exchange.UserDataEvent) {
 		// expected close order types — proceed
 	default:
 		if o.ReduceOnly {
-			slog.Warn("unexpected reduce-only fill ignored",
+			slog.Warn("retrieved reduce-only fill",
 				"symbol", o.Symbol,
 				"order_type", o.OrderType,
 				"order_id", o.OrderID,
 			)
 		}
-		return
 	}
 
 	positions, err := m.cache.GetActivePositions(ctx)
@@ -606,15 +605,14 @@ func (m *PositionManager) finalizeSLTP(
 
 	tp1SizePct := m.cfg.Execution.TP1SizePct / 100
 	tp1Qty := filledQty * tp1SizePct
-	tpLimit := takeProfit * 0.99
+	tpLimit := takeProfit * 0.9
 
 	slOrder, slErr := m.executor.PlaceStopMarketOrder(ctx, domain.OrderRequest{
-		Symbol:     pending.Symbol,
-		Side:       domain.SideBuy,
-		Type:       domain.OrderTypeStopMarket,
-		Quantity:   filledQty,
-		StopPrice:  stopLoss,
-		ReduceOnly: true,
+		Symbol:        pending.Symbol,
+		Side:          domain.SideBuy,
+		Type:          domain.OrderTypeStopMarket,
+		Price:         stopLoss,
+		ClosePosition: true,
 	})
 	if slErr != nil {
 		slog.Error("finalizeSLTP: place SL failed, position will not be activated",
@@ -808,12 +806,11 @@ func (m *PositionManager) retryProtection(ctx context.Context, pos domain.Positi
 
 	if pp.NeedsSL {
 		slOrder, err := m.executor.PlaceStopMarketOrder(ctx, domain.OrderRequest{
-			Symbol:     pos.Symbol,
-			Side:       domain.SideBuy,
-			Type:       domain.OrderTypeStopMarket,
-			Quantity:   pp.Quantity,
-			StopPrice:  pp.StopLoss,
-			ReduceOnly: true,
+			Symbol:        pos.Symbol,
+			Side:          domain.SideBuy,
+			Type:          domain.OrderTypeStopMarket,
+			Price:         pp.StopLoss,
+			ClosePosition: true,
 		})
 		if err != nil {
 			slog.Error("retryProtection: SL still failing", "symbol", pos.Symbol, "error", err)
@@ -828,7 +825,7 @@ func (m *PositionManager) retryProtection(ctx context.Context, pos domain.Positi
 	}
 
 	if pp.NeedsTP {
-		tpLimit := pp.TakeProfit * 0.99
+		tpLimit := pp.TakeProfit * 0.9
 		tpOrder, err := m.executor.PlaceStopLimitOrder(ctx, domain.OrderRequest{
 			Symbol:     pos.Symbol,
 			Side:       domain.SideBuy,
@@ -912,12 +909,11 @@ func (m *PositionManager) handleTP1Fill(ctx context.Context, pos *domain.Positio
 
 	// 3. Place breakeven SL for the trailing portion (entry price as safety net)
 	beOrder, err := m.executor.PlaceStopMarketOrder(ctx, domain.OrderRequest{
-		Symbol:     pos.Symbol,
-		Side:       domain.SideBuy,
-		Type:       domain.OrderTypeStopMarket,
-		Quantity:   remainingQty,
-		StopPrice:  pos.EntryPrice,
-		ReduceOnly: true,
+		Symbol:        pos.Symbol,
+		Side:          domain.SideBuy,
+		Type:          domain.OrderTypeStopMarket,
+		Price:         pos.EntryPrice,
+		ClosePosition: true,
 	})
 	if err != nil {
 		slog.Warn("place breakeven SL for trailing failed", "symbol", pos.Symbol, "error", err)
@@ -1169,7 +1165,7 @@ func (m *PositionManager) checkPreSettlement(ctx context.Context, pos domain.Pos
 func (m *PositionManager) widenTP1(ctx context.Context, pos *domain.Position, _ *domain.FundingRate) {
 	newTPPct := m.cfg.Execution.TpPct + math.Abs(pos.FundingRateAtEntry*100)
 	newTP := pos.EntryPrice * (1 - newTPPct/100)
-	newTPLimit := newTP * 0.99
+	newTPLimit := newTP * 0.9
 
 	oldTPPct := m.cfg.Execution.TpPct
 	slog.Info("pre_settlement_tp_widened",

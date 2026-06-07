@@ -198,6 +198,20 @@ func (e *ExecutionEngine) execute(
 		// Non-fatal: reconciler will catch this on next startup if WS misses the fill.
 	}
 
+	pos := domain.Position{
+		Symbol:             pending.Symbol,
+		Side:               domain.SideSell,
+		OriginalQty:        order.Quantity,
+		Leverage:           e.cfg.Trading.Leverage,
+		EntryMode:          domain.EntryMode(pending.Window),
+		IsPaper:            e.cfg.App.Mode == "paper",
+		OriginalConfidence: pending.Confidence,
+		FundingRateAtEntry: pending.FundingRateAtEntry,
+	}
+	if err := e.cache.SetActivePosition(ctx, pos); err != nil {
+		slog.Error("failed to store entry position", "symbol", candidate.Symbol, "error", err)
+	}
+
 	// Paper mode: executor fills synchronously — the user-data WS doesn't exist in paper mode.
 	// Finalize SL/TP immediately using the order fill price.
 	if e.cfg.App.Mode == "paper" && e.posMgr != nil {
