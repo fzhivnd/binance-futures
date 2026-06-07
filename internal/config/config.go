@@ -216,7 +216,7 @@ func setDefaults(cfg *Config) {
 		cfg.Trading.MaxPositions = 2
 	}
 	if cfg.Trading.Leverage == 0 {
-		cfg.Trading.Leverage = 20
+		cfg.Trading.Leverage = 10
 	}
 	if cfg.Trading.PositionSizePct == 0 {
 		cfg.Trading.PositionSizePct = 3.0
