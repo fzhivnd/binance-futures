@@ -12,6 +12,7 @@ import (
 
 type StateCache interface {
 	GetActivePositions(ctx context.Context) ([]domain.Position, error)
+	GetActivePosition(ctx context.Context, symbol string) (*domain.Position, error)
 	SetActivePosition(ctx context.Context, pos domain.Position) error
 	RemovePosition(ctx context.Context, symbol string) error
 	IsOnCooldown(ctx context.Context) (bool, error)
@@ -24,8 +25,8 @@ type StateCache interface {
 
 	// Phase 7: market order placed, waiting for WS fill confirmation before placing SL/TP
 	SetPendingEntry(ctx context.Context, entry domain.PendingEntry) error
-	GetPendingEntry(ctx context.Context, orderID string) (*domain.PendingEntry, error)
-	RemovePendingEntry(ctx context.Context, orderID string) error
+	GetPendingEntry(ctx context.Context, tradeID string) (*domain.PendingEntry, error)
+	RemovePendingEntry(ctx context.Context, tradeID string) error
 	GetAllPendingEntries(ctx context.Context) ([]domain.PendingEntry, error)
 
 	// Phase 7: position open but SL/TP placement failed, needs retry

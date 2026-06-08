@@ -29,25 +29,27 @@ const (
 )
 
 type OrderRequest struct {
-	Symbol        string
-	Side          Side
-	Type          OrderType
-	Quantity      float64
-	Price         float64 // limit fill price
-	StopPrice     float64 // trigger price for STOP / TAKE_PROFIT orders
-	ReduceOnly    bool
-	ClosePosition bool
+	Symbol           string
+	Side             Side
+	Type             OrderType
+	Quantity         float64
+	Price            float64 // limit fill price
+	StopPrice        float64 // trigger price for STOP / TAKE_PROFIT orders
+	ReduceOnly       bool
+	ClosePosition    bool
+	NewClientOrderID string
 }
 
 type OrderResult struct {
-	OrderID   string
-	Symbol    string
-	Side      Side
-	FillPrice float64
-	Quantity  float64
-	Status    string
-	IsPaper   bool
-	Timestamp time.Time
+	OrderID       string
+	Symbol        string
+	Side          Side
+	FillPrice     float64
+	Quantity      float64
+	Status        string
+	IsPaper       bool
+	Timestamp     time.Time
+	ClientOrderId string
 }
 
 type Balance struct {

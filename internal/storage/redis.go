@@ -59,6 +59,24 @@ func (r *RedisStateCache) GetActivePositions(ctx context.Context) ([]domain.Posi
 	return positions, nil
 }
 
+func (r *RedisStateCache) GetActivePosition(ctx context.Context, symbol string) (*domain.Position, error) {
+	positions, err := r.GetActivePositions(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var pos *domain.Position
+	for i := range positions {
+		if positions[i].Symbol == symbol {
+			pos = &positions[i]
+			break
+		}
+	}
+	if pos == nil {
+		return nil, fmt.Errorf("position not found")
+	}
+	return pos, nil
+}
+
 func (r *RedisStateCache) SetActivePosition(ctx context.Context, pos domain.Position) error {
 	data, err := json.Marshal(pos)
 	if err != nil {
@@ -142,7 +160,7 @@ func (r *RedisStateCache) SetPendingEntry(ctx context.Context, entry domain.Pend
 	if err != nil {
 		return err
 	}
-	key := keyPendingEntryPrefix + entry.OrderID
+	key := keyPendingEntryPrefix + entry.TradeId.String()
 	ttl := time.Until(entry.ExpiresAt)
 	if ttl <= 0 {
 		ttl = 60 * time.Second
@@ -150,8 +168,8 @@ func (r *RedisStateCache) SetPendingEntry(ctx context.Context, entry domain.Pend
 	return r.client.Set(ctx, key, data, ttl).Err()
 }
 
-func (r *RedisStateCache) GetPendingEntry(ctx context.Context, orderID string) (*domain.PendingEntry, error) {
-	val, err := r.client.Get(ctx, keyPendingEntryPrefix+orderID).Result()
+func (r *RedisStateCache) GetPendingEntry(ctx context.Context, tradeID string) (*domain.PendingEntry, error) {
+	val, err := r.client.Get(ctx, keyPendingEntryPrefix+tradeID).Result()
 	if err == redis.Nil {
 		return nil, nil
 	}
@@ -165,8 +183,8 @@ func (r *RedisStateCache) GetPendingEntry(ctx context.Context, orderID string) (
 	return &entry, nil
 }
 
-func (r *RedisStateCache) RemovePendingEntry(ctx context.Context, orderID string) error {
-	return r.client.Del(ctx, keyPendingEntryPrefix+orderID).Err()
+func (r *RedisStateCache) RemovePendingEntry(ctx context.Context, tradeID string) error {
+	return r.client.Del(ctx, keyPendingEntryPrefix+tradeID).Err()
 }
 
 func (r *RedisStateCache) GetAllPendingEntries(ctx context.Context) ([]domain.PendingEntry, error) {

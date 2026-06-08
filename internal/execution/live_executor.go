@@ -27,23 +27,25 @@ func NewLiveExecutor(client *exchange.BinanceClient, exchangeInfo *exchange.Exch
 
 func (l *LiveExecutor) PlaceMarketOrder(ctx context.Context, req domain.OrderRequest) (*domain.OrderResult, error) {
 	resp, err := l.client.NewOrder(ctx, exchange.NewOrderRequest{
-		Symbol:   req.Symbol,
-		Side:     string(req.Side),
-		Type:     "MARKET",
-		Quantity: l.formatQty(req.Symbol, req.Quantity),
+		Symbol:           req.Symbol,
+		Side:             string(req.Side),
+		Type:             string(domain.OrderTypeMarket),
+		Quantity:         l.formatQty(req.Symbol, req.Quantity),
+		NewClientOrderId: req.NewClientOrderID,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("binance market order: %w", err)
 	}
 	return &domain.OrderResult{
-		OrderID:   strconv.FormatInt(resp.OrderID, 10),
-		Symbol:    resp.Symbol,
-		Side:      domain.Side(resp.Side),
-		FillPrice: resp.AvgPrice,
-		Quantity:  resp.ExecutedQty,
-		Status:    resp.Status,
-		IsPaper:   false,
-		Timestamp: time.UnixMilli(resp.UpdateTime),
+		OrderID:       strconv.FormatInt(resp.OrderID, 10),
+		Symbol:        resp.Symbol,
+		Side:          domain.Side(resp.Side),
+		FillPrice:     resp.AvgPrice,
+		Quantity:      resp.ExecutedQty,
+		Status:        resp.Status,
+		IsPaper:       false,
+		Timestamp:     time.UnixMilli(resp.UpdateTime),
+		ClientOrderId: resp.ClientOrderId,
 	}, nil
 }
 
