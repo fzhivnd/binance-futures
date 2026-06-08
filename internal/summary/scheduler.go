@@ -24,7 +24,7 @@ func NewDailyScheduler(service *Service, onComplete func(context.Context, *domai
 func (d *DailyScheduler) Run(ctx context.Context) {
 	for {
 		now := time.Now().UTC()
-		nextMidnight := now.Truncate(24 * time.Hour).Add(24 * time.Hour).Add(1 * time.Hour)
+		nextMidnight := now.Truncate(24 * time.Hour).Add(24 * time.Hour).Add(2 * time.Hour)
 		delay := nextMidnight.Sub(now)
 
 		select {
