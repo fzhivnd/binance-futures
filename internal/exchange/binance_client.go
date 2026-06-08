@@ -115,6 +115,9 @@ func (c *BinanceClient) NewOrder(ctx context.Context, req NewOrderRequest) (*New
 	if req.CallbackRate != "" {
 		params.Set("callbackRate", req.CallbackRate)
 	}
+	if req.NewClientOrderId != "" {
+		params.Set("newClientOrderId", req.NewClientOrderId)
+	}
 	params.Set("timestamp", strconv.FormatInt(time.Now().UnixMilli(), 10))
 
 	sig := c.sign(params.Encode())

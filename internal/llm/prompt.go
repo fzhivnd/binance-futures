@@ -53,7 +53,7 @@ Risk:
 
 Parameters:
 - 20x leverage
-- Hard SL ≈ 5%
+- Hard SL ≈ 3%
 - TP1 ≈ 2%
 
 ENTRY MODES

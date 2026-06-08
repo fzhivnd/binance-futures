@@ -63,6 +63,7 @@ type Position struct {
 // has not yet been confirmed via ORDER_TRADE_UPDATE. SL/TP are placed only
 // after the WS fill confirmation arrives.
 type PendingEntry struct {
+	TradeId            uuid.UUID
 	OrderID            string
 	Symbol             string
 	Quantity           float64

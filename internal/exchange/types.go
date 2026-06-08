@@ -75,28 +75,30 @@ type Filter struct {
 
 // NewOrderRequest for POST /fapi/v1/order
 type NewOrderRequest struct {
-	Symbol        string
-	Side          string
-	Type          string
-	Quantity      string
-	Price         string
-	TriggerPrice  string
-	StopPrice     string
-	ReduceOnly    bool
-	CallbackRate  string
-	ClosePosition bool // for TRAILING_STOP_MARKET orders (Phase 5)
+	Symbol           string
+	Side             string
+	Type             string
+	Quantity         string
+	Price            string
+	TriggerPrice     string
+	StopPrice        string
+	ReduceOnly       bool
+	CallbackRate     string
+	NewClientOrderId string
+	ClosePosition    bool // for TRAILING_STOP_MARKET orders (Phase 5)
 }
 
 // NewOrderResponse from Binance after placing order
 type NewOrderResponse struct {
-	OrderID     int64   `json:"orderId"`
-	Symbol      string  `json:"symbol"`
-	Status      string  `json:"status"`
-	Side        string  `json:"side"`
-	Type        string  `json:"type"`
-	AvgPrice    float64 `json:"avgPrice,string"`
-	ExecutedQty float64 `json:"executedQty,string"`
-	UpdateTime  int64   `json:"updateTime"`
+	OrderID       int64   `json:"orderId"`
+	Symbol        string  `json:"symbol"`
+	Status        string  `json:"status"`
+	Side          string  `json:"side"`
+	Type          string  `json:"type"`
+	AvgPrice      float64 `json:"avgPrice,string"`
+	ExecutedQty   float64 `json:"executedQty,string"`
+	UpdateTime    int64   `json:"updateTime"`
+	ClientOrderId string  `json:"clientOrderId"`
 }
 
 type NewAlgoOrderResponse struct {

@@ -33,6 +33,15 @@ func (i *InstrumentedStateCache) GetActivePositions(ctx context.Context) ([]doma
 	return res, err
 }
 
+func (i *InstrumentedStateCache) GetActivePosition(ctx context.Context, symbol string) (*domain.Position, error) {
+	start := time.Now()
+	res, err := i.inner.GetActivePosition(ctx, symbol)
+	if n := i.pollTick.Add(1); n%i.sampleRate == 0 {
+		record("StateCache.GetActivePosition", time.Since(start), err, "symbol", symbol)
+	}
+	return res, err
+}
+
 func (i *InstrumentedStateCache) SetActivePosition(ctx context.Context, pos domain.Position) error {
 	start := time.Now()
 	err := i.inner.SetActivePosition(ctx, pos)

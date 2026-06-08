@@ -12,6 +12,8 @@ import (
 	"futures/internal/notify"
 	"futures/internal/scheduler"
 	"futures/internal/storage"
+
+	"github.com/google/uuid"
 )
 
 type MarketDataProvider interface {
@@ -154,37 +156,21 @@ func (e *ExecutionEngine) execute(
 	margin := 1.0 // for testing live trade
 	qty := margin * float64(e.cfg.Trading.Leverage) / candidate.MarkPrice
 
-	order, err := e.executor.PlaceMarketOrder(ctx, domain.OrderRequest{
-		Symbol:   candidate.Symbol,
-		Side:     domain.SideSell,
-		Type:     domain.OrderTypeMarket,
-		Quantity: qty,
-	})
-	if err != nil {
-		return fmt.Errorf("place order: %w", err)
-	}
-
-	slog.Info("market order placed, awaiting WS fill confirmation",
-		"symbol", candidate.Symbol,
-		"order_id", order.OrderID,
-		"qty", order.Quantity,
-	)
-
 	now := time.Now()
 
 	fundingRate, _ := e.market.GetFundingRate(candidate.Symbol)
-
+	tradeId := uuid.New()
 	pending := domain.PendingEntry{
-		OrderID:            order.OrderID,
+		TradeId:            tradeId,
 		Symbol:             candidate.Symbol,
-		Quantity:           order.Quantity,
+		Quantity:           qty,
 		PositionSizePct:    positionSizePct,
 		Confidence:         confidence,
-		Window:             string(window.ToEntryMode()),
-		TpPct:              e.cfg.Execution.TpPct, // pure 2% — Phase 8
+		Window:             window.ToEntryMode(),
+		TpPct:              e.cfg.Execution.TpPct,
 		LLMDecision:        llmDecision,
 		CreatedAt:          now,
-		ExpiresAt:          now.Add(60 * time.Second),
+		ExpiresAt:          now.Add(70 * time.Second),
 		FundingRateAtEntry: fundingRate,
 		FundingRate:        candidate.FundingRate,
 		Change24h:          candidate.DailyROI,
@@ -192,11 +178,29 @@ func (e *ExecutionEngine) execute(
 		IndicatorSnapshot:  sc.Indicators,
 		BTCContext:         sc.BTCContext,
 	}
-
 	if err := e.cache.SetPendingEntry(ctx, pending); err != nil {
 		slog.Error("failed to store pending entry", "symbol", candidate.Symbol, "error", err)
 		// Non-fatal: reconciler will catch this on next startup if WS misses the fill.
 	}
+
+	order, err := e.executor.PlaceMarketOrder(ctx, domain.OrderRequest{
+		Symbol:           candidate.Symbol,
+		Side:             domain.SideSell,
+		Type:             domain.OrderTypeMarket,
+		Quantity:         qty,
+		NewClientOrderID: tradeId.String(),
+	})
+	if err != nil {
+		_ = e.cache.RemovePendingEntry(ctx, tradeId.String())
+		return fmt.Errorf("place order: %w", err)
+	}
+
+	slog.Info("market order placed, awaiting WS fill confirmation",
+		"symbol", candidate.Symbol,
+		"order_id", order.OrderID,
+		"trade_id", tradeId.String(),
+		"qty", order.Quantity,
+	)
 
 	pos := domain.Position{
 		Symbol:             pending.Symbol,
@@ -207,6 +211,8 @@ func (e *ExecutionEngine) execute(
 		IsPaper:            e.cfg.App.Mode == "paper",
 		OriginalConfidence: pending.Confidence,
 		FundingRateAtEntry: pending.FundingRateAtEntry,
+		EntryPrice:         order.FillPrice,
+		TradeID:            tradeId,
 	}
 	if err := e.cache.SetActivePosition(ctx, pos); err != nil {
 		slog.Error("failed to store entry position", "symbol", candidate.Symbol, "error", err)

@@ -132,6 +132,7 @@ func (m *PositionManager) check(ctx context.Context, pos domain.Position) {
 
 	currentPrice, ok := m.market.GetPrice(pos.Symbol)
 	if !ok || currentPrice == 0 {
+		slog.Info("check position skipped, price not exist", "symbol", pos.Symbol)
 		return
 	}
 
@@ -477,13 +478,15 @@ func (m *PositionManager) HandleUserDataEvent(event exchange.UserDataEvent) {
 	}
 
 	ctx := context.Background()
+	tradeId := o.ClientOrderID
+
 	orderIDStr := orderIDToString(o.OrderID)
 
 	// Phase 7: detect entry fills by looking up the PendingEntry — keyed by order ID.
 	// We don't rely on ReduceOnly=false because close orders can't match a pending entry
 	// (they're placed after finalizeSLTP runs), so the lookup is the correct discriminator.
-	if o.OrderType == "MARKET" && o.Side == "SELL" {
-		pending, err := m.cache.GetPendingEntry(ctx, orderIDStr)
+	if o.OrderType == string(domain.OrderTypeMarket) && o.Side == string(domain.SideSell) {
+		pending, err := m.cache.GetPendingEntry(ctx, tradeId)
 		if err != nil {
 			slog.Error("HandleUserDataEvent: get pending entry", "error", err)
 			return
@@ -492,7 +495,7 @@ func (m *PositionManager) HandleUserDataEvent(event exchange.UserDataEvent) {
 			fillPrice := o.AvgPrice
 			if fillPrice == 0 {
 				slog.Warn("WS fill has zero AvgPrice, skipping finalize",
-					"symbol", o.Symbol, "order_id", orderIDStr)
+					"symbol", o.Symbol, "order_id", orderIDStr, "trade_id", tradeId)
 				return
 			}
 			var tradeTime time.Time
@@ -527,20 +530,9 @@ func (m *PositionManager) HandleUserDataEvent(event exchange.UserDataEvent) {
 		}
 	}
 
-	positions, err := m.cache.GetActivePositions(ctx)
+	pos, err := m.cache.GetActivePosition(ctx, o.Symbol)
 	if err != nil {
-		slog.Error("HandleUserDataEvent: get active positions", "error", err)
-		return
-	}
-
-	var pos *domain.Position
-	for i := range positions {
-		if positions[i].Symbol == o.Symbol {
-			pos = &positions[i]
-			break
-		}
-	}
-	if pos == nil {
+		slog.Error("HandleUserDataEvent: get active position", "symbol", o.Symbol, "error", err)
 		return
 	}
 
@@ -668,7 +660,6 @@ func (m *PositionManager) finalizeSLTP(
 	}
 	tpOrderID := tpOrder.OrderID
 
-	tradeID := uuid.New()
 	isPaper := m.cfg.App.Mode == "paper"
 
 	pos := domain.Position{
@@ -683,13 +674,12 @@ func (m *PositionManager) finalizeSLTP(
 		TakeProfit:         takeProfit,
 		SLOrderID:          slOrderID,
 		TPOrderID:          tpOrderID,
-		TradeID:            tradeID,
+		TradeID:            pending.TradeId,
 		OpenedAt:           openedAt,
 		IsPaper:            isPaper,
 		HighSinceEntry:     avgFillPrice,
 		LowSinceEntry:      avgFillPrice,
 		OriginalConfidence: pending.Confidence,
-		// Phase 8: funding fee tracking
 		FundingRateAtEntry: pending.FundingRateAtEntry,
 	}
 	if pending.LLMDecision != nil {
@@ -698,7 +688,7 @@ func (m *PositionManager) finalizeSLTP(
 	}
 
 	trade := &domain.Trade{
-		ID:          tradeID,
+		ID:          pending.TradeId,
 		Symbol:      pending.Symbol,
 		Side:        domain.SideSell,
 		EntryMode:   domain.EntryMode(pending.Window),
@@ -737,7 +727,7 @@ func (m *PositionManager) finalizeSLTP(
 	if err := m.cache.SetActivePosition(ctx, pos); err != nil {
 		slog.Error("finalizeSLTP: set active position", "symbol", pending.Symbol, "error", err)
 	}
-	if err := m.cache.RemovePendingEntry(ctx, pending.OrderID); err != nil {
+	if err := m.cache.RemovePendingEntry(ctx, pending.TradeId.String()); err != nil {
 		slog.Warn("finalizeSLTP: remove pending entry", "symbol", pending.Symbol, "error", err)
 	}
 
@@ -1102,6 +1092,9 @@ func (m *PositionManager) checkPreSettlementAll(ctx context.Context) {
 		return
 	}
 	for _, pos := range positions {
+		if pos.EntryMode == domain.EntryModeAfter {
+			continue
+		}
 		m.checkPreSettlement(ctx, pos)
 		m.checkSettlementPassed(ctx, pos)
 	}
