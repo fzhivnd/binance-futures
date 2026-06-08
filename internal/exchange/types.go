@@ -193,6 +193,7 @@ type BookTickerEvent struct {
 type UserDataEvent struct {
 	EventType string           `json:"e"`
 	EventTime int64            `json:"E"`
+	TradeTime int64            `json:"T"`
 	Order     OrderTradeUpdate `json:"o"`
 }
 
