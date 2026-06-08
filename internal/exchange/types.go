@@ -167,15 +167,16 @@ type fundingRateRaw struct {
 
 // OpenOrderResponse is one entry from GET /fapi/v1/openOrders.
 type OpenOrderResponse struct {
-	Symbol     string  `json:"symbol"`
-	OrderID    int64   `json:"orderId"`
-	Side       string  `json:"side"`
-	Type       string  `json:"type"`
-	StopPrice  float64 `json:"stopPrice,string"`
-	Price      float64 `json:"price,string"`
-	OrigQty    float64 `json:"origQty,string"`
-	Status     string  `json:"status"`
-	ReduceOnly bool    `json:"reduceOnly"`
+	Symbol        string  `json:"symbol"`
+	OrderID       int64   `json:"orderId"`
+	Side          string  `json:"side"`
+	Type          string  `json:"type"`
+	StopPrice     float64 `json:"stopPrice,string"`
+	Price         float64 `json:"price,string"`
+	OrigQty       float64 `json:"origQty,string"`
+	Status        string  `json:"status"`
+	ReduceOnly    bool    `json:"reduceOnly"`
+	ClientOrderId string  `json:"clientOrderId"`
 }
 
 // BookTickerEvent is one update from <symbol>@bookTicker stream.

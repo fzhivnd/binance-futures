@@ -92,7 +92,7 @@ Thesis:
 Post-settlement panic selling.
 
 Best when:
-- Funding extremely negative.
+- Funding extremely negative (-1.5% to -2.0%).
 - Pre-settlement signals unclear.
 - Squeeze risk elevated.
 

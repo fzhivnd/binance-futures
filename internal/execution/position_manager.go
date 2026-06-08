@@ -215,7 +215,7 @@ func (m *PositionManager) check(ctx context.Context, pos domain.Position) {
 			pos.StopLoss = pos.EntryPrice
 			pos.BreakevenMoved = true
 			if newSL != nil {
-				pos.SLOrderID = newSL.OrderID
+				pos.SLOrderID = newSL.ClientOrderId
 			}
 			updated = true
 			slog.Info("moved SL to breakeven", "symbol", pos.Symbol, "entry", pos.EntryPrice)
@@ -478,15 +478,13 @@ func (m *PositionManager) HandleUserDataEvent(event exchange.UserDataEvent) {
 	}
 
 	ctx := context.Background()
-	tradeId := o.ClientOrderID
-
-	orderIDStr := orderIDToString(o.OrderID)
+	orderId := o.ClientOrderID
 
 	// Phase 7: detect entry fills by looking up the PendingEntry — keyed by order ID.
 	// We don't rely on ReduceOnly=false because close orders can't match a pending entry
 	// (they're placed after finalizeSLTP runs), so the lookup is the correct discriminator.
 	if o.OrderType == string(domain.OrderTypeMarket) && o.Side == string(domain.SideSell) {
-		pending, err := m.cache.GetPendingEntry(ctx, tradeId)
+		pending, err := m.cache.GetPendingEntry(ctx, orderId)
 		if err != nil {
 			slog.Error("HandleUserDataEvent: get pending entry", "error", err)
 			return
@@ -495,7 +493,7 @@ func (m *PositionManager) HandleUserDataEvent(event exchange.UserDataEvent) {
 			fillPrice := o.AvgPrice
 			if fillPrice == 0 {
 				slog.Warn("WS fill has zero AvgPrice, skipping finalize",
-					"symbol", o.Symbol, "order_id", orderIDStr, "trade_id", tradeId)
+					"symbol", o.Symbol, "order_id", orderId)
 				return
 			}
 			var tradeTime time.Time
@@ -513,23 +511,6 @@ func (m *PositionManager) HandleUserDataEvent(event exchange.UserDataEvent) {
 		return
 	}
 
-	// Close-side order fills (SL, TP, trailing) — existing logic unchanged.
-	switch o.OrderType {
-	case string(domain.OrderTypeStopMarket),
-		string(domain.OrderTypeTakeProfit),
-		string(domain.OrderTypeLimit),
-		string(domain.OrderTypeTrailingStop):
-		// expected close order types — proceed
-	default:
-		if o.ReduceOnly {
-			slog.Warn("retrieved reduce-only fill",
-				"symbol", o.Symbol,
-				"order_type", o.OrderType,
-				"order_id", o.OrderID,
-			)
-		}
-	}
-
 	pos, err := m.cache.GetActivePosition(ctx, o.Symbol)
 	if err != nil {
 		slog.Error("HandleUserDataEvent: get active position", "symbol", o.Symbol, "error", err)
@@ -539,7 +520,7 @@ func (m *PositionManager) HandleUserDataEvent(event exchange.UserDataEvent) {
 	mu := m.lockPosition(o.Symbol)
 	defer mu.Unlock()
 
-	switch orderIDStr {
+	switch orderId {
 	case pos.TPOrderID:
 		if !pos.TP1Filled {
 			m.handleTP1Fill(ctx, pos, o)
@@ -557,13 +538,6 @@ func (m *PositionManager) HandleUserDataEvent(event exchange.UserDataEvent) {
 			m.recordClose(ctx, *pos, o.AvgPrice, "MANUAL", "MANUAL")
 		}
 	}
-}
-
-func orderIDToString(id int64) string {
-	if id == 0 {
-		return ""
-	}
-	return fmt.Sprintf("%d", id)
 }
 
 // ——————————————————————————————————————————————————————————
@@ -597,7 +571,7 @@ func (m *PositionManager) finalizeSLTP(
 
 	tp1SizePct := m.cfg.Execution.TP1SizePct / 100
 	tp1Qty := filledQty * tp1SizePct
-	tpLimit := takeProfit * 1.003
+	tpLimit := takeProfit * 1.001
 
 	slOrder, slErr := m.executor.PlaceStopMarketOrder(ctx, domain.OrderRequest{
 		Symbol:        pending.Symbol,
@@ -625,7 +599,7 @@ func (m *PositionManager) finalizeSLTP(
 		}
 		return
 	}
-	slOrderID := slOrder.OrderID
+	slOrderID := slOrder.ClientOrderId
 
 	tpOrder, tpErr := m.executor.PlaceStopLimitOrder(ctx, domain.OrderRequest{
 		Symbol:       pending.Symbol,
@@ -658,7 +632,7 @@ func (m *PositionManager) finalizeSLTP(
 		}
 		return
 	}
-	tpOrderID := tpOrder.OrderID
+	tpOrderID := tpOrder.ClientOrderId
 
 	isPaper := m.cfg.App.Mode == "paper"
 
@@ -806,7 +780,7 @@ func (m *PositionManager) retryProtection(ctx context.Context, pos domain.Positi
 			slog.Error("retryProtection: SL still failing", "symbol", pos.Symbol, "error", err)
 		} else {
 			pp.NeedsSL = false
-			pos.SLOrderID = slOrder.OrderID
+			pos.SLOrderID = slOrder.ClientOrderId
 			pos.StopLoss = pp.StopLoss
 			if err := m.cache.SetActivePosition(ctx, pos); err != nil {
 				slog.Error("retryProtection: update position", "symbol", pos.Symbol, "error", err)
@@ -815,7 +789,7 @@ func (m *PositionManager) retryProtection(ctx context.Context, pos domain.Positi
 	}
 
 	if pp.NeedsTP {
-		tpLimit := pp.TakeProfit * 1.003
+		tpLimit := pp.TakeProfit * 1.001
 		tpOrder, err := m.executor.PlaceStopLimitOrder(ctx, domain.OrderRequest{
 			Symbol:       pos.Symbol,
 			Side:         domain.SideBuy,
@@ -829,7 +803,7 @@ func (m *PositionManager) retryProtection(ctx context.Context, pos domain.Positi
 			slog.Error("retryProtection: TP still failing", "symbol", pos.Symbol, "error", err)
 		} else {
 			pp.NeedsTP = false
-			pos.TPOrderID = tpOrder.OrderID
+			pos.TPOrderID = tpOrder.ClientOrderId
 			pos.TakeProfit = pp.TakeProfit
 			if err := m.cache.SetActivePosition(ctx, pos); err != nil {
 				slog.Error("retryProtection: update position", "symbol", pos.Symbol, "error", err)
@@ -894,7 +868,7 @@ func (m *PositionManager) handleTP1Fill(ctx context.Context, pos *domain.Positio
 		return
 	}
 	if trailingOrder != nil {
-		pos.TrailingOrderID = trailingOrder.OrderID
+		pos.TrailingOrderID = trailingOrder.ClientOrderId
 	}
 
 	// 3. Place breakeven SL for the trailing portion (entry price as safety net)
@@ -908,7 +882,7 @@ func (m *PositionManager) handleTP1Fill(ctx context.Context, pos *domain.Positio
 	if err != nil {
 		slog.Warn("place breakeven SL for trailing failed", "symbol", pos.Symbol, "error", err)
 	} else if beOrder != nil {
-		pos.TrailingSLOrderID = beOrder.OrderID
+		pos.TrailingSLOrderID = beOrder.ClientOrderId
 	}
 
 	pos.Quantity = remainingQty
@@ -1158,7 +1132,7 @@ func (m *PositionManager) checkPreSettlement(ctx context.Context, pos domain.Pos
 func (m *PositionManager) widenTP1(ctx context.Context, pos *domain.Position, _ *domain.FundingRate) {
 	newTPPct := m.cfg.Execution.TpPct + math.Abs(pos.FundingRateAtEntry*100)
 	newTP := pos.EntryPrice * (1 - newTPPct/100)
-	newTPLimit := newTP * 1.003
+	newTPLimit := newTP * 1.001
 
 	oldTPPct := m.cfg.Execution.TpPct
 	slog.Info("pre_settlement_tp_widened",
@@ -1191,7 +1165,7 @@ func (m *PositionManager) widenTP1(ctx context.Context, pos *domain.Position, _ 
 		return
 	}
 	if newTPOrder != nil {
-		pos.TPOrderID = newTPOrder.OrderID
+		pos.TPOrderID = newTPOrder.ClientOrderId
 	}
 	pos.TakeProfit = newTP
 	pos.TPWidened = true

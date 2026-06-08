@@ -161,6 +161,9 @@ func (c *BinanceClient) NewAlgoOrder(ctx context.Context, req NewOrderRequest) (
 	if req.CallbackRate != "" {
 		params.Set("callbackRate", req.CallbackRate)
 	}
+	if req.NewClientOrderId != "" {
+		params.Set("clientAlgoId", req.NewClientOrderId)
+	}
 	params.Set("timestamp", strconv.FormatInt(time.Now().UnixMilli(), 10))
 
 	sig := c.sign(params.Encode())
@@ -178,10 +181,14 @@ func (c *BinanceClient) NewAlgoOrder(ctx context.Context, req NewOrderRequest) (
 	return &resp, nil
 }
 
-func (c *BinanceClient) CancelOrder(ctx context.Context, symbol, orderID string) error {
+func (c *BinanceClient) CancelOrder(ctx context.Context, symbol, orderID string, clientOrderId string) error {
 	params := url.Values{}
+	if clientOrderId != "" {
+		params.Set("origClientOrderId", clientOrderId)
+	} else {
+		params.Set("orderId", orderID)
+	}
 	params.Set("symbol", symbol)
-	params.Set("orderId", orderID)
 	params.Set("timestamp", strconv.FormatInt(time.Now().UnixMilli(), 10))
 
 	query := params.Encode()
@@ -193,9 +200,13 @@ func (c *BinanceClient) CancelOrder(ctx context.Context, symbol, orderID string)
 	return err
 }
 
-func (c *BinanceClient) CancelAlgoOrder(ctx context.Context, orderID string) error {
+func (c *BinanceClient) CancelAlgoOrder(ctx context.Context, orderID string, clientOrderId string) error {
 	params := url.Values{}
-	params.Set("algoId", strings.TrimSpace(orderID))
+	if clientOrderId != "" {
+		params.Set("clientAlgoId", clientOrderId)
+	} else {
+		params.Set("algoId", strings.TrimSpace(orderID))
+	}
 	params.Set("timestamp", strconv.FormatInt(time.Now().UnixMilli(), 10))
 
 	query := params.Encode()

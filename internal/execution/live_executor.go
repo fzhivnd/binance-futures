@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"strconv"
+	"strings"
 	"time"
 
 	"futures/internal/domain"
@@ -86,14 +87,15 @@ func (l *LiveExecutor) PlaceStopLimitOrder(ctx context.Context, req domain.Order
 		return nil, fmt.Errorf("binance stop-limit order: %w", err)
 	}
 	return &domain.OrderResult{
-		OrderID:   strconv.FormatInt(resp.AlgoId, 10),
-		Symbol:    resp.Symbol,
-		Side:      domain.Side(resp.Side),
-		FillPrice: resp.Price,
-		Quantity:  resp.Quantity,
-		Status:    resp.AlgoStatus,
-		IsPaper:   false,
-		Timestamp: time.UnixMilli(resp.UpdateTime),
+		OrderID:       strconv.FormatInt(resp.AlgoId, 10),
+		Symbol:        resp.Symbol,
+		Side:          domain.Side(resp.Side),
+		FillPrice:     resp.Price,
+		Quantity:      resp.Quantity,
+		Status:        resp.AlgoStatus,
+		IsPaper:       false,
+		Timestamp:     time.UnixMilli(resp.UpdateTime),
+		ClientOrderId: resp.ClientAlgoId,
 	}, nil
 }
 
@@ -109,14 +111,15 @@ func (l *LiveExecutor) PlaceStopMarketOrder(ctx context.Context, req domain.Orde
 		return nil, fmt.Errorf("binance stop-market order: %w", err)
 	}
 	return &domain.OrderResult{
-		OrderID:   strconv.FormatInt(resp.AlgoId, 10),
-		Symbol:    resp.Symbol,
-		Side:      domain.Side(resp.Side),
-		FillPrice: resp.Price,
-		Quantity:  resp.Quantity,
-		Status:    resp.AlgoStatus,
-		IsPaper:   false,
-		Timestamp: time.UnixMilli(resp.UpdateTime),
+		OrderID:       strconv.FormatInt(resp.AlgoId, 10),
+		Symbol:        resp.Symbol,
+		Side:          domain.Side(resp.Side),
+		FillPrice:     resp.Price,
+		Quantity:      resp.Quantity,
+		Status:        resp.AlgoStatus,
+		IsPaper:       false,
+		Timestamp:     time.UnixMilli(resp.UpdateTime),
+		ClientOrderId: resp.ClientAlgoId,
 	}, nil
 }
 
@@ -133,19 +136,31 @@ func (l *LiveExecutor) PlaceTrailingStopOrder(ctx context.Context, req TrailingS
 		return nil, fmt.Errorf("binance trailing stop order: %w", err)
 	}
 	return &domain.OrderResult{
-		OrderID:   strconv.FormatInt(resp.AlgoId, 10),
-		Symbol:    resp.Symbol,
-		Side:      domain.Side(resp.Side),
-		FillPrice: resp.Price,
-		Quantity:  resp.Quantity,
-		Status:    resp.AlgoStatus,
-		IsPaper:   false,
-		Timestamp: time.UnixMilli(resp.UpdateTime),
+		OrderID:       strconv.FormatInt(resp.AlgoId, 10),
+		Symbol:        resp.Symbol,
+		Side:          domain.Side(resp.Side),
+		FillPrice:     resp.Price,
+		Quantity:      resp.Quantity,
+		Status:        resp.AlgoStatus,
+		IsPaper:       false,
+		Timestamp:     time.UnixMilli(resp.UpdateTime),
+		ClientOrderId: resp.ClientAlgoId,
 	}, nil
 }
 
 func (l *LiveExecutor) CancelOrder(ctx context.Context, symbol string, orderID string) error {
-	return l.client.CancelAlgoOrder(ctx, orderID)
+	err := l.client.CancelOrder(ctx, symbol, "", orderID)
+	if err != nil {
+		if strings.Contains(err.Error(), "-2011") {
+			algoErr := l.client.CancelAlgoOrder(ctx, "", orderID)
+			if algoErr != nil {
+				return algoErr
+			}
+			return nil
+		}
+		return err
+	}
+	return nil
 }
 
 func (l *LiveExecutor) GetPosition(ctx context.Context, symbol string) (*domain.Position, error) {
@@ -203,8 +218,12 @@ func (l *LiveExecutor) formatQty(symbol string, v float64) string {
 
 func (l *LiveExecutor) formatPrice(symbol string, v float64) string {
 	tick := l.rules(symbol).TickSize
+	if tick == 0 {
+		return strconv.FormatFloat(v, 'f', 2, 64) // Safe default
+	}
 	v = roundDown(v, tick)
-	return strconv.FormatFloat(v, 'f', -1, 64)
+	precision := getPrecision(tick)
+	return strconv.FormatFloat(v, 'f', precision, 64)
 }
 
 func roundDown(value, step float64) float64 {
@@ -212,6 +231,17 @@ func roundDown(value, step float64) float64 {
 		return value
 	}
 	return math.Floor(value/step) * step
+}
+
+func getPrecision(tick float64) int {
+	tickStr := strconv.FormatFloat(tick, 'f', -1, 64)
+
+	if strings.Contains(tickStr, ".") {
+		parts := strings.Split(tickStr, ".")
+		return len(parts[1])
+	}
+
+	return 0
 }
 
 func (l *LiveExecutor) rules(symbol string) symbolRule {
