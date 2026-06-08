@@ -154,9 +154,13 @@ func rehydratePosition(
 		if o.ReduceOnly && o.Side == "BUY" {
 			switch o.Type {
 			case "STOP_MARKET":
-				slOrderID = fmt.Sprintf("%d", o.OrderID)
+				slOrderID = o.ClientOrderId
+			case "MARKET":
+				slOrderID = o.ClientOrderId
 			case "TAKE_PROFIT":
-				tpOrderID = fmt.Sprintf("%d", o.OrderID)
+				tpOrderID = o.ClientOrderId
+			case "LIMIT":
+				slOrderID = o.ClientOrderId
 			}
 		}
 	}
@@ -173,7 +177,7 @@ func rehydratePosition(
 		if err != nil {
 			slog.Error("rehydrate: place SL failed", "symbol", symbol, "error", err)
 		} else if slOrder != nil {
-			slOrderID = slOrder.OrderID
+			slOrderID = slOrder.ClientOrderId
 		}
 	}
 
@@ -186,13 +190,13 @@ func rehydratePosition(
 			Type:         domain.OrderTypeTakeProfit,
 			Quantity:     tp1Qty,
 			Price:        takeProfit,
-			TriggerPrice: takeProfit * 1.003,
+			TriggerPrice: takeProfit * 1.001,
 			ReduceOnly:   true,
 		})
 		if err != nil {
 			slog.Error("rehydrate: place TP1 failed", "symbol", symbol, "error", err)
 		} else if tpOrder != nil {
-			tpOrderID = tpOrder.OrderID
+			tpOrderID = tpOrder.ClientOrderId
 		}
 	}
 
@@ -335,7 +339,7 @@ func replaceMissingOrders(
 			return fmt.Errorf("replace SL: %w", err)
 		}
 		if slOrder != nil {
-			pos.SLOrderID = slOrder.OrderID
+			pos.SLOrderID = slOrder.ClientOrderId
 		}
 	}
 
@@ -352,14 +356,14 @@ func replaceMissingOrders(
 			Type:         domain.OrderTypeTakeProfit,
 			Quantity:     tp1Qty,
 			Price:        pos.TakeProfit,
-			TriggerPrice: pos.TakeProfit * 1.003,
+			TriggerPrice: pos.TakeProfit * 1.001,
 			ReduceOnly:   true,
 		})
 		if err != nil {
 			return fmt.Errorf("replace TP1: %w", err)
 		}
 		if tpOrder != nil {
-			pos.TPOrderID = tpOrder.OrderID
+			pos.TPOrderID = tpOrder.ClientOrderId
 		}
 	}
 

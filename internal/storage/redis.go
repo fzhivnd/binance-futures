@@ -3,6 +3,7 @@ package storage
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
@@ -170,7 +171,7 @@ func (r *RedisStateCache) SetPendingEntry(ctx context.Context, entry domain.Pend
 
 func (r *RedisStateCache) GetPendingEntry(ctx context.Context, tradeID string) (*domain.PendingEntry, error) {
 	val, err := r.client.Get(ctx, keyPendingEntryPrefix+tradeID).Result()
-	if err == redis.Nil {
+	if errors.Is(err, redis.Nil) {
 		return nil, nil
 	}
 	if err != nil {
