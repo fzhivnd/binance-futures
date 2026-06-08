@@ -479,6 +479,7 @@ func (m *PositionManager) HandleUserDataEvent(event exchange.UserDataEvent) {
 
 	ctx := context.Background()
 	orderId := o.ClientOrderID
+	o.TradeTime = event.TradeTime
 
 	// Phase 7: detect entry fills by looking up the PendingEntry — keyed by order ID.
 	// We don't rely on ReduceOnly=false because close orders can't match a pending entry
@@ -497,8 +498,8 @@ func (m *PositionManager) HandleUserDataEvent(event exchange.UserDataEvent) {
 				return
 			}
 			var tradeTime time.Time
-			if o.TradeTime > 0 {
-				tradeTime = time.UnixMilli(o.TradeTime).UTC()
+			if event.TradeTime > 0 {
+				tradeTime = time.UnixMilli(event.TradeTime).UTC()
 			} else {
 				tradeTime = time.Now()
 			}
