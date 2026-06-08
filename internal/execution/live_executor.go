@@ -78,8 +78,8 @@ func (l *LiveExecutor) PlaceStopLimitOrder(ctx context.Context, req domain.Order
 		Side:         string(req.Side),
 		Type:         string(req.Type),
 		Quantity:     l.formatQty(req.Symbol, req.Quantity),
-		TriggerPrice: l.formatPrice(req.Symbol, req.Price),
-		Price:        l.formatPrice(req.Symbol, req.StopPrice),
+		TriggerPrice: l.formatPrice(req.Symbol, req.TriggerPrice),
+		Price:        l.formatPrice(req.Symbol, req.Price),
 		ReduceOnly:   req.ReduceOnly,
 	})
 	if err != nil {
@@ -103,7 +103,7 @@ func (l *LiveExecutor) PlaceStopMarketOrder(ctx context.Context, req domain.Orde
 		Side:          string(req.Side),
 		Type:          string(req.Type),
 		ClosePosition: req.ClosePosition,
-		Price:         l.formatPrice(req.Symbol, req.Price),
+		TriggerPrice:  l.formatPrice(req.Symbol, req.TriggerPrice),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("binance stop-market order: %w", err)
@@ -165,11 +165,12 @@ func (l *LiveExecutor) GetPosition(ctx context.Context, symbol string) (*domain.
 		qty = -qty
 	}
 	return &domain.Position{
-		Symbol:     risk.Symbol,
-		Side:       side,
-		EntryPrice: risk.EntryPrice,
-		Quantity:   qty,
-		MarkPrice:  risk.MarkPrice,
+		Symbol:      risk.Symbol,
+		Side:        side,
+		EntryPrice:  risk.EntryPrice,
+		Quantity:    qty,
+		OriginalQty: qty,
+		MarkPrice:   risk.MarkPrice,
 	}, nil
 }
 

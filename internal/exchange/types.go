@@ -107,8 +107,8 @@ type NewAlgoOrderResponse struct {
 	Symbol       string  `json:"symbol"`
 	AlgoStatus   string  `json:"algoStatus"`
 	Side         string  `json:"side"`
-	Quantity     float64 `json:"quantity"`
-	Price        float64 `json:"price"`
+	Quantity     float64 `json:"quantity,string"`
+	Price        float64 `json:"price,string"`
 	UpdateTime   int64   `json:"updateTime"`
 }
 

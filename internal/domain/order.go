@@ -34,7 +34,7 @@ type OrderRequest struct {
 	Type             OrderType
 	Quantity         float64
 	Price            float64 // limit fill price
-	StopPrice        float64 // trigger price for STOP / TAKE_PROFIT orders
+	TriggerPrice     float64 // trigger price for STOP / TAKE_PROFIT orders
 	ReduceOnly       bool
 	ClosePosition    bool
 	NewClientOrderID string

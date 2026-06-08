@@ -36,7 +36,7 @@ func (i *InstrumentedExecutor) PlaceStopLimitOrder(ctx context.Context, req doma
 	start := time.Now()
 	res, err := i.inner.PlaceStopLimitOrder(ctx, req)
 	record("Executor.PlaceStopLimitOrder", time.Since(start), err,
-		"symbol", req.Symbol, "stop_price", req.StopPrice, "qty", req.Quantity)
+		"symbol", req.Symbol, "stop_price", req.Price, "qty", req.Quantity)
 	return res, err
 }
 
@@ -44,7 +44,7 @@ func (i *InstrumentedExecutor) PlaceStopMarketOrder(ctx context.Context, req dom
 	start := time.Now()
 	res, err := i.inner.PlaceStopMarketOrder(ctx, req)
 	record("Executor.PlaceStopMarketOrder", time.Since(start), err,
-		"symbol", req.Symbol, "stop_price", req.StopPrice, "qty", req.Quantity)
+		"symbol", req.Symbol, "stop_price", req.TriggerPrice, "qty", req.Quantity)
 	return res, err
 }
 

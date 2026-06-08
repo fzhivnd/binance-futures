@@ -597,13 +597,13 @@ func (m *PositionManager) finalizeSLTP(
 
 	tp1SizePct := m.cfg.Execution.TP1SizePct / 100
 	tp1Qty := filledQty * tp1SizePct
-	tpLimit := takeProfit * 0.9
+	tpLimit := takeProfit * 1.003
 
 	slOrder, slErr := m.executor.PlaceStopMarketOrder(ctx, domain.OrderRequest{
 		Symbol:        pending.Symbol,
 		Side:          domain.SideBuy,
 		Type:          domain.OrderTypeStopMarket,
-		Price:         stopLoss,
+		TriggerPrice:  stopLoss,
 		ClosePosition: true,
 	})
 	if slErr != nil {
@@ -628,13 +628,13 @@ func (m *PositionManager) finalizeSLTP(
 	slOrderID := slOrder.OrderID
 
 	tpOrder, tpErr := m.executor.PlaceStopLimitOrder(ctx, domain.OrderRequest{
-		Symbol:     pending.Symbol,
-		Side:       domain.SideBuy,
-		Type:       domain.OrderTypeTakeProfit,
-		Quantity:   tp1Qty,
-		StopPrice:  takeProfit,
-		Price:      tpLimit,
-		ReduceOnly: true,
+		Symbol:       pending.Symbol,
+		Side:         domain.SideBuy,
+		Type:         domain.OrderTypeTakeProfit,
+		Quantity:     tp1Qty,
+		TriggerPrice: tpLimit,
+		Price:        takeProfit,
+		ReduceOnly:   true,
 	})
 	if tpErr != nil {
 		slog.Error("finalizeSLTP: place TP1 failed, cancelling SL to retry both",
@@ -815,15 +815,15 @@ func (m *PositionManager) retryProtection(ctx context.Context, pos domain.Positi
 	}
 
 	if pp.NeedsTP {
-		tpLimit := pp.TakeProfit * 0.9
+		tpLimit := pp.TakeProfit * 1.003
 		tpOrder, err := m.executor.PlaceStopLimitOrder(ctx, domain.OrderRequest{
-			Symbol:     pos.Symbol,
-			Side:       domain.SideBuy,
-			Type:       domain.OrderTypeTakeProfit,
-			Quantity:   pp.TP1Qty,
-			StopPrice:  pp.TakeProfit,
-			Price:      tpLimit,
-			ReduceOnly: true,
+			Symbol:       pos.Symbol,
+			Side:         domain.SideBuy,
+			Type:         domain.OrderTypeTakeProfit,
+			Quantity:     pp.TP1Qty,
+			Price:        pp.TakeProfit,
+			TriggerPrice: tpLimit,
+			ReduceOnly:   true,
 		})
 		if err != nil {
 			slog.Error("retryProtection: TP still failing", "symbol", pos.Symbol, "error", err)
@@ -1158,7 +1158,7 @@ func (m *PositionManager) checkPreSettlement(ctx context.Context, pos domain.Pos
 func (m *PositionManager) widenTP1(ctx context.Context, pos *domain.Position, _ *domain.FundingRate) {
 	newTPPct := m.cfg.Execution.TpPct + math.Abs(pos.FundingRateAtEntry*100)
 	newTP := pos.EntryPrice * (1 - newTPPct/100)
-	newTPLimit := newTP * 0.9
+	newTPLimit := newTP * 1.003
 
 	oldTPPct := m.cfg.Execution.TpPct
 	slog.Info("pre_settlement_tp_widened",
@@ -1178,13 +1178,13 @@ func (m *PositionManager) widenTP1(ctx context.Context, pos *domain.Position, _ 
 	tp1Qty := pos.OriginalQty * tp1SizePct
 
 	newTPOrder, err := m.executor.PlaceStopLimitOrder(ctx, domain.OrderRequest{
-		Symbol:     pos.Symbol,
-		Side:       domain.SideBuy,
-		Type:       domain.OrderTypeTakeProfit,
-		Quantity:   tp1Qty,
-		StopPrice:  newTP,
-		Price:      newTPLimit,
-		ReduceOnly: true,
+		Symbol:       pos.Symbol,
+		Side:         domain.SideBuy,
+		Type:         domain.OrderTypeTakeProfit,
+		Quantity:     tp1Qty,
+		Price:        newTP,
+		TriggerPrice: newTPLimit,
+		ReduceOnly:   true,
 	})
 	if err != nil {
 		slog.Error("widenTP1: place new TP failed", "symbol", pos.Symbol, "error", err)
