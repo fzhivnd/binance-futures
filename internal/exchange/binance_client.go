@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -131,6 +132,7 @@ func (c *BinanceClient) NewOrder(ctx context.Context, req NewOrderRequest) (*New
 	if err := json.Unmarshal(body, &resp); err != nil {
 		return nil, fmt.Errorf("parse newOrder: %w", err)
 	}
+	slog.Info("binance_client new order", "response", resp)
 	return &resp, nil
 }
 
@@ -172,6 +174,7 @@ func (c *BinanceClient) NewAlgoOrder(ctx context.Context, req NewOrderRequest) (
 	if err := json.Unmarshal(body, &resp); err != nil {
 		return nil, fmt.Errorf("parse newOrder: %w", err)
 	}
+	slog.Info("binance_client new algo order", "response", resp)
 	return &resp, nil
 }
 

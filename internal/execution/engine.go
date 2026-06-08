@@ -195,24 +195,27 @@ func (e *ExecutionEngine) execute(
 		return fmt.Errorf("place order: %w", err)
 	}
 
+	price, _ := e.market.GetPrice(candidate.Symbol)
 	slog.Info("market order placed, awaiting WS fill confirmation",
 		"symbol", candidate.Symbol,
 		"order_id", order.OrderID,
 		"trade_id", tradeId.String(),
-		"qty", order.Quantity,
+		"qty", qty,
+		"fill_price", price,
 	)
-
 	pos := domain.Position{
 		Symbol:             pending.Symbol,
 		Side:               domain.SideSell,
-		OriginalQty:        order.Quantity,
+		OriginalQty:        qty,
+		Quantity:           qty,
 		Leverage:           e.cfg.Trading.Leverage,
 		EntryMode:          domain.EntryMode(pending.Window),
 		IsPaper:            e.cfg.App.Mode == "paper",
 		OriginalConfidence: pending.Confidence,
 		FundingRateAtEntry: pending.FundingRateAtEntry,
-		EntryPrice:         order.FillPrice,
+		EntryPrice:         price,
 		TradeID:            tradeId,
+		OpenedAt:           order.Timestamp,
 	}
 	if err := e.cache.SetActivePosition(ctx, pos); err != nil {
 		slog.Error("failed to store entry position", "symbol", candidate.Symbol, "error", err)
