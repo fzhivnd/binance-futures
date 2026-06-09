@@ -160,3 +160,16 @@ func FormatFundingEvent(e FundingEvent) string {
 		escapeMarkdownV2(e.Symbol),
 		e.FundingRate, e.FeePaid)
 }
+
+func FormatTp1Event(e Tp1Event) string {
+	closedAt := e.ClosedAt.UTC().Format("2006-01-02 15:04:05 UTC")
+	return fmt.Sprintf(
+		"🟢 *TP1 HIT* \\[%s\\] \n\n"+
+			"Symbol: `%s`\n"+
+			"Price: `%.4f%%`\n"+
+			"Time: `%s`\n",
+		escapeMarkdownV2(e.Symbol),
+		escapeMarkdownV2(e.Symbol),
+		e.AvgPrice,
+		escapeMarkdownV2(closedAt))
+}
