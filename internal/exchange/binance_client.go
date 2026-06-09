@@ -121,6 +121,8 @@ func (c *BinanceClient) NewOrder(ctx context.Context, req NewOrderRequest) (*New
 	}
 	params.Set("timestamp", strconv.FormatInt(time.Now().UnixMilli(), 10))
 
+	slog.Info("binance_client new order", "params", params.Encode())
+
 	sig := c.sign(params.Encode())
 	params.Set("signature", sig)
 
@@ -165,6 +167,8 @@ func (c *BinanceClient) NewAlgoOrder(ctx context.Context, req NewOrderRequest) (
 		params.Set("clientAlgoId", req.NewClientOrderId)
 	}
 	params.Set("timestamp", strconv.FormatInt(time.Now().UnixMilli(), 10))
+
+	slog.Info("binance_client new order", "params", params.Encode())
 
 	sig := c.sign(params.Encode())
 	params.Set("signature", sig)

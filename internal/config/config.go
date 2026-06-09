@@ -379,7 +379,7 @@ func setDefaults(cfg *Config) {
 
 	// Phase 8: PreSettlement defaults
 	if cfg.PreSettlement.CheckBeforeMinutes == 0 {
-		cfg.PreSettlement.CheckBeforeMinutes = 1
+		cfg.PreSettlement.CheckBeforeMinutes = 2
 	}
 	if cfg.PreSettlement.EmergencyCloseThreshold == 0 {
 		cfg.PreSettlement.EmergencyCloseThreshold = 0.75
