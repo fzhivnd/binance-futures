@@ -103,6 +103,6 @@ after_execution:
 
 pre_settlement:
   enabled: true
-  check_before_minutes: 1              # fire check at T-2m before settlement
+  check_before_minutes: 2              # fire check at T-2m before settlement
   emergency_close_threshold: 0.75     # close if loss > 0.75 * |funding_rate|
   widen_tp_on_miss: true               # widen TP1 to 2%+|funding_rate| if not filled

@@ -234,7 +234,9 @@ func roundDown(value, step float64) float64 {
 }
 
 func getPrecision(tick float64) int {
-	tickStr := strconv.FormatFloat(tick, 'f', -1, 64)
+	tickStr := strconv.FormatFloat(tick, 'f', 10, 64)
+
+	tickStr = strings.TrimRight(tickStr, "0")
 
 	if strings.Contains(tickStr, ".") {
 		parts := strings.Split(tickStr, ".")
