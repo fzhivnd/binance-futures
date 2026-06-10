@@ -50,8 +50,6 @@ func (r *PGMemoryRepository) Insert(ctx context.Context, memory *domain.TradeMem
 func (r *PGMemoryRepository) FindSimilar(
 	ctx context.Context,
 	embedding pgvector.Vector,
-	btcRegime string,
-	fundingBucket int,
 	limit int,
 ) ([]MemorySearchResult, error) {
 	cutoff := time.Now().Add(-r.maxAge)
@@ -70,11 +68,9 @@ func (r *PGMemoryRepository) FindSimilar(
 		FROM trade_memories
 		WHERE outcome IS NOT NULL
 		  AND created_at > $2
-		  AND btc_regime = $3
-		  AND ABS(funding_bucket - $4) <= 1
 		ORDER BY embedding <=> $1
-		LIMIT $5
-	`, embedding, cutoff, btcRegime, fundingBucket, limit)
+		LIMIT $3
+	`, embedding, cutoff, limit*3)
 	if err != nil {
 		return nil, err
 	}

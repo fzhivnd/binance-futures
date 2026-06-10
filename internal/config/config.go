@@ -407,7 +407,7 @@ func setDefaults(cfg *Config) {
 		cfg.Memory.TopSimilar = 5
 	}
 	if cfg.Memory.MinSimilarity == 0 {
-		cfg.Memory.MinSimilarity = 0.75
+		cfg.Memory.MinSimilarity = 0.7
 	}
 	if cfg.Memory.MaxMemoryAge == "" {
 		cfg.Memory.MaxMemoryAge = "90d"

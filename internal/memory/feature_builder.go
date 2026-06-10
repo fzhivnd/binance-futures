@@ -19,16 +19,16 @@ func BuildFeatureText(
 ) string {
 	var sb strings.Builder
 
-	sb.WriteString(fmt.Sprintf("funding_rate: %.2f%% | daily_roi: %.1f%% | composite_score: %.0f\n",
+	sb.WriteString(fmt.Sprintf("funding_rate: %.3f%% | daily_roi: %.2f%% | composite_score: %.1f\n",
 		candidate.FundingRate*100, candidate.DailyROI, score))
 
-	sb.WriteString(fmt.Sprintf("rsi_14_15m: %.1f | rsi_7_5m: %.1f | momentum_loss: %v\n",
+	sb.WriteString(fmt.Sprintf("rsi_14_15m: %.2f | rsi_7_5m: %.2f | momentum_loss: %v\n",
 		snap.RSI14_15m, snap.RSI7_5m, snap.MomentumLoss))
 
-	sb.WriteString(fmt.Sprintf("oi_delta_1h: %+.1f%% | oi_delta_15m: %+.1f%%\n",
+	sb.WriteString(fmt.Sprintf("oi_delta_1h: %+.2f%% | oi_delta_15m: %+.2f%%\n",
 		snap.OIDelta1h, snap.OIDelta15m))
 
-	sb.WriteString(fmt.Sprintf("atr_ratio: %.1f | vol_change_5m: %+.1f%% | volume_spike: %v\n",
+	sb.WriteString(fmt.Sprintf("atr_ratio: %.2f | vol_change_5m: %+.2f%% | volume_spike: %v\n",
 		snap.ATRRatio, snap.VolChange5m, snap.VolumeSpike))
 
 	if len(snap.Patterns) > 0 {
@@ -48,7 +48,7 @@ func BuildFeatureText(
 	}
 
 	if btc != nil {
-		sb.WriteString(fmt.Sprintf("btc_trend: %s | btc_momentum: %d | btc_rsi: %.1f | btc_breakout: %v | btc_change_1h: %+.2f%%\n",
+		sb.WriteString(fmt.Sprintf("btc_trend: %s | btc_momentum: %d | btc_rsi: %.2f | btc_breakout: %v | btc_change_1h: %+.2f%%\n",
 			btc.Trend, btc.MomentumScore, btc.RSI14_1h, btc.IsBreakout, btc.PriceChange1h))
 	}
 
