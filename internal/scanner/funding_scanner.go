@@ -36,19 +36,21 @@ func (s *FundingScanner) Scan(ctx context.Context) ([]domain.Candidate, error) {
 	var candidates []domain.Candidate
 	for symbol, rate := range rates {
 		if rate > s.cfg.MaxRate || rate < s.cfg.MinRate {
+			slog.Info("funding filter skip", "symbol", symbol, "rate", rate, "min", s.cfg.MinRate, "max", s.cfg.MaxRate)
 			continue
 		}
 		price, ok := s.market.GetPrice(symbol)
 		if !ok || price <= 0 {
+			slog.Info("price filter skip", "symbol", symbol, "rate", rate, "min", s.cfg.MinRate, "max", s.cfg.MaxRate)
 			continue
 		}
 		intervalHours := s.market.GetFundingIntervalHours(symbol)
 		if intervalHours == 1 {
-			slog.Debug("skipping 1h funding interval", "symbol", symbol)
+			slog.Info("skipping 1h funding interval", "symbol", symbol)
 			continue
 		}
 		if !settlementAlignedWithWindow(s.market, symbol) {
-			slog.Debug("skipping: funding not settling in this window", "symbol", symbol, "interval_hours", intervalHours)
+			slog.Info("skipping: funding not settling in this window", "symbol", symbol, "interval_hours", intervalHours)
 			continue
 		}
 		c := buildCandidate(symbol, rate, price, s.market)
