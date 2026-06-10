@@ -26,11 +26,10 @@ func (i *InstrumentedMemoryRepo) Insert(ctx context.Context, memory *domain.Trad
 	return err
 }
 
-func (i *InstrumentedMemoryRepo) FindSimilar(ctx context.Context, embedding pgvector.Vector, btcRegime string, fundingBucket int, limit int) ([]storage.MemorySearchResult, error) {
+func (i *InstrumentedMemoryRepo) FindSimilar(ctx context.Context, embedding pgvector.Vector, limit int) ([]storage.MemorySearchResult, error) {
 	start := time.Now()
-	res, err := i.inner.FindSimilar(ctx, embedding, btcRegime, fundingBucket, limit)
-	record("MemoryRepository.FindSimilar", time.Since(start), err,
-		"btc_regime", btcRegime, "funding_bucket", fundingBucket, "returned", len(res))
+	res, err := i.inner.FindSimilar(ctx, embedding, limit)
+	record("MemoryRepository.FindSimilar", time.Since(start), err, "returned", len(res))
 	return res, err
 }
 
