@@ -22,6 +22,7 @@ type Engine struct {
 	summarizer *Summarizer
 	repo       storage.MemoryRepository
 	enabled    bool
+	leverage   int
 }
 
 type EngineConfig struct {
@@ -30,6 +31,7 @@ type EngineConfig struct {
 	RetrieverCfg RetrieverConfig
 	LLMClient    *llm.Client
 	Repo         storage.MemoryRepository
+	Leverage     int
 }
 
 func NewEngine(cfg EngineConfig) *Engine {
@@ -43,6 +45,7 @@ func NewEngine(cfg EngineConfig) *Engine {
 		summarizer: NewSummarizer(cfg.LLMClient),
 		repo:       cfg.Repo,
 		enabled:    true,
+		leverage:   cfg.Leverage,
 	}
 }
 
@@ -293,7 +296,7 @@ func (e *Engine) ValidateSkips(ctx context.Context, checkPrice func(symbol strin
 	for _, mem := range pending {
 		slog.Info("skip validation", "symbol", mem.Symbol, "createdAt", mem.CreatedAt)
 		outcome, profitPct, err := checkPrice(mem.Symbol, mem.CreatedAt)
-		tradeROI := profitPct * 20
+		tradeROI := profitPct * float64(e.leverage)
 		if err != nil {
 			slog.Warn("skip validation price check failed", "symbol", mem.Symbol, "error", err)
 			continue

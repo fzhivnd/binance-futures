@@ -205,7 +205,7 @@ func (m *PositionManager) check(ctx context.Context, pos domain.Position) {
 				Symbol:        pos.Symbol,
 				Side:          domain.SideBuy,
 				Type:          domain.OrderTypeStopMarket,
-				Price:         pos.EntryPrice,
+				TriggerPrice:  stopPrice,
 				ClosePosition: true,
 			})
 			if err != nil {
@@ -536,7 +536,7 @@ func (m *PositionManager) HandleUserDataEvent(event exchange.UserDataEvent) {
 		if o.ReduceOnly {
 			slog.Info("untracked reduce-only fill, treating as manual close",
 				"symbol", o.Symbol, "order_id", o.OrderID)
-			m.recordClose(ctx, *pos, o.AvgPrice, "MANUAL", "MANUAL")
+			m.recordClose(ctx, *pos, o.AvgPrice, "MANUAL")
 		}
 	}
 }
@@ -774,7 +774,7 @@ func (m *PositionManager) retryProtection(ctx context.Context, pos domain.Positi
 			Symbol:        pos.Symbol,
 			Side:          domain.SideBuy,
 			Type:          domain.OrderTypeStopMarket,
-			Price:         pp.StopLoss,
+			TriggerPrice:  pp.StopLoss,
 			ClosePosition: true,
 		})
 		if err != nil {
@@ -877,7 +877,7 @@ func (m *PositionManager) handleTP1Fill(ctx context.Context, pos *domain.Positio
 		Symbol:        pos.Symbol,
 		Side:          domain.SideBuy,
 		Type:          domain.OrderTypeStopMarket,
-		Price:         pos.EntryPrice,
+		TriggerPrice:  pos.EntryPrice,
 		ClosePosition: true,
 	})
 	if err != nil {
@@ -898,6 +898,11 @@ func (m *PositionManager) handleTP1Fill(ctx context.Context, pos *domain.Positio
 		"callback_rate", m.cfg.Execution.TrailingCallbackRate,
 		"remaining_qty", remainingQty,
 	)
+	m.notifier.NotifyTp1Event(ctx, notify.Tp1Event{
+		Symbol:   pos.Symbol,
+		ClosedAt: time.UnixMilli(o.TradeTime).UTC(),
+		AvgPrice: o.AvgPrice,
+	})
 }
 
 // handleTrailingFill fires when the Binance trailing stop fills (best case: price kept falling).
@@ -951,10 +956,14 @@ func (m *PositionManager) handleHardSLFill(ctx context.Context, pos *domain.Posi
 	m.persistClose(ctx, *pos, o.AvgPrice, pnl, result, closeReason)
 }
 
-func (m *PositionManager) recordClose(ctx context.Context, pos domain.Position, exitPrice float64, result string, closeReason string) {
-	pnl := (pos.EntryPrice - exitPrice) * pos.OriginalQty
-	if pos.Side == domain.SideBuy {
-		pnl = (exitPrice - pos.EntryPrice) * pos.OriginalQty
+func (m *PositionManager) recordClose(ctx context.Context, pos domain.Position, exitPrice float64, closeReason string) {
+	avgClose := computeAvgClosePrice(pos, exitPrice)
+	pnl := (pos.EntryPrice - avgClose) * pos.OriginalQty
+	var result string
+	if pnl > 0.0 {
+		result = "PARTIAL_WIN"
+	} else {
+		result = "LOSS"
 	}
 	pnl = math.Round(pnl*1e8) / 1e8
 	m.persistClose(ctx, pos, exitPrice, pnl, result, closeReason)

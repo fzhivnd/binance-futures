@@ -46,6 +46,12 @@ type FundingEvent struct {
 	FundingRate float64
 }
 
+type Tp1Event struct {
+	Symbol   string
+	ClosedAt time.Time
+	AvgPrice float64
+}
+
 // Notifier dispatches trade/risk notifications to Telegram. All methods are
 // fire-and-forget; failures are logged but never propagate to callers.
 type Notifier struct {
@@ -119,6 +125,18 @@ func (n *Notifier) NotifyFundingSettlement(ctx context.Context, event FundingEve
 		msg := FormatFundingEvent(event)
 		if err := n.telegram.SendMessage(ctx, msg); err != nil {
 			slog.Warn("telegram: funding event notification failed", "error", err)
+		}
+	}()
+}
+
+func (n *Notifier) NotifyTp1Event(ctx context.Context, event Tp1Event) {
+	if !n.enabled {
+		return
+	}
+	go func() {
+		msg := FormatTp1Event(event)
+		if err := n.telegram.SendMessage(ctx, msg); err != nil {
+			slog.Warn("telegram: tp1 event notification failed", "error", err)
 		}
 	}()
 }

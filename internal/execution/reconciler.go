@@ -171,7 +171,7 @@ func rehydratePosition(
 			Symbol:        symbol,
 			Side:          domain.SideBuy,
 			Type:          domain.OrderTypeStopMarket,
-			Price:         stopLoss,
+			TriggerPrice:  stopLoss,
 			ClosePosition: true,
 		})
 		if err != nil {
@@ -332,7 +332,7 @@ func replaceMissingOrders(
 			Symbol:        symbol,
 			Side:          domain.SideBuy,
 			Type:          domain.OrderTypeStopMarket,
-			Price:         pos.StopLoss,
+			TriggerPrice:  pos.StopLoss,
 			ClosePosition: true,
 		})
 		if err != nil {
