@@ -311,6 +311,7 @@ func (a *App) Run(
 			},
 			LLMClient: memClient,
 			Repo:      memRepo,
+			Leverage:  a.cfg.Trading.Leverage,
 		})
 		a.posMgr.SetMemoryRepo(memRepo)
 		a.posMgr.SetMemoryEngine(a.memoryEngine)

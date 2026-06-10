@@ -205,7 +205,7 @@ func (m *PositionManager) check(ctx context.Context, pos domain.Position) {
 				Symbol:        pos.Symbol,
 				Side:          domain.SideBuy,
 				Type:          domain.OrderTypeStopMarket,
-				Price:         pos.EntryPrice,
+				TriggerPrice:  stopPrice,
 				ClosePosition: true,
 			})
 			if err != nil {
@@ -774,7 +774,7 @@ func (m *PositionManager) retryProtection(ctx context.Context, pos domain.Positi
 			Symbol:        pos.Symbol,
 			Side:          domain.SideBuy,
 			Type:          domain.OrderTypeStopMarket,
-			Price:         pp.StopLoss,
+			TriggerPrice:  pp.StopLoss,
 			ClosePosition: true,
 		})
 		if err != nil {
@@ -877,7 +877,7 @@ func (m *PositionManager) handleTP1Fill(ctx context.Context, pos *domain.Positio
 		Symbol:        pos.Symbol,
 		Side:          domain.SideBuy,
 		Type:          domain.OrderTypeStopMarket,
-		Price:         pos.EntryPrice,
+		TriggerPrice:  pos.EntryPrice,
 		ClosePosition: true,
 	})
 	if err != nil {
