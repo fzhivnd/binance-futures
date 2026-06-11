@@ -66,6 +66,12 @@ func (a *App) scanFn(ctx context.Context, window scheduler.WindowType) error {
 		slog.Info("scan completed", "window", window, "latency_ms", float64(time.Since(scanStart).Microseconds())/1000.0)
 	}()
 
+	// Reset LLM call state at the start of each new funding cycle so the
+	// deduplication check does not suppress calls across settlement boundaries.
+	if window == scheduler.WindowFrontrun && a.lastLLMCall != nil && a.lastLLMCall.window != scheduler.WindowFrontrun {
+		a.lastLLMCall = nil
+	}
+
 	// In the AFTER window, skip a fresh scan if the intent queue already has an
 	// AFTER-mode intent queued from the pre-settlement evaluation — the queue tick
 	// fires it without needing another LLM call.
