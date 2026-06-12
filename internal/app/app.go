@@ -30,11 +30,12 @@ import (
 
 // llmCallState tracks what we last sent to the LLM so we can skip redundant calls.
 type llmCallState struct {
-	symbol   string
-	score    float64
-	btcTrend string
-	window   scheduler.WindowType
-	calledAt time.Time
+	symbol        string
+	score         float64
+	btcTrend      string
+	window        scheduler.WindowType
+	calledAt      time.Time
+	cycleDeadline time.Time
 }
 
 const symbolCooldownDuration = 10 * time.Minute
@@ -381,6 +382,7 @@ func (a *App) Run(
 	// Phase 8: AfterTrigger + pre-settlement checker
 	go a.afterTrigger.Run(ctx)
 	a.posMgr.RunPreSettlementChecker(ctx)
+	a.posMgr.RunFundingAvoidance(ctx)
 
 	slog.Info("bot started", "mode", a.cfg.App.Mode)
 

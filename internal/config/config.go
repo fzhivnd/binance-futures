@@ -9,22 +9,23 @@ import (
 )
 
 type Config struct {
-	App            AppConfig           `yaml:"app"`
-	Binance        BinanceConfig       `yaml:"binance"`
-	Trading        TradingConfig       `yaml:"trading"`
-	Funding        FundingConfig       `yaml:"funding"`
-	Execution      ExecutionConfig     `yaml:"execution"`
-	Scheduler      SchedulerConfig     `yaml:"scheduler"`
-	WebSocket      WebSocketConfig     `yaml:"websocket"`
-	Database       DatabaseConfig      `yaml:"database"`
-	Scoring        ScoringConfig       `yaml:"scoring"`
-	Risk           RiskConfig          `yaml:"risk"`
-	LLM            LLMConfig           `yaml:"llm"`
-	Memory         MemoryConfig        `yaml:"memory"`
-	Telegram       TelegramConfig      `yaml:"telegram"`
-	Summary        SummaryConfig       `yaml:"summary"`
-	AfterExecution AfterExecConfig     `yaml:"after_execution"`
-	PreSettlement  PreSettlementConfig `yaml:"pre_settlement"`
+	App              AppConfig              `yaml:"app"`
+	Binance          BinanceConfig          `yaml:"binance"`
+	Trading          TradingConfig          `yaml:"trading"`
+	Funding          FundingConfig          `yaml:"funding"`
+	Execution        ExecutionConfig        `yaml:"execution"`
+	Scheduler        SchedulerConfig        `yaml:"scheduler"`
+	WebSocket        WebSocketConfig        `yaml:"websocket"`
+	Database         DatabaseConfig         `yaml:"database"`
+	Scoring          ScoringConfig          `yaml:"scoring"`
+	Risk             RiskConfig             `yaml:"risk"`
+	LLM              LLMConfig              `yaml:"llm"`
+	Memory           MemoryConfig           `yaml:"memory"`
+	Telegram         TelegramConfig         `yaml:"telegram"`
+	Summary          SummaryConfig          `yaml:"summary"`
+	AfterExecution   AfterExecConfig        `yaml:"after_execution"`
+	PreSettlement    PreSettlementConfig    `yaml:"pre_settlement"`
+	FundingAvoidance FundingAvoidanceConfig `yaml:"funding_avoidance"`
 }
 
 // AfterExecConfig controls the Phase 8 AfterTrigger and bid-depth sizing.
@@ -44,6 +45,12 @@ type PreSettlementConfig struct {
 	CheckBeforeMinutes      int     `yaml:"check_before_minutes"`      // fire check at T-Xm
 	EmergencyCloseThreshold float64 `yaml:"emergency_close_threshold"` // close if loss > X * |funding_rate|
 	WidenTPOnMiss           bool    `yaml:"widen_tp_on_miss"`          // widen TP1 if not filled by T-2m
+}
+
+// FundingAvoidanceConfig controls the unconditional T-Xm close-all to avoid paying the funding fee.
+type FundingAvoidanceConfig struct {
+	Enabled            bool `yaml:"enabled"`
+	CloseBeforeMinutes int  `yaml:"close_before_minutes"` // close all positions at T-Xm (default 30)
 }
 
 type TelegramConfig struct {
@@ -386,6 +393,15 @@ func setDefaults(cfg *Config) {
 	}
 	if !cfg.PreSettlement.WidenTPOnMiss {
 		cfg.PreSettlement.WidenTPOnMiss = true
+	}
+
+	// FundingAvoidance defaults
+	if cfg.FundingAvoidance.CloseBeforeMinutes == 0 {
+		cfg.FundingAvoidance.CloseBeforeMinutes = 30
+	}
+
+	if !cfg.FundingAvoidance.Enabled {
+		cfg.FundingAvoidance.Enabled = true
 	}
 
 	// Phase 6: Telegram defaults

@@ -68,7 +68,8 @@ func (a *App) scanFn(ctx context.Context, window scheduler.WindowType) error {
 
 	// Reset LLM call state at the start of each new funding cycle so the
 	// deduplication check does not suppress calls across settlement boundaries.
-	if window == scheduler.WindowFrontrun && a.lastLLMCall != nil && a.lastLLMCall.window != scheduler.WindowFrontrun {
+	currentDeadline := scheduler.NextFundingTime(time.Now().UTC())
+	if window == scheduler.WindowFrontrun && a.lastLLMCall != nil && !a.lastLLMCall.cycleDeadline.Equal(currentDeadline) {
 		a.lastLLMCall = nil
 	}
 
@@ -241,11 +242,12 @@ func (a *App) scanFn(ctx context.Context, window scheduler.WindowType) error {
 		}
 	}
 	a.lastLLMCall = &llmCallState{
-		symbol:   decision.Symbol,
-		score:    selectedScore,
-		btcTrend: btcTrend,
-		window:   window,
-		calledAt: time.Now(),
+		symbol:        decision.Symbol,
+		score:         selectedScore,
+		btcTrend:      btcTrend,
+		window:        window,
+		calledAt:      time.Now(),
+		cycleDeadline: currentDeadline,
 	}
 
 	if decision.Action == "SKIP" {

@@ -166,10 +166,10 @@ func FormatTp1Event(e Tp1Event) string {
 	return fmt.Sprintf(
 		"🟢 *TP1 HIT* \\[%s\\] \n\n"+
 			"Symbol: `%s`\n"+
-			"Price: `%.4f%%`\n"+
+			"Price: `$%s`\n"+
 			"Time: `%s`\n",
 		escapeMarkdownV2(e.Symbol),
 		escapeMarkdownV2(e.Symbol),
-		e.AvgPrice,
+		escapeMarkdownV2(fmt.Sprintf("%.8g", e.AvgPrice)),
 		escapeMarkdownV2(closedAt))
 }

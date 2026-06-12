@@ -79,12 +79,12 @@ func (e *Engine) PreCheck(ctx context.Context) error {
 
 	losses, err := e.cache.GetDailyLossCount(ctx)
 	if err == nil && losses >= e.cfg.MaxDailyLosses {
-		if e.notifier != nil {
-			e.notifier.NotifyRiskEvent(ctx, notify.RiskEvent{
-				Type:    "daily_loss_limit",
-				Message: fmt.Sprintf("Daily loss limit reached (%d losses). Trading disabled until 00:00 UTC.", e.cfg.MaxDailyLosses),
-			})
-		}
+		//if e.notifier != nil {
+		//	e.notifier.NotifyRiskEvent(ctx, notify.RiskEvent{
+		//		Type:    "daily_loss_limit",
+		//		Message: fmt.Sprintf("Daily loss limit reached (%d losses). Trading disabled until 00:00 UTC.", e.cfg.MaxDailyLosses),
+		//	})
+		//}
 		return fmt.Errorf("daily loss limit reached (%d)", e.cfg.MaxDailyLosses)
 	}
 
