@@ -510,14 +510,14 @@ func (m *PositionManager) HandleUserDataEvent(event exchange.UserDataEvent) {
 		return
 	}
 
+	mu := m.lockPosition(o.Symbol)
+	defer mu.Unlock()
+
 	pos, err := m.cache.GetActivePosition(ctx, o.Symbol)
 	if err != nil {
 		slog.Error("HandleUserDataEvent: get active position", "symbol", o.Symbol, "error", err)
 		return
 	}
-
-	mu := m.lockPosition(o.Symbol)
-	defer mu.Unlock()
 
 	switch orderId {
 	case pos.TPOrderID:

@@ -49,6 +49,13 @@ func (i *InstrumentedStateCache) SetActivePosition(ctx context.Context, pos doma
 	return err
 }
 
+func (i *InstrumentedStateCache) SetActivePositionIfAbsent(ctx context.Context, pos domain.Position) (bool, error) {
+	start := time.Now()
+	set, err := i.inner.SetActivePositionIfAbsent(ctx, pos)
+	record("StateCache.SetActivePositionIfAbsent", time.Since(start), err, "symbol", pos.Symbol, "written", set)
+	return set, err
+}
+
 func (i *InstrumentedStateCache) RemovePosition(ctx context.Context, symbol string) error {
 	start := time.Now()
 	err := i.inner.RemovePosition(ctx, symbol)

@@ -14,6 +14,7 @@ type StateCache interface {
 	GetActivePositions(ctx context.Context) ([]domain.Position, error)
 	GetActivePosition(ctx context.Context, symbol string) (*domain.Position, error)
 	SetActivePosition(ctx context.Context, pos domain.Position) error
+	SetActivePositionIfAbsent(ctx context.Context, pos domain.Position) (bool, error)
 	RemovePosition(ctx context.Context, symbol string) error
 	IsOnCooldown(ctx context.Context) (bool, error)
 	SetCooldown(ctx context.Context, duration time.Duration) error
