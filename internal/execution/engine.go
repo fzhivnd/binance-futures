@@ -217,7 +217,9 @@ func (e *ExecutionEngine) execute(
 		TradeID:            tradeId,
 		OpenedAt:           order.Timestamp,
 	}
-	if err := e.cache.SetActivePosition(ctx, pos); err != nil {
+	// Use NX write so that a WS fill that already ran finalizeSLTP isn't overwritten
+	// by this stub (which has no SL/TP order IDs and an estimated price).
+	if _, err := e.cache.SetActivePositionIfAbsent(ctx, pos); err != nil {
 		slog.Error("failed to store entry position", "symbol", candidate.Symbol, "error", err)
 	}
 

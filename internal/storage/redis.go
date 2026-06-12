@@ -86,6 +86,16 @@ func (r *RedisStateCache) SetActivePosition(ctx context.Context, pos domain.Posi
 	return r.client.HSet(ctx, keyPositions, pos.Symbol, data).Err()
 }
 
+func (r *RedisStateCache) SetActivePositionIfAbsent(ctx context.Context, pos domain.Position) (bool, error) {
+	data, err := json.Marshal(pos)
+	if err != nil {
+		return false, err
+	}
+	// HSETNX sets the field only when it does not already exist.
+	set, err := r.client.HSetNX(ctx, keyPositions, pos.Symbol, data).Result()
+	return set, err
+}
+
 func (r *RedisStateCache) RemovePosition(ctx context.Context, symbol string) error {
 	return r.client.HDel(ctx, keyPositions, symbol).Err()
 }
