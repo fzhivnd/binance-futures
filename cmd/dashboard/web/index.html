@@ -307,8 +307,8 @@
       const best = (row.BestDayPnL || 0).toFixed(2);
       set('s-total', row.TotalTrades, 'neutral');
       set('s-wr', (row.WinRate || 0).toFixed(1) + '%', row.WinRate >= 50 ? 'green' : 'red');
-      set('s-pnl', (pnl >= 0 ? '+' : '') + pnl, pnl >= 0 ? 'green' : 'red');
-      set('s-best', (best >= 0 ? '+' : '') + best, best >= 0 ? 'green' : 'red');
+      set('s-pnl', (pnl >= 0 ? '+' : '') + ' $' + pnl, pnl >= 0 ? 'green' : 'red');
+      set('s-best', (best >= 0 ? '+' : '') + ' $' + best, best >= 0 ? 'green' : 'red');
     } catch(e) { clearStats(); }
   }
 

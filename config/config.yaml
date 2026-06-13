@@ -1,5 +1,5 @@
 app:
-  mode: "paper"
+  mode: "live"
   log_level: "info"
   paper_balance: 1000.0
   pprof_port: 6060
@@ -54,7 +54,7 @@ database:
 
 scoring:
   min_score: 60.0
-  min_score_override: 40.0
+  min_score_override: 30.0
   # weights, thresholds, filtering, trading, funding, execution params → managed via scoring config in DB
 
 
