@@ -190,6 +190,7 @@ func (e *ExecutionEngine) execute(
 		Type:             domain.OrderTypeMarket,
 		Quantity:         qty,
 		NewClientOrderID: tradeId.String(),
+		ReduceOnly:       false,
 	})
 	if err != nil {
 		_ = e.cache.RemovePendingEntry(ctx, tradeId.String())

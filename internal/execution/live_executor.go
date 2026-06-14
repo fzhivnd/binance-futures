@@ -33,6 +33,7 @@ func (l *LiveExecutor) PlaceMarketOrder(ctx context.Context, req domain.OrderReq
 		Type:             string(domain.OrderTypeMarket),
 		Quantity:         l.formatQty(req.Symbol, req.Quantity),
 		NewClientOrderId: req.NewClientOrderID,
+		ReduceOnly:       req.ReduceOnly,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("binance market order: %w", err)
