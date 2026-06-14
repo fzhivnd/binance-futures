@@ -124,13 +124,18 @@ func (m *PositionManager) checkAll(ctx context.Context) {
 		return
 	}
 	for _, pos := range positions {
-		m.check(ctx, pos)
+		m.check(ctx, pos.Symbol)
 	}
 }
 
-func (m *PositionManager) check(ctx context.Context, pos domain.Position) {
-	mu := m.lockPosition(pos.Symbol)
+func (m *PositionManager) check(ctx context.Context, symbol string) {
+	mu := m.lockPosition(symbol)
 	defer mu.Unlock()
+
+	pos, err := m.cache.GetActivePosition(ctx, symbol)
+	if err != nil || pos == nil {
+		return
+	}
 
 	currentPrice, ok := m.market.GetPrice(pos.Symbol)
 	if !ok || currentPrice == 0 {
@@ -142,15 +147,10 @@ func (m *PositionManager) check(ctx context.Context, pos domain.Position) {
 
 	// Phase 7: retry missing SL/TP orders before other checks.
 	if pp, _ := m.cache.GetPendingProtection(ctx, pos.Symbol); pp != nil {
-		m.retryProtection(ctx, pos, pp)
+		m.retryProtection(ctx, *pos, pp)
 		// Reload position in case retryProtection updated order IDs.
-		if updated, err := m.cache.GetActivePositions(ctx); err == nil {
-			for _, u := range updated {
-				if u.Symbol == pos.Symbol {
-					pos = u
-					break
-				}
-			}
+		if fresh, err := m.cache.GetActivePosition(ctx, pos.Symbol); err == nil && fresh != nil {
+			pos = fresh
 		}
 	}
 
@@ -173,11 +173,11 @@ func (m *PositionManager) check(ctx context.Context, pos domain.Position) {
 	if m.forceSLEngine != nil &&
 		m.cfg.Execution.ForceSLEnabled &&
 		!pos.TP1Filled &&
-		m.shouldCheckForceSL(pos, rawPnlPct) {
+		m.shouldCheckForceSL(*pos, rawPnlPct) {
 
-		decision := m.checkForceSL(ctx, pos, currentPrice, rawPnlPct)
+		decision := m.checkForceSL(ctx, *pos, currentPrice, rawPnlPct)
 		if decision != nil && decision.Action == "FORCE_CLOSE" {
-			m.forceClose(ctx, pos, currentPrice, decision.Reason)
+			m.forceClose(ctx, *pos, currentPrice, decision.Reason)
 			return
 		}
 		pos.LastForceSLCheck = time.Now()
@@ -226,13 +226,13 @@ func (m *PositionManager) check(ctx context.Context, pos domain.Position) {
 
 	// Paper mode: simulate TP1/SL/trailing fills via price-level crossing.
 	if pos.IsPaper {
-		if m.checkPaperFills(ctx, &pos, currentPrice) {
+		if m.checkPaperFills(ctx, pos, currentPrice) {
 			return // position closed — no further updates
 		}
 	}
 
 	if updated {
-		if err := m.cache.SetActivePosition(ctx, pos); err != nil {
+		if err := m.cache.SetActivePosition(ctx, *pos); err != nil {
 			slog.Error("update position state", "symbol", pos.Symbol, "error", err)
 		}
 	}
