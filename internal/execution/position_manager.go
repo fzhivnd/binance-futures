@@ -31,19 +31,18 @@ type fundingInfoGetter interface {
 }
 
 type PositionManager struct {
-	executor           Executor
-	market             MarketDataProvider
-	cache              storage.StateCache
-	tradeRepo          storage.TradeRepository
-	memoryRepo         storage.MemoryRepository
-	memoryEngine       *memory.Engine
-	riskRepo           *storage.PGRiskRepository
-	cfg                *config.Config
-	forceSLEngine      *llm.ForceSLEngine
-	indEngine          *indicator.Engine
-	notifier           *notify.Notifier
-	fundingInfo        fundingInfoGetter // Phase 8: for pre-settlement check
-	lastAvoidanceCycle time.Time         // deadline of the cycle we last fired funding avoidance for
+	executor      Executor
+	market        MarketDataProvider
+	cache         storage.StateCache
+	tradeRepo     storage.TradeRepository
+	memoryRepo    storage.MemoryRepository
+	memoryEngine  *memory.Engine
+	riskRepo      *storage.PGRiskRepository
+	cfg           *config.Config
+	forceSLEngine *llm.ForceSLEngine
+	indEngine     *indicator.Engine
+	notifier      *notify.Notifier
+	fundingInfo   fundingInfoGetter // Phase 8: for pre-settlement check
 	// posLocks provides per-symbol mutual exclusion between the 1s tick loop
 	// (check) and asynchronous WS fill events (HandleUserDataEvent).
 	posLocks          sync.Map // map[string]*sync.Mutex
@@ -177,7 +176,7 @@ func (m *PositionManager) check(ctx context.Context, symbol string) {
 
 		decision := m.checkForceSL(ctx, *pos, currentPrice, rawPnlPct)
 		if decision != nil && decision.Action == "FORCE_CLOSE" {
-			m.forceClose(ctx, *pos, currentPrice, decision.Reason)
+			m.forceClose(ctx, *pos, decision.Reason)
 			return
 		}
 		pos.LastForceSLCheck = time.Now()
@@ -424,7 +423,7 @@ func (m *PositionManager) checkForceSL(
 	return resp
 }
 
-func (m *PositionManager) forceClose(ctx context.Context, pos domain.Position, exitPrice float64, reason string) {
+func (m *PositionManager) forceClose(ctx context.Context, pos domain.Position, reason string) {
 	clientID := "fclose-" + uuid.New().String()[:16]
 
 	m.pendingForceClose.Store(pos.Symbol, clientID)
@@ -765,11 +764,7 @@ func (m *PositionManager) retryProtection(ctx context.Context, pos domain.Positi
 	if pp.Retries >= maxProtectionRetries {
 		slog.Error("protection retry exhausted, emergency close",
 			"symbol", pos.Symbol, "retries", pp.Retries)
-		currentPrice, ok := m.market.GetPrice(pos.Symbol)
-		if !ok || currentPrice == 0 {
-			currentPrice = pos.EntryPrice
-		}
-		m.forceClose(ctx, pos, currentPrice, "protection retry exhausted")
+		m.forceClose(ctx, pos, "protection retry exhausted")
 		_ = m.cache.RemovePendingProtection(ctx, pos.Symbol)
 		if m.notifier != nil {
 			m.notifier.NotifyRiskEvent(ctx, notify.RiskEvent{
@@ -883,7 +878,7 @@ func (m *PositionManager) handleTP1Fill(ctx context.Context, pos *domain.Positio
 	if err != nil {
 		slog.Error("place trailing stop failed, market closing remainder",
 			"symbol", pos.Symbol, "error", err)
-		m.forceClose(ctx, *pos, o.AvgPrice, "trailing placement failed")
+		m.forceClose(ctx, *pos, "trailing placement failed")
 		return
 	}
 	if trailingOrder != nil {
@@ -1147,7 +1142,7 @@ func (m *PositionManager) checkPreSettlement(ctx context.Context, pos domain.Pos
 			"funding_rate", pos.FundingRateAtEntry*100,
 			"threshold_pct", threshold*100,
 		)
-		m.forceClose(ctx, pos, currentPrice, "pre_settlement_emergency_close")
+		m.forceClose(ctx, pos, "pre_settlement_emergency_close")
 		return
 	}
 
@@ -1299,33 +1294,24 @@ func (m *PositionManager) RunFundingAvoidance(ctx context.Context) {
 }
 
 func (m *PositionManager) fundingAvoidanceLoop(ctx context.Context) {
-	ticker := time.NewTicker(10 * time.Second)
-	defer ticker.Stop()
 	for {
+		// Sleep until the next minute-55 mark.
+		now := time.Now().UTC()
+		next55 := time.Date(now.Year(), now.Month(), now.Day(), now.Hour(), 55, 0, 0, time.UTC)
+		if !now.Before(next55) {
+			next55 = next55.Add(time.Hour)
+		}
 		select {
 		case <-ctx.Done():
 			return
-		case <-ticker.C:
-			m.checkFundingAvoidance(ctx)
+		case <-time.After(time.Until(next55)):
 		}
+		m.checkFundingAvoidance(ctx)
 	}
 }
 
 func (m *PositionManager) checkFundingAvoidance(ctx context.Context) {
-	now := time.Now().UTC()
-	nextFunding := nextFundingTime(now)
-	timeUntil := time.Until(nextFunding)
-
 	closeWindow := time.Duration(m.cfg.FundingAvoidance.CloseBeforeMinutes) * time.Minute
-	if timeUntil <= 0 || timeUntil > closeWindow {
-		return
-	}
-
-	// Already fired for this cycle.
-	if m.lastAvoidanceCycle.Equal(nextFunding) {
-		return
-	}
-	m.lastAvoidanceCycle = nextFunding
 
 	positions, err := m.cache.GetActivePositions(ctx)
 	if err != nil {
@@ -1333,32 +1319,29 @@ func (m *PositionManager) checkFundingAvoidance(ctx context.Context) {
 		return
 	}
 	if len(positions) == 0 {
-		slog.Info("funding_avoidance: no open positions", "time_until_funding", timeUntil.Round(time.Second))
 		return
 	}
 
-	slog.Warn("funding_avoidance: closing all positions",
-		"count", len(positions),
-		"time_until_funding", timeUntil.Round(time.Second),
-	)
 	for _, pos := range positions {
-		currentPrice, ok := m.market.GetPrice(pos.Symbol)
-		if !ok || currentPrice == 0 {
-			slog.Warn("funding_avoidance: price unavailable, skipping", "symbol", pos.Symbol)
+		fi, ok := m.fundingInfo.GetFundingInfo(pos.Symbol)
+		if !ok || fi.NextFunding.IsZero() {
+			slog.Warn("funding_avoidance: no funding info, skipping", "symbol", pos.Symbol)
 			continue
 		}
-		m.forceClose(ctx, pos, currentPrice, "funding_avoidance")
-	}
-}
 
-// nextFundingTime is a package-local alias so this file doesn't need a scheduler import.
-func nextFundingTime(now time.Time) time.Time {
-	utc := now.UTC()
-	for _, h := range []int{0, 4, 8, 12, 16, 20} {
-		if utc.Hour() < h || (utc.Hour() == h && (utc.Minute() > 0 || utc.Second() > 0 || utc.Nanosecond() > 0)) {
-			return time.Date(utc.Year(), utc.Month(), utc.Day(), h, 0, 0, 0, time.UTC)
+		if pos.SettlementPassedAt == nil && pos.EntryMode != domain.EntryModeAfter {
+			continue
 		}
+
+		timeUntil := time.Until(fi.NextFunding)
+		if timeUntil <= 0 || timeUntil > closeWindow {
+			continue
+		}
+
+		slog.Warn("funding_avoidance: closing position",
+			"symbol", pos.Symbol,
+			"time_until_funding", timeUntil.Round(time.Second),
+		)
+		m.forceClose(ctx, pos, "funding_avoidance")
 	}
-	tomorrow := utc.AddDate(0, 0, 1)
-	return time.Date(tomorrow.Year(), tomorrow.Month(), tomorrow.Day(), 0, 0, 0, 0, time.UTC)
 }

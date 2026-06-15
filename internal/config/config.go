@@ -397,7 +397,7 @@ func setDefaults(cfg *Config) {
 
 	// FundingAvoidance defaults
 	if cfg.FundingAvoidance.CloseBeforeMinutes == 0 {
-		cfg.FundingAvoidance.CloseBeforeMinutes = 30
+		cfg.FundingAvoidance.CloseBeforeMinutes = 6
 	}
 
 	if !cfg.FundingAvoidance.Enabled {
