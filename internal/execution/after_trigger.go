@@ -126,7 +126,7 @@ func (t *AfterTrigger) Run(ctx context.Context) {
 			}
 			continue
 		}
-		nextFunding := fi.NextFunding.Add(1 * time.Second)
+		nextFunding := fi.NextFunding.Add(2 * time.Second)
 
 		// Step 3: pre-warm leverage so SetLeverage is not on the critical path at T+0.
 		if err := t.executor.SetLeverage(ctx, symbol, t.cfg.Trading.Leverage); err != nil {
