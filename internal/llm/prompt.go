@@ -269,212 +269,110 @@ func (p *PromptBuilder) UserMessage(req *LLMRequest) string {
 			}
 			sb.WriteString("\n")
 		}
+
+		renderCandidateMemory(&sb, c.SimilarTrades)
 		sb.WriteString("\n")
-	}
-
-	if len(req.SimilarTrades) > 0 {
-		sb.WriteString("=== SIMILAR PAST TRADES (memory-enhanced context) ===\n")
-		sb.WriteString("Historical setups most similar to the current candidates.\n")
-		sb.WriteString("Use them to calibrate confidence and identify recurring failure or success patterns.\n\n")
-
-		winCount := 0
-		partialWinCount := 0
-		lossCount := 0
-		forceSLCount := 0
-		breakevenCount := 0
-		skipValidatedCount := 0
-		skipMissedCount := 0
-
-		memoryScore := 0.0
-
-		for i, t := range req.SimilarTrades {
-
-			switch t.Outcome {
-			case "WIN":
-				winCount++
-
-			case "PARTIAL_WIN":
-				partialWinCount++
-
-			case "LOSS":
-				lossCount++
-
-			case "FORCE_SL":
-				forceSLCount++
-
-			case "BREAKEVEN":
-				breakevenCount++
-
-			case "SKIP_VALIDATED":
-				skipValidatedCount++
-
-			case "SKIP_MISSED":
-				skipMissedCount++
-			}
-
-			weight := t.Similarity
-
-			switch {
-			case t.DaysAgo <= 1:
-				weight *= 1.30
-
-			case t.DaysAgo <= 3:
-				weight *= 1.20
-
-			case t.DaysAgo <= 7:
-				weight *= 1.10
-			}
-
-			memoryScore += outcomeScore(t.Outcome) * weight
-
-			outcomeLabel := t.Outcome
-
-			switch t.Outcome {
-			case "SKIP_VALIDATED":
-				outcomeLabel = "SKIP_VALIDATED (skip was correct)"
-
-			case "SKIP_MISSED":
-				outcomeLabel = "SKIP_MISSED (missed profitable trade)"
-
-			case "FORCE_SL":
-				outcomeLabel = "FORCE_SL (invalidated after entry)"
-			}
-
-			entryModeStr := ""
-			if t.EntryMode != "" {
-				entryModeStr = fmt.Sprintf(" | entry=%s", t.EntryMode)
-			}
-
-			fundingStr := ""
-			if t.FundingRate != 0 {
-				fundingStr = fmt.Sprintf(" | funding=%.2f%%", t.FundingRate)
-			}
-
-			profitSign := "+"
-			if t.ProfitPct < 0 {
-				profitSign = ""
-			}
-
-			sb.WriteString(fmt.Sprintf(
-				"[%d] %.0f%% match | %s | P&L: %s%.2f%%%s%s | %dd ago\n",
-				i+1,
-				t.Similarity*100,
-				outcomeLabel,
-				profitSign,
-				t.ProfitPct,
-				entryModeStr,
-				fundingStr,
-				t.DaysAgo,
-			))
-
-			if t.Lesson != "" {
-				sb.WriteString(fmt.Sprintf(
-					"    → Lesson: %s\n",
-					t.Lesson,
-				))
-			}
-		}
-
-		positiveEvidence :=
-			winCount +
-				partialWinCount +
-				skipMissedCount
-
-		negativeEvidence :=
-			lossCount +
-				forceSLCount +
-				skipValidatedCount
-
-		sb.WriteString("\n=== MEMORY SUMMARY ===\n")
-
-		sb.WriteString(fmt.Sprintf(
-			"Positive evidence: %d (WIN=%d, PARTIAL_WIN=%d, SKIP_MISSED=%d)\n",
-			positiveEvidence,
-			winCount,
-			partialWinCount,
-			skipMissedCount,
-		))
-
-		sb.WriteString(fmt.Sprintf(
-			"Negative evidence: %d (LOSS=%d, FORCE_SL=%d, SKIP_VALIDATED=%d)\n",
-			negativeEvidence,
-			lossCount,
-			forceSLCount,
-			skipValidatedCount,
-		))
-
-		if breakevenCount > 0 {
-			sb.WriteString(fmt.Sprintf(
-				"Neutral evidence: %d BREAKEVEN\n",
-				breakevenCount,
-			))
-		}
-
-		sb.WriteString(fmt.Sprintf(
-			"Historical bias score: %.2f\n",
-			memoryScore,
-		))
-
-		bias := biasLabel(memoryScore)
-
-		sb.WriteString(fmt.Sprintf(
-			"BIAS: %s\n",
-			bias,
-		))
-
-		switch bias {
-		case "STRONGLY POSITIVE":
-			sb.WriteString(
-				"Interpretation: Similar setups have historically worked. Memory supports taking the trade if current confluence exists.\n",
-			)
-
-		case "MODERATELY POSITIVE":
-			sb.WriteString(
-				"Interpretation: Historical outcomes generally support the setup, but current market conditions remain the primary decision factor.\n",
-			)
-
-		case "STRONGLY NEGATIVE":
-			sb.WriteString(
-				"Interpretation: Similar setups have historically failed, invalidated quickly, or were correctly skipped. Require materially stronger confirmation before opening.\n",
-			)
-
-		case "MODERATELY NEGATIVE":
-			sb.WriteString(
-				"Interpretation: Historical outcomes are unfavorable. Apply skepticism and demand stronger confirmation.\n",
-			)
-
-		default:
-			sb.WriteString(
-				"Interpretation: Historical outcomes are mixed and provide no strong directional bias.\n",
-			)
-		}
-
-		if skipValidatedCount >= 2 {
-			sb.WriteString(
-				"WARNING: Multiple highly similar setups were previously skipped and later validated as bad trades.\n",
-			)
-		}
-
-		if lossCount+forceSLCount >= 2 {
-			sb.WriteString(
-				"WARNING: Multiple similar setups failed after entry.\n",
-			)
-		}
-
-		if winCount+skipMissedCount >= 3 {
-			sb.WriteString(
-				"NOTE: Similar setups frequently worked or represented missed opportunities.\n",
-			)
-		}
-
-		sb.WriteString("\n")
-	} else {
-		sb.WriteString("=== SIMILAR PAST TRADES ===\n")
-		sb.WriteString("No similar past trades found. This is a novel setup pattern. Decide purely on current market data.\n\n")
 	}
 
 	sb.WriteString("Evaluate these candidates and provide your trade decision.")
 	return sb.String()
+}
+
+func renderCandidateMemory(sb *strings.Builder, trades []LLMSimilarTrade) {
+	if len(trades) == 0 {
+		sb.WriteString("  Memory: no similar past trades found.\n")
+		return
+	}
+
+	sb.WriteString("  Similar past trades:\n")
+
+	winCount, partialWinCount, lossCount, forceSLCount, breakevenCount, skipValidatedCount, skipMissedCount := 0, 0, 0, 0, 0, 0, 0
+	memoryScore := 0.0
+
+	for i, t := range trades {
+		switch t.Outcome {
+		case "WIN":
+			winCount++
+		case "PARTIAL_WIN":
+			partialWinCount++
+		case "LOSS":
+			lossCount++
+		case "FORCE_SL":
+			forceSLCount++
+		case "BREAKEVEN":
+			breakevenCount++
+		case "SKIP_VALIDATED":
+			skipValidatedCount++
+		case "SKIP_MISSED":
+			skipMissedCount++
+		}
+
+		weight := t.Similarity
+		switch {
+		case t.DaysAgo <= 1:
+			weight *= 1.30
+		case t.DaysAgo <= 3:
+			weight *= 1.20
+		case t.DaysAgo <= 7:
+			weight *= 1.10
+		}
+		memoryScore += outcomeScore(t.Outcome) * weight
+
+		outcomeLabel := t.Outcome
+		switch t.Outcome {
+		case "SKIP_VALIDATED":
+			outcomeLabel = "SKIP_VALIDATED (skip was correct)"
+		case "SKIP_MISSED":
+			outcomeLabel = "SKIP_MISSED (missed profitable trade)"
+		case "FORCE_SL":
+			outcomeLabel = "FORCE_SL (invalidated after entry)"
+		}
+
+		entryModeStr := ""
+		if t.EntryMode != "" {
+			entryModeStr = fmt.Sprintf(" | entry=%s", t.EntryMode)
+		}
+		fundingStr := ""
+		if t.FundingRate != 0 {
+			fundingStr = fmt.Sprintf(" | funding=%.2f%%", t.FundingRate)
+		}
+		profitSign := "+"
+		if t.ProfitPct < 0 {
+			profitSign = ""
+		}
+
+		sb.WriteString(fmt.Sprintf(
+			"    [%d] %.0f%% match | %s | P&L: %s%.2f%%%s%s | %dd ago\n",
+			i+1, t.Similarity*100, outcomeLabel, profitSign, t.ProfitPct, entryModeStr, fundingStr, t.DaysAgo,
+		))
+		if t.Lesson != "" {
+			sb.WriteString(fmt.Sprintf("        → Lesson: %s\n", t.Lesson))
+		}
+	}
+
+	positiveEvidence := winCount + partialWinCount + skipMissedCount
+	negativeEvidence := lossCount + forceSLCount + skipValidatedCount
+
+	summary := fmt.Sprintf("    Positive: %d (WIN=%d PARTIAL=%d MISSED=%d) | Negative: %d (LOSS=%d FORCE_SL=%d SKIP_OK=%d)",
+		positiveEvidence, winCount, partialWinCount, skipMissedCount,
+		negativeEvidence, lossCount, forceSLCount, skipValidatedCount)
+	if breakevenCount > 0 {
+		summary += fmt.Sprintf(" | Neutral: %d BREAKEVEN", breakevenCount)
+	}
+	sb.WriteString(summary + "\n")
+
+	bias := biasLabel(memoryScore)
+	sb.WriteString(fmt.Sprintf("    Memory bias: %s (score=%.2f)\n", bias, memoryScore))
+
+	if skipValidatedCount >= 2 {
+		sb.WriteString("    WARNING: Multiple similar setups were correctly skipped — high failure risk.\n")
+	}
+	if lossCount+forceSLCount >= 2 {
+		sb.WriteString("    WARNING: Multiple similar setups failed after entry.\n")
+	}
+	if winCount+skipMissedCount >= 3 {
+		sb.WriteString("    NOTE: Similar setups frequently worked.\n")
+	}
 }
 
 func outcomeScore(outcome string) float64 {

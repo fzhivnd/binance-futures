@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"math"
 	"sort"
+	"sync"
 	"time"
 
 	"futures/internal/domain"
@@ -203,23 +204,37 @@ func (a *App) scanFn(ctx context.Context, window scheduler.WindowType) error {
 		}
 	}
 
-	var similarTrades []domain.SimilarTrade
+	similarTrades := make(map[string][]domain.SimilarTrade)
 	if a.memoryEngine != nil && len(top) > 0 {
 		next := scheduler.NextFundingTime(time.Now().UTC())
 		minsToSettle := int(math.Round(time.Until(next).Minutes()))
 		if minsToSettle < 0 {
 			minsToSettle = 0
 		}
-		topSnap := top[0].Indicators
-		similar, serr := a.memoryEngine.RetrieveSimilar(ctx,
-			topSnap, btc, &top[0].Candidate,
-			top[0].CompositeScore, string(window), minsToSettle,
-		)
-		if serr != nil {
-			slog.Warn("memory retrieval failed, proceeding without", "error", serr)
-		} else {
-			similarTrades = similar
+
+		var mu sync.Mutex
+		var wg sync.WaitGroup
+		for _, sc := range top {
+			wg.Add(1)
+			go func(sc *domain.ScoredCandidate) {
+				defer wg.Done()
+				similar, serr := a.memoryEngine.RetrieveSimilar(ctx,
+					sc.Indicators, btc, &sc.Candidate,
+					sc.CompositeScore, string(window), minsToSettle,
+				)
+				if serr != nil {
+					slog.Warn("memory retrieval failed for candidate",
+						"symbol", sc.Candidate.Symbol, "error", serr)
+					return
+				}
+				if len(similar) > 0 {
+					mu.Lock()
+					similarTrades[sc.Candidate.Symbol] = similar
+					mu.Unlock()
+				}
+			}(sc)
 		}
+		wg.Wait()
 	}
 
 	llmStart := time.Now()

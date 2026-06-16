@@ -23,24 +23,24 @@ func NewDecisionEngine(client *Client) *DecisionEngine {
 
 // Evaluate takes top scored candidates and returns a trade decision.
 // tpPct is the base take-profit percentage from config (used to compute projected TP1).
-// similarTrades is the Phase 4 memory context; pass nil to behave identically to Phase 3.
+// similarTrades maps each candidate symbol to its retrieved similar past trades.
 // On any LLM failure it returns a SKIP decision (safe fallback).
 func (e *DecisionEngine) Evaluate(
 	ctx context.Context,
 	candidates []*domain.ScoredCandidate,
 	btc *domain.BTCContext,
 	tpPct float64,
-	similarTrades []domain.SimilarTrade,
+	similarTrades map[string][]domain.SimilarTrade,
 ) (*domain.LLMDecision, error) {
-	req := MapToLLMRequest(candidates, btc, tpPct)
-
-	if len(similarTrades) > 0 {
-		req.SimilarTrades = mapSimilarTrades(similarTrades)
-	}
+	req := MapToLLMRequest(candidates, btc, tpPct, similarTrades)
 
 	systemPrompt := e.prompt.SystemPrompt()
 	userMessage := e.prompt.UserMessage(req)
 
+	totalSimilar := 0
+	for _, c := range req.Candidates {
+		totalSimilar += len(c.SimilarTrades)
+	}
 	slog.Info("llm_request",
 		"minutes_to_settlement", req.MinutesToSettlement,
 		"btc_trend", req.BTCContext.Trend,
@@ -49,7 +49,7 @@ func (e *DecisionEngine) Evaluate(
 		"btc_breakout", req.BTCContext.IsBreakout,
 		"btc_rsi", req.BTCContext.RSI,
 		"btc_price_change_1h", req.BTCContext.PriceChange1h,
-		"similar_trades", len(req.SimilarTrades),
+		"similar_trades_total", totalSimilar,
 	)
 	for i, c := range req.Candidates {
 		slog.Info("llm_request_candidate",
@@ -76,7 +76,7 @@ func (e *DecisionEngine) Evaluate(
 			"momentum_loss", c.MomentumLoss,
 			"candle_patterns", c.CandlePatterns,
 			"rsi_divergence", c.RSIDivergences,
-			"similar_trades", req.SimilarTrades,
+			"similar_trades", len(c.SimilarTrades),
 		)
 	}
 
