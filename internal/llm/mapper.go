@@ -12,6 +12,7 @@ func MapToLLMRequest(
 	candidates []*domain.ScoredCandidate,
 	btc *domain.BTCContext,
 	tpPct float64,
+	similarTrades map[string][]domain.SimilarTrade,
 ) *LLMRequest {
 	next := scheduler.NextFundingTime(time.Now().UTC())
 	minutesTo := int(math.Round(time.Until(next).Minutes()))
@@ -80,6 +81,10 @@ func MapToLLMRequest(
 				Timeframe: string(div.Timeframe),
 				Strength:  string(div.Strength),
 			})
+		}
+
+		if trades, ok := similarTrades[sc.Candidate.Symbol]; ok && len(trades) > 0 {
+			c.SimilarTrades = mapSimilarTrades(trades)
 		}
 
 		req.Candidates = append(req.Candidates, c)

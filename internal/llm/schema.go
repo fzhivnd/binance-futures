@@ -39,11 +39,10 @@ type ForceSLResponse struct {
 }
 
 type LLMRequest struct {
-	Timestamp           int64             `json:"timestamp"`
-	MinutesToSettlement int               `json:"minutes_to_settlement"`
-	BTCContext          LLMBTCContext     `json:"btc_context"`
-	Candidates          []LLMCandidate    `json:"candidates"`
-	SimilarTrades       []LLMSimilarTrade `json:"similar_past_trades,omitempty"` // Phase 4
+	Timestamp           int64          `json:"timestamp"`
+	MinutesToSettlement int            `json:"minutes_to_settlement"`
+	BTCContext          LLMBTCContext  `json:"btc_context"`
+	Candidates          []LLMCandidate `json:"candidates"`
 }
 
 type LLMSimilarTrade struct {
@@ -82,6 +81,7 @@ type LLMCandidate struct {
 	MomentumLoss    bool               `json:"momentum_loss"`
 	CandlePatterns  []LLMCandleInfo    `json:"candle_patterns"`
 	RSIDivergences  []LLMRSIDivergence `json:"rsi_divergences,omitempty"`
+	SimilarTrades   []LLMSimilarTrade  `json:"similar_past_trades,omitempty"`
 }
 
 type LLMRSIDivergence struct {
