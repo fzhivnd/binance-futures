@@ -214,7 +214,8 @@ func (l *LiveExecutor) SetLeverage(ctx context.Context, symbol string, leverage 
 func (l *LiveExecutor) formatQty(symbol string, v float64) string {
 	step := l.rules(symbol).StepSize
 	v = roundDown(v, step)
-	return strconv.FormatFloat(v, 'f', -1, 64)
+	precision := getQuantityPrecision(step)
+	return strconv.FormatFloat(v, 'f', precision, 64)
 }
 
 func (l *LiveExecutor) formatPrice(symbol string, v float64) string {
@@ -223,7 +224,7 @@ func (l *LiveExecutor) formatPrice(symbol string, v float64) string {
 		return strconv.FormatFloat(v, 'f', 2, 64) // Safe default
 	}
 	v = roundDown(v, tick)
-	precision := getPrecision(tick)
+	precision := getPricePrecision(tick)
 	return strconv.FormatFloat(v, 'f', precision, 64)
 }
 
@@ -234,7 +235,7 @@ func roundDown(value, step float64) float64 {
 	return math.Floor(value/step) * step
 }
 
-func getPrecision(tick float64) int {
+func getPricePrecision(tick float64) int {
 	tickStr := strconv.FormatFloat(tick, 'f', 10, 64)
 
 	tickStr = strings.TrimRight(tickStr, "0")
@@ -245,6 +246,17 @@ func getPrecision(tick float64) int {
 	}
 
 	return 0
+}
+
+func getQuantityPrecision(step float64) int {
+	s := strconv.FormatFloat(step, 'f', -1, 64)
+
+	idx := strings.IndexByte(s, '.')
+	if idx == -1 {
+		return 0
+	}
+
+	return len(s[idx+1:])
 }
 
 func (l *LiveExecutor) rules(symbol string) symbolRule {
