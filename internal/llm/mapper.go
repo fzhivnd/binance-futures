@@ -144,5 +144,9 @@ func mapResponseToDecision(resp LLMResponse, candidates []*domain.ScoredCandidat
 		}
 	}
 
+	if d.Symbol == "" && len(candidates) > 0 {
+		d.Symbol = candidates[0].Candidate.Symbol
+	}
+
 	return d
 }
