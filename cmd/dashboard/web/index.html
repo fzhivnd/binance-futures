@@ -148,11 +148,11 @@
           <th>Lev</th><th>Conf</th><th>LLM</th>
           <th>Funding</th><th>24h Chg</th><th>ROI%</th>
           <th>Entry</th><th>Margin (USDT)</th><th>Exit</th><th>PnL</th>
-          <th>Result</th><th>Close</th><th>Type</th>
+          <th>Result</th><th>Close</th><th>Close Time</th><th>Type</th>
         </tr>
       </thead>
       <tbody id="trades-body">
-        <tr><td colspan="16" class="loading">Loading…</td></tr>
+        <tr><td colspan="18" class="loading">Loading…</td></tr>
       </tbody>
     </table>
   </div>
@@ -331,7 +331,7 @@
     const errEl   = document.getElementById('trades-error');
     const tbody   = document.getElementById('trades-body');
 
-    tbody.innerHTML = '<tr><td colspan="17" class="loading">Loading…</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="18" class="loading">Loading…</td></tr>';
     errEl.innerHTML = '';
 
     const params = new URLSearchParams({ from, to, limit, paper: currentPaper });
@@ -341,7 +341,7 @@
       const res = await fetch('/api/trades?' + params);
       if (!res.ok) { errEl.innerHTML = `<div class="error-msg">${await res.text()}</div>`; tbody.innerHTML = ''; return; }
       const trades = await res.json();
-      if (!trades.length) { tbody.innerHTML = '<tr><td colspan="17" class="empty">No trades found</td></tr>'; return; }
+      if (!trades.length) { tbody.innerHTML = '<tr><td colspan="18" class="empty">No trades found</td></tr>'; return; }
       tbody.innerHTML = trades.map(t => {
         const result  = t.Result || 'OPEN';
         const pnl     = t.PnL != null ? parseFloat(t.PnL) : null;
@@ -369,6 +369,7 @@
           <td class="pnl ${pnlCls}">${pnlStr}</td>
           <td><span class="badge ${result}">${result}</span></td>
           <td>${t.CloseReason || '—'}</td>
+          <td>${fmtTs(t.ClosedAt)}</td>
           <td><span class="badge ${t.IsPaper ? 'paper' : 'live'}">${t.IsPaper ? 'paper' : 'live'}</span></td>
         </tr>`;
       }).join('');
