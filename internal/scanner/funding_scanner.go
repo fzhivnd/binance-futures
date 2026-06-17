@@ -33,29 +33,38 @@ func (s *FundingScanner) Scan(ctx context.Context) ([]domain.Candidate, error) {
 		return nil, nil
 	}
 
-	var candidates []domain.Candidate
+	var (
+		droppedRate       int
+		droppedNoPrice    int
+		droppedInterval1h int
+		droppedWindow     int
+		droppedZeroScore  int
+		candidates        []domain.Candidate
+	)
 	for symbol, rate := range rates {
 		if rate > s.cfg.MaxRate || rate < s.cfg.MinRate {
-			//slog.Info("funding filter skip", "symbol", symbol, "rate", rate, "min", s.cfg.MinRate, "max", s.cfg.MaxRate)
+			droppedRate++
 			continue
 		}
 		price, ok := s.market.GetPrice(symbol)
 		if !ok || price <= 0 {
-			//slog.Info("price filter skip", "symbol", symbol, "rate", rate, "min", s.cfg.MinRate, "max", s.cfg.MaxRate)
+			droppedNoPrice++
 			continue
 		}
 		intervalHours := s.market.GetFundingIntervalHours(symbol)
 		if intervalHours == 1 {
-			//slog.Info("skipping 1h funding interval", "symbol", symbol)
+			droppedInterval1h++
 			continue
 		}
 		if !settlementAlignedWithWindow(s.market, symbol) {
-			//slog.Info("skipping: funding not settling in this window", "symbol", symbol, "interval_hours", intervalHours)
+			droppedWindow++
 			continue
 		}
 		c := buildCandidate(symbol, rate, price, s.market)
 		if c.Score > 0 {
 			candidates = append(candidates, c)
+		} else {
+			droppedZeroScore++
 		}
 	}
 
@@ -69,7 +78,15 @@ func (s *FundingScanner) Scan(ctx context.Context) ([]domain.Candidate, error) {
 	}
 	candidates = candidates[:limit]
 
-	slog.Info("scan completed", "total_filtered", len(rates), "candidates", len(candidates))
+	slog.Info("scan completed",
+		"total", len(rates),
+		"dropped_rate_filter", droppedRate,
+		"dropped_no_price", droppedNoPrice,
+		"dropped_1h_interval", droppedInterval1h,
+		"dropped_window_misalign", droppedWindow,
+		"dropped_zero_score", droppedZeroScore,
+		"candidates", len(candidates),
+	)
 	return candidates, nil
 }
 

@@ -1139,6 +1139,8 @@ func (m *PositionManager) checkPreSettlement(ctx context.Context, pos domain.Pos
 		slog.Warn("pre_settlement_emergency_close",
 			"symbol", pos.Symbol,
 			"loss_pct", rawMoveAgainst*100,
+			"current_price", currentPrice,
+			"entry_price", pos.EntryPrice,
 			"funding_rate", pos.FundingRateAtEntry*100,
 			"threshold_pct", threshold*100,
 		)
