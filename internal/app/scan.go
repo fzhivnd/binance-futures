@@ -280,7 +280,7 @@ func (a *App) scanFn(ctx context.Context, window scheduler.WindowType) error {
 		if a.cfg.Memory.EmbedSkips {
 			go func() {
 				bgCtx := context.Background()
-				if err := a.memoryEngine.RecordSkip(bgCtx, top, btc, decision.SkipReason); err != nil {
+				if err := a.memoryEngine.RecordSkip(bgCtx, top, btc, decision.SkipReason, string(window)); err != nil {
 					slog.Error("failed to record skip memory", "error", err)
 				}
 			}()

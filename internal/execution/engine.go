@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math"
 	"time"
 
 	"futures/internal/config"
@@ -145,16 +146,15 @@ func (e *ExecutionEngine) execute(
 	}
 
 	// Commented for testing purposes
-	//balance, err := e.executor.GetAccountBalance(ctx)
-	//if err != nil {
-	//	return fmt.Errorf("get balance: %w", err)
-	//}
-	//if balance.AvailableBalance < 10 { // for testing live trade
-	//	return fmt.Errorf("insufficient balance: %.2f", balance.AvailableBalance)
-	//}
+	balance, err := e.executor.GetAccountBalance(ctx)
+	if err != nil {
+		return fmt.Errorf("get balance: %w", err)
+	}
+	if balance.AvailableBalance < 10 { // for testing live trade
+		return fmt.Errorf("insufficient balance: %.2f", balance.AvailableBalance)
+	}
 
-	//margin := balance.AvailableBalance * positionSizePct / 100
-	margin := 10.0 // for testing live trade
+	margin := math.Max(balance.AvailableBalance*25/100, 500)
 	qty := margin * float64(e.cfg.Trading.Leverage) / candidate.MarkPrice
 
 	now := time.Now()
