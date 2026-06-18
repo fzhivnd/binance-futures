@@ -37,19 +37,10 @@ func (e *DecisionEngine) Evaluate(
 	systemPrompt := e.prompt.SystemPrompt()
 	userMessage := e.prompt.UserMessage(req)
 
-	totalSimilar := 0
-	for _, c := range req.Candidates {
-		totalSimilar += len(c.SimilarTrades)
-	}
 	slog.Info("llm_request",
 		"minutes_to_settlement", req.MinutesToSettlement,
 		"btc_trend", req.BTCContext.Trend,
 		"btc_momentum", req.BTCContext.MomentumScore,
-		"btc_volatility", req.BTCContext.Volatility,
-		"btc_breakout", req.BTCContext.IsBreakout,
-		"btc_rsi", req.BTCContext.RSI,
-		"btc_price_change_1h", req.BTCContext.PriceChange1h,
-		"similar_trades_total", totalSimilar,
 	)
 	for i, c := range req.Candidates {
 		slog.Info("llm_request_candidate",
@@ -57,7 +48,6 @@ func (e *DecisionEngine) Evaluate(
 			"symbol", c.Symbol,
 			"funding_rate_pct", c.FundingRate,
 			"daily_roi_pct", c.DailyROI,
-			"projected_tp1_pct", c.ProjectedTP1Pct,
 			"composite_score", c.CompositeScore,
 			"score_funding", c.ScoreBreakdown.Funding,
 			"score_oi", c.ScoreBreakdown.OI,
