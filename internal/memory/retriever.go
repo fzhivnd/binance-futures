@@ -51,30 +51,22 @@ func (r *Retriever) FindSimilar(
 			continue
 		}
 
-		sim := res.Similarity
+		// Weighted composite score — cosine is one component, not the whole score.
+		// This prevents saturated cosine (0.99+) from collapsing all scores to 1.0.
+		sim := res.Similarity * 0.50
 
-		// Multiplicative bonuses for priority match fields.
 		if res.Memory.Symbol == symbol {
-			sim *= 1.15
+			sim += 0.20
 		}
 		if res.Memory.EntryMode == entryMode {
-			sim *= 1.08
+			sim += 0.15
 		}
-		memFundingBucket := res.Memory.FundingBucket
-		if memFundingBucket == fundingBucket {
-			sim *= 1.04
+		if res.Memory.FundingBucket == fundingBucket {
+			sim += 0.08
 		}
-		memROIBucket := ROIBucket(res.Memory.DailyROI)
-		if memROIBucket == roiBucket {
-			sim *= 1.04
+		if ROIBucket(res.Memory.DailyROI) == roiBucket {
+			sim += 0.07
 		}
-
-		// Cap at 1.0 after bonuses.
-		if sim > 1.0 {
-			sim = 1.0
-		}
-
-		// Penalty for BTC regime mismatch.
 		if res.Memory.BTCRegime != btcRegime {
 			sim -= 0.05
 		}

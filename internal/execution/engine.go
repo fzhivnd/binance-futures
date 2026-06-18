@@ -154,7 +154,7 @@ func (e *ExecutionEngine) execute(
 		return fmt.Errorf("insufficient balance: %.2f", balance.AvailableBalance)
 	}
 
-	margin := math.Max(balance.AvailableBalance*25/100, 500)
+	margin := math.Min(balance.AvailableBalance*25/100, 500)
 	qty := margin * float64(e.cfg.Trading.Leverage) / candidate.MarkPrice
 
 	now := time.Now()

@@ -87,7 +87,7 @@ memory:
   embedding_model: "text-embedding-3-small"
   embedding_dimensions: 1536
   top_similar: 5
-  min_similarity: 0.7
+  min_similarity: 0.4
   embed_skips: true
   max_memory_age: "90d"
   summarizer_model: "gpt-5-mini"
