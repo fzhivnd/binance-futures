@@ -10,8 +10,8 @@ import (
 // ComputeBTCContext derives BTC market context.
 // candles1h: 1h candles for trend/RSI/ATR; candles15m: 15m candles for breakout detection.
 func ComputeBTCContext(candles1h []domain.Candle, candles15m []domain.Candle) (*domain.BTCContext, error) {
-	if len(candles1h) < 20 {
-		return nil, fmt.Errorf("need 20+ BTC 1h candles, got %d", len(candles1h))
+	if len(candles1h) < 22 {
+		return nil, fmt.Errorf("need 22+ BTC 1h candles, got %d", len(candles1h))
 	}
 
 	rsi, _ := RSI(candles1h, 14)
@@ -20,16 +20,40 @@ func ComputeBTCContext(candles1h []domain.Candle, candles15m []domain.Candle) (*
 	prev1h := candles1h[len(candles1h)-2]
 	change1h := (last1h.Close - prev1h.Close) / prev1h.Close * 100
 
-	// Trend based on 1h RSI + 1h price change (macro context)
+	// 3-candle slope: cumulative 3h move, more stable than single-candle change.
+	base := candles1h[len(candles1h)-4].Close
+	slope := (last1h.Close - base) / base * 100
+
+	ema9 := ema(candles1h, 9)
+	ema21 := ema(candles1h, 21)
+
+	// 2-of-3 voting: RSI, 3h slope, EMA9 vs EMA21.
+	bullSignals := 0
+	bearSignals := 0
+	if rsi > 55 {
+		bullSignals++
+	}
+	if slope > 0.3 {
+		bullSignals++
+	}
+	if ema9 > ema21 {
+		bullSignals++
+	}
+	if rsi < 45 {
+		bearSignals++
+	}
+	if slope < -0.3 {
+		bearSignals++
+	}
+	if ema9 < ema21 {
+		bearSignals++
+	}
+
 	var trend string
 	switch {
-	case rsi > 70 && change1h > 1.5:
+	case bullSignals >= 2:
 		trend = "bullish"
-	case rsi < 30 && change1h < -1.5:
-		trend = "bearish"
-	case rsi > 60 && change1h > 0.5:
-		trend = "bullish"
-	case rsi < 40 && change1h < -0.5:
+	case bearSignals >= 2:
 		trend = "bearish"
 	default:
 		trend = "neutral"
@@ -72,4 +96,17 @@ func ComputeBTCContext(candles1h []domain.Candle, candles15m []domain.Candle) (*
 		PriceChange15m: change15m,
 		IsBreakout:     isBreakout,
 	}, nil
+}
+
+// ema computes the exponential moving average for the last candle using Wilder-style smoothing.
+func ema(candles []domain.Candle, period int) float64 {
+	if len(candles) < period {
+		return candles[len(candles)-1].Close
+	}
+	k := 2.0 / float64(period+1)
+	val := candles[len(candles)-period].Close
+	for i := len(candles) - period + 1; i < len(candles); i++ {
+		val = candles[i].Close*k + val*(1-k)
+	}
+	return val
 }
