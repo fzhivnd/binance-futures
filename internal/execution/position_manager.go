@@ -1100,7 +1100,7 @@ func (m *PositionManager) checkPreSettlementAll(ctx context.Context) {
 
 func preSettlementThreshold(fundingRate float64) float64 {
 	abs := math.Abs(fundingRate)
-	return math.Abs(0.04 - abs)
+	return math.Abs(0.05 - abs)
 }
 
 // checkPreSettlement fires the T-2m check for a FRONTRUN or LASTMINUTE position.

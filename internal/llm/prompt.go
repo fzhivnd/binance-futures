@@ -95,6 +95,7 @@ Best when:
 - Funding extremely negative (-1.5% to -2.0%).
 - Pre-settlement signals unclear.
 - Squeeze risk elevated.
+- Daily ROI > 60%, extreme activity means squeeze risk is high pre-settlement.
 
 Advantage:
 - No funding fee paid.

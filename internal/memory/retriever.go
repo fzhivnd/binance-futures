@@ -27,13 +27,16 @@ func NewRetriever(repo storage.MemoryRepository, cfg RetrieverConfig) *Retriever
 
 // FindSimilar retrieves the most similar historical trade setups.
 // The DB returns a wider pool (limit*3) ordered by raw cosine distance; we apply
-// soft downranking for regime/bucket mismatch here so the vector search can
-// surface genuinely dissimilar records for contrast rather than only same-cluster results.
+// multiplicative bonuses for the four priority match fields (symbol, entryMode,
+// fundingBucket, roiBucket) and a regime penalty for BTC regime mismatch.
 func (r *Retriever) FindSimilar(
 	ctx context.Context,
 	embedding pgvector.Vector,
+	symbol string,
+	entryMode string,
 	btcRegime string,
 	fundingBucket int,
+	roiBucket string,
 ) ([]domain.SimilarTrade, error) {
 	results, err := r.repo.FindSimilar(ctx, embedding, r.cfg.TopSimilar)
 	if err != nil {
@@ -50,17 +53,30 @@ func (r *Retriever) FindSimilar(
 
 		sim := res.Similarity
 
-		// Soft penalty for regime mismatch: -0.05 per degree of difference.
+		// Multiplicative bonuses for priority match fields.
+		if res.Memory.Symbol == symbol {
+			sim *= 1.15
+		}
+		if res.Memory.EntryMode == entryMode {
+			sim *= 1.08
+		}
+		memFundingBucket := res.Memory.FundingBucket
+		if memFundingBucket == fundingBucket {
+			sim *= 1.04
+		}
+		memROIBucket := ROIBucket(res.Memory.DailyROI)
+		if memROIBucket == roiBucket {
+			sim *= 1.04
+		}
+
+		// Cap at 1.0 after bonuses.
+		if sim > 1.0 {
+			sim = 1.0
+		}
+
+		// Penalty for BTC regime mismatch.
 		if res.Memory.BTCRegime != btcRegime {
 			sim -= 0.05
-		}
-		// Soft penalty for funding bucket distance beyond adjacent.
-		bucketDist := res.Memory.FundingBucket - fundingBucket
-		if bucketDist < 0 {
-			bucketDist = -bucketDist
-		}
-		if bucketDist > 1 {
-			sim -= 0.05 * float64(bucketDist-1)
 		}
 
 		if sim < r.cfg.MinSimilarity {

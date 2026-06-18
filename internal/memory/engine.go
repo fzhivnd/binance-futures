@@ -138,6 +138,7 @@ func (e *Engine) RecordSkip(
 	candidates []*domain.ScoredCandidate,
 	btc *domain.BTCContext,
 	skipReason string,
+	window string,
 ) error {
 	if !e.enabled || len(candidates) == 0 {
 		return nil
@@ -174,7 +175,7 @@ func (e *Engine) RecordSkip(
 		MomentumLoss:    snap.MomentumLoss,
 		CandlePatterns:  formatPatterns(snap.Patterns),
 		CompositeScore:  top.CompositeScore,
-		EntryMode:       "SKIP",
+		EntryMode:       window,
 		MinutesToSettle: minutesToSettle,
 		BTCTrend:        btc.Trend,
 		BTCMomentum:     btc.MomentumScore,
@@ -227,8 +228,9 @@ func (e *Engine) RetrieveSimilar(
 
 	btcRegime := BTCRegime(btc.Trend)
 	fundingBucket := FundingBucket(candidate.FundingRate * 100)
+	roiBucket := ROIBucket(candidate.DailyROI)
 
-	similar, err := e.retriever.FindSimilar(ctx, embedding, btcRegime, fundingBucket)
+	similar, err := e.retriever.FindSimilar(ctx, embedding, candidate.Symbol, entryMode, btcRegime, fundingBucket, roiBucket)
 	queryLatency := time.Since(start)
 
 	if err != nil {
