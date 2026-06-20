@@ -300,7 +300,7 @@ func setDefaults(cfg *Config) {
 	}
 
 	if cfg.Risk.MaxDailyLosses == 0 {
-		cfg.Risk.MaxDailyLosses = 3
+		cfg.Risk.MaxDailyLosses = 4
 	}
 	if cfg.Risk.MaxDrawdownPct == 0 {
 		cfg.Risk.MaxDrawdownPct = 10.0

@@ -77,6 +77,20 @@ func (i *InstrumentedStateCache) SetCooldown(ctx context.Context, d time.Duratio
 	return err
 }
 
+func (i *InstrumentedStateCache) IsSymbolOnCooldown(ctx context.Context, symbol string) (bool, error) {
+	start := time.Now()
+	res, err := i.inner.IsSymbolOnCooldown(ctx, symbol)
+	record("StateCache.IsSymbolOnCooldown", time.Since(start), err, "symbol", symbol, "on_cooldown", res)
+	return res, err
+}
+
+func (i *InstrumentedStateCache) SetSymbolCooldown(ctx context.Context, symbol string, d time.Duration) error {
+	start := time.Now()
+	err := i.inner.SetSymbolCooldown(ctx, symbol, d)
+	record("StateCache.SetSymbolCooldown", time.Since(start), err, "symbol", symbol, "duration", d)
+	return err
+}
+
 func (i *InstrumentedStateCache) GetKillSwitch(ctx context.Context) (bool, error) {
 	start := time.Now()
 	res, err := i.inner.GetKillSwitch(ctx)

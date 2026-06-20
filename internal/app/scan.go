@@ -14,21 +14,23 @@ import (
 	"futures/internal/scheduler"
 )
 
-func (a *App) setSymbolCooldown(symbol string) {
-	if a.symbolCooldown == nil {
-		a.symbolCooldown = make(map[string]time.Time)
+func (a *App) setSymbolCooldown(ctx context.Context, symbol string) {
+	if err := a.cache.SetSymbolCooldown(ctx, symbol, symbolCooldownDurationLLM); err != nil {
+		slog.Warn("failed to set symbol cooldown", "symbol", symbol, "error", err)
 	}
-	a.symbolCooldown[symbol] = time.Now()
 }
 
-func (a *App) filterCooldownSymbols(candidates []domain.Candidate) []domain.Candidate {
-	if len(a.symbolCooldown) == 0 {
-		return candidates
-	}
+func (a *App) filterCooldownSymbols(ctx context.Context, candidates []domain.Candidate) []domain.Candidate {
 	out := candidates[:0]
 	for _, c := range candidates {
-		if until, ok := a.symbolCooldown[c.Symbol]; ok && time.Since(until) < symbolCooldownDuration {
-			slog.Info("candidate excluded: LLM cooldown", "symbol", c.Symbol, "remaining", (symbolCooldownDuration - time.Since(until)).Round(time.Second))
+		on, err := a.cache.IsSymbolOnCooldown(ctx, c.Symbol)
+		if err != nil {
+			slog.Warn("cooldown check failed, allowing symbol", "symbol", c.Symbol, "error", err)
+			out = append(out, c)
+			continue
+		}
+		if on {
+			slog.Info("candidate excluded: symbol cooldown", "symbol", c.Symbol)
 			continue
 		}
 		out = append(out, c)
@@ -117,7 +119,7 @@ func (a *App) scanFn(ctx context.Context, window scheduler.WindowType) error {
 		return nil
 	}
 
-	candidates = a.filterCooldownSymbols(candidates)
+	candidates = a.filterCooldownSymbols(ctx, candidates)
 	if len(candidates) == 0 {
 		slog.Info("no candidates after LLM cooldown filter", "window", window)
 		return nil
@@ -249,7 +251,7 @@ func (a *App) scanFn(ctx context.Context, window scheduler.WindowType) error {
 		"symbol", decision.Symbol,
 		"confidence", decision.Confidence,
 	)
-	a.setSymbolCooldown(decision.Symbol)
+	a.setSymbolCooldown(ctx, decision.Symbol)
 	selectedScore := float64(0)
 	for _, t := range top {
 		if decision.Symbol == t.Candidate.Symbol {

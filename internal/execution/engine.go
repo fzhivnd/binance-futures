@@ -119,11 +119,6 @@ func (e *ExecutionEngine) execute(
 	if err != nil || killSwitch {
 		return fmt.Errorf("kill switch active")
 	}
-	onCooldown, err := e.cache.IsOnCooldown(ctx)
-	if err != nil || onCooldown {
-		slog.Info("skipping trade: on cooldown", "symbol", candidate.Symbol)
-		return domain.ErrSkipped
-	}
 	positions, err := e.cache.GetActivePositions(ctx)
 	if err != nil {
 		return err

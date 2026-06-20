@@ -18,6 +18,8 @@ type StateCache interface {
 	RemovePosition(ctx context.Context, symbol string) error
 	IsOnCooldown(ctx context.Context) (bool, error)
 	SetCooldown(ctx context.Context, duration time.Duration) error
+	IsSymbolOnCooldown(ctx context.Context, symbol string) (bool, error)
+	SetSymbolCooldown(ctx context.Context, symbol string, duration time.Duration) error
 	GetKillSwitch(ctx context.Context) (bool, error)
 	SetKillSwitch(ctx context.Context, active bool) error
 	AcquireSchedulerLock(ctx context.Context, window string, ttl time.Duration) (bool, error)
