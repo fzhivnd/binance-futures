@@ -55,25 +55,25 @@ func (s *AfterExecutionStrategy) Execute(ctx context.Context, ti *intent.TradeIn
 		return nil
 	}
 
-	positionSizePct := ti.Candidate.PositionSizePct
-	adjustedSizePct := s.adjustSizeForDepth(ctx, candidate.Symbol, positionSizePct, currentPrice)
-	if adjustedSizePct == 0 {
-		slog.Info("after_entry_skipped",
-			"symbol", candidate.Symbol,
-			"reason", "thin_book",
-			"window", "AFTER",
-			"latency_ms", time.Since(start).Milliseconds(),
-		)
-		s.notifier.NotifyRiskEvent(ctx, notify.RiskEvent{
-			Type:    "after_entry_skipped",
-			Message: fmt.Sprintf("symbol: %s reason: thin_book", candidate.Symbol),
-		})
-		return nil
-	}
+	//positionSizePct := ti.Candidate.PositionSizePct
+	//adjustedSizePct := s.adjustSizeForDepth(ctx, candidate.Symbol, positionSizePct, currentPrice)
+	//if adjustedSizePct == 0 {
+	//	slog.Info("after_entry_skipped",
+	//		"symbol", candidate.Symbol,
+	//		"reason", "thin_book",
+	//		"window", "AFTER",
+	//		"latency_ms", time.Since(start).Milliseconds(),
+	//	)
+	//	s.notifier.NotifyRiskEvent(ctx, notify.RiskEvent{
+	//		Type:    "after_entry_skipped",
+	//		Message: fmt.Sprintf("symbol: %s reason: thin_book", candidate.Symbol),
+	//	})
+	//	return nil
+	//}
 
 	// Build a modified candidate with any size adjustments
 	sc := ti.Candidate
-	sc.PositionSizePct = adjustedSizePct
+	//sc.PositionSizePct = adjustedSizePct
 
 	err := s.execEng.ExecuteScoredWithLLM(ctx, sc, decision)
 	slog.Info("after_execute",
