@@ -23,7 +23,7 @@ type Config struct {
 }
 
 var DefaultConfig = Config{
-	MaxDailyLosses:    2,
+	MaxDailyLosses:    4,
 	MaxDrawdownPct:    10.0,
 	MaxATRRatio:       6.0,
 	BTCBreakoutReject: true,
@@ -61,14 +61,6 @@ func (e *Engine) PreCheck(ctx context.Context) error {
 		return fmt.Errorf("kill switch active")
 	}
 
-	onCooldown, err := e.cache.IsOnCooldown(ctx)
-	if err != nil {
-		return fmt.Errorf("cooldown check: %w", err)
-	}
-	if onCooldown {
-		return fmt.Errorf("on cooldown")
-	}
-
 	positions, err := e.cache.GetActivePositions(ctx)
 	if err != nil {
 		return fmt.Errorf("positions check: %w", err)
@@ -79,12 +71,12 @@ func (e *Engine) PreCheck(ctx context.Context) error {
 
 	losses, err := e.cache.GetDailyLossCount(ctx)
 	if err == nil && losses >= e.cfg.MaxDailyLosses {
-		//if e.notifier != nil {
-		//	e.notifier.NotifyRiskEvent(ctx, notify.RiskEvent{
-		//		Type:    "daily_loss_limit",
-		//		Message: fmt.Sprintf("Daily loss limit reached (%d losses). Trading disabled until 00:00 UTC.", e.cfg.MaxDailyLosses),
-		//	})
-		//}
+		if e.notifier != nil {
+			e.notifier.NotifyRiskEvent(ctx, notify.RiskEvent{
+				Type:    "daily_loss_limit",
+				Message: fmt.Sprintf("Daily loss limit reached (%d losses). Trading disabled until 00:00 UTC.", e.cfg.MaxDailyLosses),
+			})
+		}
 		return fmt.Errorf("daily loss limit reached (%d)", e.cfg.MaxDailyLosses)
 	}
 

@@ -19,6 +19,7 @@ const (
 	keyKillSwitch         = "state:kill_switch"
 	keyFundingSnap        = "market:funding_snapshot"
 	keyLastWSMessage      = "meta:last_ws_message"
+	keySymbolCooldownPfx  = "cooldown:symbol:"
 	keyPendingEntryPrefix = "pending_entry:"
 	keyPendingProtPrefix  = "pending_prot:"
 	keyDailyLossPrefix    = "risk:daily_losses:"
@@ -110,6 +111,18 @@ func (r *RedisStateCache) IsOnCooldown(ctx context.Context) (bool, error) {
 
 func (r *RedisStateCache) SetCooldown(ctx context.Context, duration time.Duration) error {
 	return r.client.Set(ctx, keyCooldown, "1", duration).Err()
+}
+
+func (r *RedisStateCache) IsSymbolOnCooldown(ctx context.Context, symbol string) (bool, error) {
+	exists, err := r.client.Exists(ctx, keySymbolCooldownPfx+symbol).Result()
+	if err != nil {
+		return false, err
+	}
+	return exists > 0, nil
+}
+
+func (r *RedisStateCache) SetSymbolCooldown(ctx context.Context, symbol string, duration time.Duration) error {
+	return r.client.Set(ctx, keySymbolCooldownPfx+symbol, "1", duration).Err()
 }
 
 func (r *RedisStateCache) GetKillSwitch(ctx context.Context) (bool, error) {

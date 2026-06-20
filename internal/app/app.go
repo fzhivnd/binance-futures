@@ -38,7 +38,10 @@ type llmCallState struct {
 	cycleDeadline time.Time
 }
 
-const symbolCooldownDuration = 10 * time.Minute
+const (
+	symbolCooldownDurationLLM   = 10 * time.Minute
+	symbolCooldownDurationClose = 5 * time.Minute
+)
 
 type App struct {
 	cfg             *config.Config
@@ -58,7 +61,7 @@ type App struct {
 	llmEngine       *llm.DecisionEngine
 	intentQueue     *intent.Queue
 	lastLLMCall     *llmCallState
-	symbolCooldown  map[string]time.Time
+	cache           storage.StateCache
 	memoryEngine    *memory.Engine
 	binanceClient   *exchange.BinanceClient
 	bookTickerCache *market.BookTickerCache
@@ -101,6 +104,7 @@ func (a *App) Run(
 		redisClient.Close()
 	}()
 
+	a.cache = cache
 	a.engine = market.NewMarketEngine()
 	a.bookTickerCache = market.NewBookTickerCache()
 
