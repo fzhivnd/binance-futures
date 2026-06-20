@@ -52,9 +52,9 @@ Risk:
 - Volatility-driven stop loss.
 
 Parameters:
-- 20x leverage
-- Hard SL ≈ 5%
-- TP1 ≈ 2%
+- 10x leverage
+- Hard SL ≈ 5% price movement
+- TP1 ≈ 2% price movement
 
 ENTRY MODES
 
@@ -96,6 +96,7 @@ Best when:
 - Pre-settlement signals unclear.
 - Squeeze risk elevated.
 - Daily ROI > 60%, extreme activity means squeeze risk is high pre-settlement.
+- High ATR and volatility symbols
 
 Advantage:
 - No funding fee paid.
