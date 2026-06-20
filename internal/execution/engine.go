@@ -145,11 +145,12 @@ func (e *ExecutionEngine) execute(
 	if err != nil {
 		return fmt.Errorf("get balance: %w", err)
 	}
-	if balance.AvailableBalance < 10 { // for testing live trade
-		return fmt.Errorf("insufficient balance: %.2f", balance.AvailableBalance)
-	}
 
 	margin := math.Min(balance.TotalBalance*25/100, 500)
+	if balance.AvailableBalance < margin { // for testing live trade
+		return fmt.Errorf("insufficient balance: %.2f, desired: %.2f", balance.AvailableBalance, margin)
+	}
+
 	qty := margin * float64(e.cfg.Trading.Leverage) / candidate.MarkPrice
 
 	now := time.Now()
