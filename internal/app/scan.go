@@ -208,11 +208,7 @@ func (a *App) scanFn(ctx context.Context, window scheduler.WindowType) error {
 
 	similarTrades := make(map[string][]domain.SimilarTrade)
 	if a.memoryEngine != nil && len(top) > 0 {
-		next := scheduler.NextFundingTime(time.Now().UTC())
-		minsToSettle := int(math.Round(time.Until(next).Minutes()))
-		if minsToSettle < 0 {
-			minsToSettle = 0
-		}
+		now := time.Now().UTC()
 
 		var mu sync.Mutex
 		var wg sync.WaitGroup
@@ -222,7 +218,7 @@ func (a *App) scanFn(ctx context.Context, window scheduler.WindowType) error {
 				defer wg.Done()
 				similar, serr := a.memoryEngine.RetrieveSimilar(ctx,
 					sc.Indicators, btc, &sc.Candidate,
-					sc.CompositeScore, string(window), minsToSettle,
+					sc.CompositeScore, string(window), now,
 				)
 				if serr != nil {
 					slog.Warn("memory retrieval failed for candidate",

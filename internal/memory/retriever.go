@@ -2,6 +2,7 @@ package memory
 
 import (
 	"context"
+	"sort"
 	"time"
 
 	pgvector "github.com/pgvector/pgvector-go"
@@ -27,21 +28,27 @@ func NewRetriever(repo storage.MemoryRepository, cfg RetrieverConfig) *Retriever
 
 // FindSimilar retrieves the most similar historical trade setups.
 // The DB returns a wider pool (limit*3) ordered by raw cosine distance; we apply
-// multiplicative bonuses for the four priority match fields (symbol, entryMode,
-// fundingBucket, roiBucket) and a regime penalty for BTC regime mismatch.
+// bonuses for priority match fields and a penalty for BTC regime mismatch.
 func (r *Retriever) FindSimilar(
 	ctx context.Context,
 	embedding pgvector.Vector,
-	symbol string,
+	snap *domain.IndicatorSnapshot,
+	btc *domain.BTCContext,
+	candidate *domain.Candidate,
 	entryMode string,
-	btcRegime string,
-	fundingBucket int,
-	roiBucket string,
+	at time.Time,
 ) ([]domain.SimilarTrade, error) {
 	results, err := r.repo.FindSimilar(ctx, embedding, r.cfg.TopSimilar)
 	if err != nil {
 		return nil, err
 	}
+
+	btcRegime := BTCRegime(btc.Trend)
+	fundingBucket := FundingBucket(candidate.FundingRate * 100)
+	roiBucket := ROIBucket(candidate.DailyROI)
+	dayOfWeek := DayOfWeekLabel(at)
+	fundingWindow := FundingWindowLabel(at)
+	atrBucket := ATRBucket(snap.ATRRatio)
 
 	now := time.Now()
 	var similar []domain.SimilarTrade
@@ -55,9 +62,6 @@ func (r *Retriever) FindSimilar(
 		// This prevents saturated cosine (0.99+) from collapsing all scores to 1.0.
 		sim := res.Similarity * 0.50
 
-		if res.Memory.Symbol == symbol {
-			sim += 0.20
-		}
 		if res.Memory.EntryMode == entryMode {
 			sim += 0.15
 		}
@@ -65,6 +69,15 @@ func (r *Retriever) FindSimilar(
 			sim += 0.08
 		}
 		if ROIBucket(res.Memory.DailyROI) == roiBucket {
+			sim += 0.07
+		}
+		if DayOfWeekLabel(res.Memory.CreatedAt) == dayOfWeek {
+			sim += 0.05
+		}
+		if FundingWindowLabel(res.Memory.CreatedAt) == fundingWindow {
+			sim += 0.07
+		}
+		if ATRBucket(res.Memory.ATRRatio) == atrBucket {
 			sim += 0.07
 		}
 		if res.Memory.BTCRegime != btcRegime {
@@ -76,7 +89,6 @@ func (r *Retriever) FindSimilar(
 		}
 
 		daysAgo := int(now.Sub(res.Memory.CreatedAt).Hours() / 24)
-
 		similar = append(similar, domain.SimilarTrade{
 			Outcome:     res.Memory.Outcome,
 			ProfitPct:   res.Memory.ProfitPct,
@@ -86,10 +98,14 @@ func (r *Retriever) FindSimilar(
 			EntryMode:   res.Memory.EntryMode,
 			FundingRate: res.Memory.FundingRate,
 		})
+	}
 
-		if len(similar) == r.cfg.TopSimilar {
-			break
-		}
+	sort.Slice(similar, func(i, j int) bool {
+		return similar[i].Similarity > similar[j].Similarity
+	})
+
+	if len(similar) > r.cfg.TopSimilar {
+		similar = similar[:r.cfg.TopSimilar]
 	}
 
 	return similar, nil

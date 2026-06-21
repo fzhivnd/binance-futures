@@ -3,6 +3,7 @@ package memory
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"futures/internal/domain"
 )
@@ -19,16 +20,19 @@ func BuildFeatureText(
 	candidate *domain.Candidate,
 	score float64,
 	entryMode string,
-	minutesToSettle int,
+	at time.Time,
 ) string {
 	var sb strings.Builder
+
+	dayOfWeek := DayOfWeekLabel(at)
+	fundingWindow := FundingWindowLabel(at)
 
 	roiBucket := ROIBucket(candidate.DailyROI)
 	fundingLabel := FundingBucketLabel(FundingBucket(candidate.FundingRate * 100))
 
 	// Key discriminating fields first — position gives them higher embedding weight.
-	sb.WriteString(fmt.Sprintf("symbol: %s | entry_mode: %s | funding_bucket: %s | roi_bucket: %s\n",
-		candidate.Symbol, entryMode, fundingLabel, roiBucket))
+	sb.WriteString(fmt.Sprintf("symbol: %s | entry_mode: %s | funding_bucket: %s | roi_bucket: %s | day: %s | funding_window: %02dUTC\n",
+		candidate.Symbol, entryMode, fundingLabel, roiBucket, dayOfWeek, fundingWindow))
 
 	sb.WriteString(fmt.Sprintf("funding_rate: %.3f%% | daily_roi: %.2f%%\n",
 		candidate.FundingRate*100, candidate.DailyROI))
@@ -64,8 +68,8 @@ func BuildFeatureText(
 	}
 
 	// Repeat key fields at the bottom to reinforce their embedding weight.
-	sb.WriteString(fmt.Sprintf("setup_key: symbol=%s entry_mode=%s funding_bucket=%s roi_bucket=%s\n",
-		candidate.Symbol, entryMode, fundingLabel, roiBucket))
+	sb.WriteString(fmt.Sprintf("setup_key: symbol=%s entry_mode=%s funding_bucket=%s roi_bucket=%s day=%s funding_window=%02dUTC\n",
+		candidate.Symbol, entryMode, fundingLabel, roiBucket, dayOfWeek, fundingWindow))
 
 	return sb.String()
 }
@@ -145,6 +149,24 @@ func ATRBucket(atrRatio float64) string {
 	default:
 		return "NORMAL_VOL"
 	}
+}
+
+// DayOfWeekLabel returns a 3-letter UTC weekday label from a time.Time.
+func DayOfWeekLabel(t time.Time) string {
+	days := [7]string{"SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"}
+	return days[t.UTC().Weekday()]
+}
+
+// FundingWindowLabel returns the UTC hour of the next funding settlement
+// (0, 4, 8, 12, 16, 20). A time exactly on a boundary (e.g. 8:00) returns
+// that boundary — covering the AFTER window that opens at settlement.
+func FundingWindowLabel(t time.Time) int {
+	t = t.UTC()
+	h, m := t.Hour(), t.Minute()
+	if h%4 == 0 && m == 0 {
+		return h
+	}
+	return ((h / 4) + 1) * 4 % 24
 }
 
 // BTCRegime maps BTC trend to a regime category for metadata filtering.

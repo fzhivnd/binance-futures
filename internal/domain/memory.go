@@ -53,7 +53,7 @@ type TradeMemory struct {
 
 	// Metadata for filtered search
 	BTCRegime     string // "bullish" | "neutral" | "bearish"
-	FundingBucket int    // 1: -0.2~-0.5, 2: -0.5~-1.0, 3: -1.0~-2.0
+	FundingBucket int    // 1: mild, 2: moderate, 3: extreme
 }
 
 // SimilarTrade is the compact form injected into LLM prompts.

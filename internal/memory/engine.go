@@ -73,9 +73,7 @@ func (e *Engine) RecordTrade(
 	if decision != nil {
 		entryMode = string(decision.EntryMode)
 	}
-	minutesToSettle := minutesToNextFunding(trade.CreatedAt)
-
-	featureText := BuildFeatureText(snap, btc, &sc.Candidate, sc.CompositeScore, entryMode, minutesToSettle)
+	featureText := BuildFeatureText(snap, btc, &sc.Candidate, sc.CompositeScore, entryMode, trade.CreatedAt)
 
 	start := time.Now()
 	embedding, err := e.embedder.Embed(ctx, featureText)
@@ -104,7 +102,7 @@ func (e *Engine) RecordTrade(
 		CandlePatterns:  formatPatterns(snap.Patterns),
 		CompositeScore:  sc.CompositeScore,
 		EntryMode:       entryMode,
-		MinutesToSettle: minutesToSettle,
+		MinutesToSettle: minutesToNextFunding(trade.CreatedAt),
 		BTCTrend:        btc.Trend,
 		BTCMomentum:     btc.MomentumScore,
 		BTCBreakout:     btc.IsBreakout,
@@ -146,9 +144,9 @@ func (e *Engine) RecordSkip(
 
 	top := candidates[0]
 	snap := top.Indicators
-	minutesToSettle := minutesToNextFunding(time.Now().UTC())
+	now := time.Now().UTC()
 
-	featureText := BuildFeatureText(snap, btc, &top.Candidate, top.CompositeScore, "SKIP", minutesToSettle)
+	featureText := BuildFeatureText(snap, btc, &top.Candidate, top.CompositeScore, "SKIP", now)
 
 	start := time.Now()
 	embedding, err := e.embedder.Embed(ctx, featureText)
@@ -162,7 +160,7 @@ func (e *Engine) RecordSkip(
 		ID:              uuid.New(),
 		Symbol:          top.Candidate.Symbol,
 		Action:          domain.ActionSkip,
-		CreatedAt:       time.Now(),
+		CreatedAt:       now,
 		FundingRate:     top.Candidate.FundingRate,
 		DailyROI:        top.Candidate.DailyROI,
 		OIDelta1h:       snap.OIDelta1h,
@@ -176,7 +174,7 @@ func (e *Engine) RecordSkip(
 		CandlePatterns:  formatPatterns(snap.Patterns),
 		CompositeScore:  top.CompositeScore,
 		EntryMode:       window,
-		MinutesToSettle: minutesToSettle,
+		MinutesToSettle: minutesToNextFunding(now),
 		BTCTrend:        btc.Trend,
 		BTCMomentum:     btc.MomentumScore,
 		BTCBreakout:     btc.IsBreakout,
@@ -211,13 +209,13 @@ func (e *Engine) RetrieveSimilar(
 	candidate *domain.Candidate,
 	score float64,
 	entryMode string,
-	minutesToSettle int,
+	at time.Time,
 ) ([]domain.SimilarTrade, error) {
 	if !e.enabled {
 		return nil, nil
 	}
 
-	featureText := BuildFeatureText(snap, btc, candidate, score, entryMode, minutesToSettle)
+	featureText := BuildFeatureText(snap, btc, candidate, score, entryMode, at)
 
 	start := time.Now()
 	embedding, err := e.embedder.Embed(ctx, featureText)
@@ -226,11 +224,7 @@ func (e *Engine) RetrieveSimilar(
 		return nil, nil // non-fatal: proceed without memory
 	}
 
-	btcRegime := BTCRegime(btc.Trend)
-	fundingBucket := FundingBucket(candidate.FundingRate * 100)
-	roiBucket := ROIBucket(candidate.DailyROI)
-
-	similar, err := e.retriever.FindSimilar(ctx, embedding, candidate.Symbol, entryMode, btcRegime, fundingBucket, roiBucket)
+	similar, err := e.retriever.FindSimilar(ctx, embedding, snap, btc, candidate, entryMode, at)
 	queryLatency := time.Since(start)
 
 	if err != nil {
