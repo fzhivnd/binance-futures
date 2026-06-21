@@ -146,7 +146,7 @@ func (e *ExecutionEngine) execute(
 		return fmt.Errorf("get balance: %w", err)
 	}
 
-	margin := math.Min(balance.TotalBalance*25/100, 500)
+	margin := math.Min(balance.TotalBalance*e.cfg.Trading.PositionSizePct/100, 500)
 	if balance.AvailableBalance < margin { // for testing live trade
 		return fmt.Errorf("insufficient balance: %.2f, desired: %.2f", balance.AvailableBalance, margin)
 	}
