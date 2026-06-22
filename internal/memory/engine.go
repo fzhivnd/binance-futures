@@ -111,7 +111,7 @@ func (e *Engine) RecordTrade(
 		Outcome:         trade.Result,
 		ProfitPct:       trade.PnL,
 		HoldMinutes:     holdMinutes(trade),
-		BTCRegime:       BTCRegime(btc.Trend),
+		BTCRegime:       BTCRegime(btc.Trend, btc.IsBreakout, btc.MomentumScore),
 		FundingBucket:   FundingBucket(trade.FundingRate * 100),
 	}
 
@@ -180,7 +180,7 @@ func (e *Engine) RecordSkip(
 		BTCBreakout:     btc.IsBreakout,
 		BTCRSI:          btc.RSI14_1h,
 		BTCChange1h:     btc.PriceChange1h,
-		BTCRegime:       BTCRegime(btc.Trend),
+		BTCRegime:       BTCRegime(btc.Trend, btc.IsBreakout, btc.MomentumScore),
 		FundingBucket:   FundingBucket(top.Candidate.FundingRate * 100),
 		// Outcome left empty — filled by skip validation job
 	}

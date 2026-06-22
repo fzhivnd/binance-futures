@@ -19,13 +19,13 @@ type RSIDivergenceConfig struct {
 
 var RSIDivConfig = RSIDivergenceConfig{
 	Lookback:            50,
-	MinSwingDistance:    5,
-	MinSwingProminence:  0.5,
+	MinSwingDistance:    3,
+	MinSwingProminence:  0.3,
 	StrongPriceDiffPct:  0.5,
 	StrongRSIDiffPts:    5.0,
-	MinRSIPeak:          65,
-	MaxBarsSinceSwing:   5,
-	RSIPeakSearchRadius: 2,
+	MinRSIPeak:          55,
+	MaxBarsSinceSwing:   8,
+	RSIPeakSearchRadius: 3,
 }
 
 func DetectRSIDivergence(
