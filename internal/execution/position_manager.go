@@ -1219,15 +1219,12 @@ func (m *PositionManager) checkPreSettlement(ctx context.Context, pos domain.Pos
 
 	// Rule 2: widen TP1 to 2% + |funding_rate| if not yet done.
 	if m.cfg.PreSettlement.WidenTPOnMiss && !pos.TPWidened && pos.TPOrderID != "" {
-		m.widenTP1(ctx, &pos, fi)
-		if pos.TP2OrderID != "" {
-			m.adjustTP2AfterSettlement(ctx, &pos)
-		}
+		m.widenTP(ctx, &pos, fi)
 	}
 }
 
-// widenTP1 cancels the existing TP1 and replaces it at 2% + |funding_rate|.
-func (m *PositionManager) widenTP1(ctx context.Context, pos *domain.Position, _ *domain.FundingRate) {
+// widenTP cancels the existing TP1 and replaces it at 2% + |funding_rate|.
+func (m *PositionManager) widenTP(ctx context.Context, pos *domain.Position, _ *domain.FundingRate) {
 	newTPPct := m.cfg.Execution.TpPct + math.Abs(pos.FundingRateAtEntry*100)
 	newTP := pos.EntryPrice * (1 - newTPPct/100)
 	newTPLimit := newTP * 1.001
@@ -1267,6 +1264,9 @@ func (m *PositionManager) widenTP1(ctx context.Context, pos *domain.Position, _ 
 	}
 	pos.TakeProfit = newTP
 	pos.TPWidened = true
+	if pos.TP2OrderID != "" {
+		m.adjustTP2PreSettlement(ctx, pos)
+	}
 
 	if err := m.cache.SetActivePosition(ctx, *pos); err != nil {
 		slog.Error("widenTP1: update position", "symbol", pos.Symbol, "error", err)
@@ -1319,9 +1319,9 @@ func (m *PositionManager) onSettlementPassed(ctx context.Context, pos domain.Pos
 	}
 }
 
-// adjustTP2AfterSettlement widens the fixed TP2 by the funding rate magnitude
+// adjustTP2PreSettlement widens the fixed TP2 by the funding rate magnitude
 // to capture the post-settlement panic dump. e.g. funding=-1.5% → new TP2 = 4% + 1.5% = 5.5%.
-func (m *PositionManager) adjustTP2AfterSettlement(ctx context.Context, pos *domain.Position) {
+func (m *PositionManager) adjustTP2PreSettlement(ctx context.Context, pos *domain.Position) {
 	newTP2Pct := m.cfg.Execution.TP2Pct + math.Abs(pos.FundingRateAtEntry*100)
 	newTP2Price := pos.EntryPrice * (1 - newTP2Pct/100)
 	newTP2Trigger := newTP2Price * 1.001
@@ -1329,7 +1329,7 @@ func (m *PositionManager) adjustTP2AfterSettlement(ctx context.Context, pos *dom
 	tp2Qty := pos.OriginalQty * (1 - tp1SizeFraction)
 
 	if err := m.executor.CancelOrder(ctx, pos.Symbol, pos.TP2OrderID); err != nil {
-		slog.Warn("adjustTP2AfterSettlement: cancel old TP2 failed", "symbol", pos.Symbol, "error", err)
+		slog.Warn("adjustTP2PreSettlement: cancel old TP2 failed", "symbol", pos.Symbol, "error", err)
 		return
 	}
 	pos.TP2OrderID = ""
@@ -1344,7 +1344,7 @@ func (m *PositionManager) adjustTP2AfterSettlement(ctx context.Context, pos *dom
 		ReduceOnly:   true,
 	})
 	if err != nil {
-		slog.Error("adjustTP2AfterSettlement: place new TP2 failed", "symbol", pos.Symbol, "error", err)
+		slog.Error("adjustTP2PreSettlement: place new TP2 failed", "symbol", pos.Symbol, "error", err)
 		return
 	}
 	if newTP2Order != nil {
@@ -1352,7 +1352,7 @@ func (m *PositionManager) adjustTP2AfterSettlement(ctx context.Context, pos *dom
 	}
 	pos.TP2Price = newTP2Price
 
-	slog.Info("tp2_widened_post_settlement",
+	slog.Info("tp2_widened_pre_settlement",
 		"symbol", pos.Symbol,
 		"old_tp2_pct", m.cfg.Execution.TP2Pct,
 		"new_tp2_pct", newTP2Pct,
