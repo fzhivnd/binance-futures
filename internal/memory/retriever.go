@@ -62,19 +62,31 @@ func (r *Retriever) FindSimilar(
 		sim := res.Similarity * 0.60
 
 		if res.Memory.FundingBucket == fundingBucket {
-			sim += 0.12
-		}
-		if ROIBucket(res.Memory.DailyROI) == roiBucket {
 			sim += 0.1
 		}
+		if ROIBucket(res.Memory.DailyROI) == roiBucket {
+			sim += 0.08
+		}
 		if DayOfWeekLabel(res.Memory.CreatedAt) == dayOfWeek {
-			sim += 0.04
+			sim += 0.01
 		}
 		if FundingWindowLabel(res.Memory.CreatedAt) == fundingWindow {
-			sim += 0.05
+			sim += 0.015
 		}
 		if ATRBucket(res.Memory.ATRRatio) == atrBucket {
-			sim += 0.07
+			sim += 0.06
+		}
+		if RSIBucket(res.Memory.RSI14_15m) == RSIBucket(snap.RSI14_15m) {
+			sim += 0.05
+		}
+		if RSIBucket(res.Memory.RSI7_5m) == RSIBucket(snap.RSI7_5m) {
+			sim += 0.03
+		}
+		if OIDeltaBucket(res.Memory.OIDelta1h) == OIDeltaBucket(snap.OIDelta1h) {
+			sim += 0.05
+		}
+		if OIDeltaBucket(res.Memory.OIDelta15m) == OIDeltaBucket(snap.OIDelta15m) {
+			sim += 0.03
 		}
 		if res.Memory.BTCRegime != btcRegime {
 			sim -= 0.05
