@@ -18,7 +18,7 @@ Your task:
 
 MEMORY
 
-You may receive SIMILAR PAST TRADES.
+You may receive SIMILAR PAST TRADES for each candidate.
 
 Outcome categories:
 POSITIVE:
@@ -34,9 +34,18 @@ NEGATIVE:
 NEUTRAL:
 - BREAKEVEN
 
-Use memory as a confidence modifier.
-Recent and highly similar memories deserve more weight.
-Current market conditions always take priority.
+Each similar trade shows the entry mode used (FRONTRUN / LAST_MINUTE / AFTER).
+A per-mode breakdown is provided at the end of each memory block:
+  "<MODE> history: N positive / N negative → <BIAS>"
+
+Use this to inform mode selection, not just overall confidence:
+- If a mode shows consistent failures in similar setups → avoid that mode or require stronger confirmation.
+- If a mode shows consistent wins → prefer it when time window allows.
+- If memory is mixed → weight current signals more heavily.
+- A WARNING or CAUTION line for a specific mode is a direct signal to reconsider that window.
+
+Memory bias adjusts confidence. Per-mode history adjusts which window to enter.
+Current market conditions always take priority over memory.
 
 STRATEGY
 
@@ -92,10 +101,10 @@ Thesis:
 Post-settlement panic selling.
 
 Best when:
-- Funding extremely negative (-1.5% to -2.0%).
+- Funding extremely negative (-1.25% to -2.0%).
 - Pre-settlement signals unclear.
 - Squeeze risk elevated.
-- Daily ROI > 60%, extreme activity means squeeze risk is high pre-settlement.
+- Daily ROI > 50%, extreme activity means squeeze risk is high pre-settlement.
 - High ATR and volatility symbols
 
 Advantage:
@@ -190,6 +199,11 @@ Strongly positive memory: Small confidence boost.
 
 Strongly negative memory: Require stronger evidence.
 
+Per-mode history:
+- Consistent failures in a mode: Avoid that mode or escalate to the next safer window (e.g. FRONTRUN → LAST_MINUTE → AFTER → SKIP).
+- Consistent wins in a mode: Prefer that mode when the time window permits.
+- Mixed history: Default to current signal quality.
+
 TIME BIAS
 
 Default preference based on minutes before settlement:
@@ -280,6 +294,12 @@ func (p *PromptBuilder) UserMessage(req *LLMRequest) string {
 	return sb.String()
 }
 
+type modeStat struct {
+	positive int // WIN + PARTIAL_WIN + SKIP_MISSED
+	negative int // LOSS + FORCE_SL + SKIP_VALIDATED
+	score    float64
+}
+
 func renderCandidateMemory(sb *strings.Builder, trades []LLMSimilarTrade) {
 	if len(trades) == 0 {
 		sb.WriteString("  Memory: no similar past trades found.\n")
@@ -290,6 +310,7 @@ func renderCandidateMemory(sb *strings.Builder, trades []LLMSimilarTrade) {
 
 	winCount, partialWinCount, lossCount, forceSLCount, breakevenCount, skipValidatedCount, skipMissedCount := 0, 0, 0, 0, 0, 0, 0
 	memoryScore := 0.0
+	modeStats := map[string]*modeStat{}
 
 	for i, t := range trades {
 		switch t.Outcome {
@@ -318,7 +339,23 @@ func renderCandidateMemory(sb *strings.Builder, trades []LLMSimilarTrade) {
 		case t.DaysAgo <= 7:
 			weight *= 1.10
 		}
-		memoryScore += outcomeScore(t.Outcome) * weight
+		s := outcomeScore(t.Outcome)
+		memoryScore += s * weight
+
+		// accumulate per-mode stats
+		if t.EntryMode != "" {
+			if modeStats[t.EntryMode] == nil {
+				modeStats[t.EntryMode] = &modeStat{}
+			}
+			ms := modeStats[t.EntryMode]
+			ms.score += s * weight
+			switch t.Outcome {
+			case "WIN", "PARTIAL_WIN", "SKIP_MISSED":
+				ms.positive++
+			case "LOSS", "FORCE_SL", "SKIP_VALIDATED":
+				ms.negative++
+			}
+		}
 
 		outcomeLabel := t.Outcome
 		switch t.Outcome {
@@ -365,6 +402,32 @@ func renderCandidateMemory(sb *strings.Builder, trades []LLMSimilarTrade) {
 
 	bias := biasLabel(memoryScore)
 	sb.WriteString(fmt.Sprintf("    Memory bias: %s (score=%.2f)\n", bias, memoryScore))
+
+	// Per-mode breakdown — only emit modes that have at least one trade.
+	for _, mode := range []string{"FRONTRUN", "LAST_MINUTE", "AFTER"} {
+		ms, ok := modeStats[mode]
+		if !ok {
+			continue
+		}
+		modeBias := biasLabel(ms.score)
+		sb.WriteString(fmt.Sprintf("    %s history: %d positive / %d negative → %s\n",
+			mode, ms.positive, ms.negative, modeBias))
+	}
+
+	// Actionable entry-mode signals.
+	for _, mode := range []string{"FRONTRUN", "LAST_MINUTE", "AFTER"} {
+		ms, ok := modeStats[mode]
+		if !ok {
+			continue
+		}
+		if ms.negative >= 2 && ms.positive == 0 {
+			sb.WriteString(fmt.Sprintf("    WARNING: %s failed consistently in similar setups — avoid or require strong extra confirmation.\n", mode))
+		} else if ms.positive >= 2 && ms.negative == 0 {
+			sb.WriteString(fmt.Sprintf("    NOTE: %s worked well in similar setups.\n", mode))
+		} else if ms.negative > ms.positive {
+			sb.WriteString(fmt.Sprintf("    CAUTION: %s has more failures than wins in similar setups.\n", mode))
+		}
+	}
 
 	if skipValidatedCount >= 2 {
 		sb.WriteString("    WARNING: Multiple similar setups were correctly skipped — high failure risk.\n")

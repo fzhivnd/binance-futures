@@ -63,13 +63,17 @@ func BuildFeatureText(
 	}
 
 	if btc != nil {
-		sb.WriteString(fmt.Sprintf("btc_trend: %s | btc_momentum: %d | btc_rsi: %.2f | btc_breakout: %v | btc_change_1h: %+.2f%%\n",
-			btc.Trend, btc.MomentumScore, btc.RSI14_1h, btc.IsBreakout, btc.PriceChange1h))
+		sb.WriteString(fmt.Sprintf("btc_regime: %s | btc_momentum: %d | btc_rsi: %.2f | btc_breakout: %v | btc_change_1h: %+.2f%%\n",
+			BTCRegime(btc.Trend, btc.IsBreakout, btc.MomentumScore), btc.MomentumScore, btc.RSI14_1h, btc.IsBreakout, btc.PriceChange1h))
 	}
 
 	// Repeat key fields at the bottom to reinforce their embedding weight.
-	sb.WriteString(fmt.Sprintf("setup_key: symbol=%s entry_mode=%s funding_bucket=%s roi_bucket=%s day=%s funding_window=%02dUTC\n",
-		candidate.Symbol, entryMode, fundingLabel, roiBucket, dayOfWeek, fundingWindow))
+	btcRegimeLabel := ""
+	if btc != nil {
+		btcRegimeLabel = BTCRegime(btc.Trend, btc.IsBreakout, btc.MomentumScore)
+	}
+	sb.WriteString(fmt.Sprintf("setup_key: symbol=%s entry_mode=%s funding_bucket=%s roi_bucket=%s day=%s funding_window=%02dUTC btc_regime=%s\n",
+		candidate.Symbol, entryMode, fundingLabel, roiBucket, dayOfWeek, fundingWindow, btcRegimeLabel))
 
 	return sb.String()
 }
@@ -79,9 +83,13 @@ func BuildFeatureText(
 func FundingBucket(fundingRatePct float64) int {
 	absFunding := -fundingRatePct // funding is negative for shorts
 	switch {
+	case absFunding >= 1.5:
+		return 5 // critical
 	case absFunding >= 1.0:
-		return 3 // extreme
-	case absFunding >= 0.5:
+		return 4 // extreme
+	case absFunding >= 0.6:
+		return 3 // high
+	case absFunding >= 0.3:
 		return 2 // moderate
 	default:
 		return 1 // mild
@@ -91,8 +99,12 @@ func FundingBucket(fundingRatePct float64) int {
 // FundingBucketLabel returns a human-readable label for use in feature text.
 func FundingBucketLabel(bucket int) string {
 	switch bucket {
-	case 3:
+	case 5:
+		return "CRITICAL"
+	case 4:
 		return "EXTREME"
+	case 3:
+		return "HIGH"
 	case 2:
 		return "MODERATE"
 	default:
@@ -100,38 +112,59 @@ func FundingBucketLabel(bucket int) string {
 	}
 }
 
-// ROIBucket categorizes daily ROI into semantic ranges for feature text.
-// Ranges: 0-15% LOW, 15-40% MEDIUM, 40-60% HIGH, >60% VERY_HIGH.
+// ROIBucket categorizes daily ROI into 7 semantic ranges for feature text.
 func ROIBucket(dailyROI float64) string {
 	switch {
-	case dailyROI >= 60:
+	case dailyROI >= 75:
+		return "EXTREME"
+	case dailyROI >= 50:
 		return "VERY_HIGH"
-	case dailyROI >= 40:
+	case dailyROI >= 35:
 		return "HIGH"
-	case dailyROI >= 15:
+	case dailyROI >= 20:
 		return "MEDIUM"
-	default:
+	case dailyROI >= 10:
+		return "BELOW_MEDIUM"
+	case dailyROI >= 3:
 		return "LOW"
+	default:
+		return "VERY_LOW"
 	}
 }
 
-// RSIBucket labels RSI into semantic zones.
+// RSIBucket labels RSI into 7 semantic zones.
 func RSIBucket(rsi float64) string {
 	switch {
+	case rsi >= 80:
+		return "EXTREME_OVERBOUGHT"
 	case rsi >= 70:
 		return "OVERBOUGHT"
-	case rsi <= 30:
+	case rsi >= 55:
+		return "BULLISH"
+	case rsi >= 46:
+		return "NEUTRAL"
+	case rsi >= 31:
+		return "BEARISH"
+	case rsi >= 21:
 		return "OVERSOLD"
 	default:
-		return "NEUTRAL"
+		return "EXTREME_OVERSOLD"
 	}
 }
 
-// OIDeltaBucket labels open-interest delta direction.
+// OIDeltaBucket labels open-interest delta direction into 7 zones.
 func OIDeltaBucket(delta float64) string {
 	switch {
+	case delta >= 10.0:
+		return "EXTREME_RISING"
+	case delta >= 5.0:
+		return "STRONG_RISING"
 	case delta >= 2.0:
 		return "RISING"
+	case delta <= -10.0:
+		return "EXTREME_FALLING"
+	case delta <= -5.0:
+		return "STRONG_FALLING"
 	case delta <= -2.0:
 		return "FALLING"
 	default:
@@ -139,15 +172,23 @@ func OIDeltaBucket(delta float64) string {
 	}
 }
 
-// ATRBucket labels ATR ratio relative to baseline volatility.
+// ATRBucket labels ATR ratio relative to baseline volatility into 7 zones.
 func ATRBucket(atrRatio float64) string {
 	switch {
-	case atrRatio >= 7:
-		return "HIGH_VOL"
-	case atrRatio <= 2:
-		return "LOW_VOL"
+	case atrRatio >= 10.0:
+		return "EXTREME"
+	case atrRatio >= 7.0:
+		return "HIGH"
+	case atrRatio >= 5.0:
+		return "ELEVATED"
+	case atrRatio >= 3.5:
+		return "NORMAL"
+	case atrRatio >= 2.0:
+		return "BELOW_NORMAL"
+	case atrRatio >= 1.0:
+		return "LOW"
 	default:
-		return "NORMAL_VOL"
+		return "VERY_LOW"
 	}
 }
 
@@ -169,14 +210,26 @@ func FundingWindowLabel(t time.Time) int {
 	return ((h / 4) + 1) * 4 % 24
 }
 
-// BTCRegime maps BTC trend to a regime category for metadata filtering.
-func BTCRegime(btcTrend string) string {
+// BTCRegime maps BTC trend, breakout flag, and momentum score to a composite regime label.
+func BTCRegime(btcTrend string, isBreakout bool, momentum int) string {
 	switch btcTrend {
 	case "bullish":
-		return "bullish"
+		if isBreakout {
+			return "BULLISH_BREAKOUT"
+		}
+		if momentum >= 2 {
+			return "BULLISH_STRONG"
+		}
+		return "BULLISH_WEAK"
 	case "bearish":
-		return "bearish"
+		if isBreakout {
+			return "BEARISH_BREAKDOWN"
+		}
+		if momentum <= -2 {
+			return "BEARISH_STRONG"
+		}
+		return "BEARISH_WEAK"
 	default:
-		return "neutral"
+		return "NEUTRAL"
 	}
 }
