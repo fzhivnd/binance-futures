@@ -1,0 +1,1 @@
+ALTER TABLE bot_params DROP COLUMN IF EXISTS tp2_pct;

@@ -7,6 +7,13 @@ import (
 	"futures/internal/domain"
 )
 
+func pnlSign(v float64) string {
+	if v >= 0 {
+		return "+"
+	}
+	return ""
+}
+
 func escapeMarkdownV2(s string) string {
 	replacer := strings.NewReplacer(
 		"_", "\\_", "*", "\\*", "[", "\\[", "]", "\\]",
@@ -167,9 +174,14 @@ func FormatTp1Event(e Tp1Event) string {
 		"🟢 *TP1 HIT* \\[%s\\] \n\n"+
 			"Symbol: `%s`\n"+
 			"Price: `$%s`\n"+
+			"PnL: `%s%s%%` \\(`%s%s%% ROI`\\)\n"+
+			"Secured: `%s%s USDT`\n"+
 			"Time: `%s`\n",
 		escapeMarkdownV2(e.Symbol),
 		escapeMarkdownV2(e.Symbol),
 		escapeMarkdownV2(fmt.Sprintf("%.8g", e.AvgPrice)),
+		escapeMarkdownV2(pnlSign(e.PnLPct)), escapeMarkdownV2(fmt.Sprintf("%.2f", e.PnLPct)),
+		escapeMarkdownV2(pnlSign(e.PnLROI)), escapeMarkdownV2(fmt.Sprintf("%.1f", e.PnLROI)),
+		escapeMarkdownV2(pnlSign(e.SecuredUSDT)), escapeMarkdownV2(fmt.Sprintf("%.2f", e.SecuredUSDT)),
 		escapeMarkdownV2(closedAt))
 }

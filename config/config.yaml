@@ -20,6 +20,7 @@ funding:
 execution:
   slippage_bps: 1
   trailing_callback_rate: 1.05
+  tp2_pct: 4.0
   force_sl_enabled: false
   force_sl_pnl_gate_pct: -1.5
   force_sl_escalate_pnl_pct: -2.5

@@ -65,6 +65,7 @@ type BotParamsRow struct {
 	FundingMaxRate         float64 `json:"funding_max_rate"`
 	SlPct                  float64 `json:"sl_pct"`
 	TpPct                  float64 `json:"tp_pct"`
+	Tp2Pct                 float64 `json:"tp2_pct"`
 	TrailingActivationPct  float64 `json:"trailing_activation_pct"`
 	BreakevenActivationPct float64 `json:"breakeven_activation_pct"`
 }
@@ -411,8 +412,8 @@ func (q *ScoringQueries) UpdateBotParams(ctx context.Context, id int, p BotParam
 		INSERT INTO bot_params (config_id, min_daily_roi_pct, min_volume_24h_m,
 		    max_positions, leverage, position_size_pct,
 		    funding_min_rate, funding_max_rate,
-		    sl_pct, tp_pct, trailing_activation_pct, breakeven_activation_pct)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+		    sl_pct, tp_pct, tp2_pct, trailing_activation_pct, breakeven_activation_pct)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
 		ON CONFLICT (config_id) DO UPDATE SET
 		    min_daily_roi_pct = EXCLUDED.min_daily_roi_pct,
 		    min_volume_24h_m  = EXCLUDED.min_volume_24h_m,
@@ -423,12 +424,13 @@ func (q *ScoringQueries) UpdateBotParams(ctx context.Context, id int, p BotParam
 		    funding_max_rate  = EXCLUDED.funding_max_rate,
 		    sl_pct            = EXCLUDED.sl_pct,
 		    tp_pct            = EXCLUDED.tp_pct,
+		    tp2_pct           = EXCLUDED.tp2_pct,
 		    trailing_activation_pct  = EXCLUDED.trailing_activation_pct,
 		    breakeven_activation_pct = EXCLUDED.breakeven_activation_pct
 	`, id, p.MinDailyROIPct, p.MinVolume24hM,
 		p.MaxPositions, p.Leverage, p.PositionSizePct,
 		p.FundingMinRate, p.FundingMaxRate,
-		p.SlPct, p.TpPct, p.TrailingActivationPct, p.BreakevenActivationPct,
+		p.SlPct, p.TpPct, p.Tp2Pct, p.TrailingActivationPct, p.BreakevenActivationPct,
 	)
 	return err
 }

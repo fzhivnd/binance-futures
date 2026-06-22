@@ -20,10 +20,10 @@ import (
 	"futures/internal/storage"
 )
 
-// tp1SizePct is the fraction of the original quantity closed by TP1.
+// tp1SizeFraction is the fraction of the original quantity closed by TP1.
 // Mirrors cfg.Execution.TP1SizePct / 100 but kept as a local constant for
 // use in pure-math helpers that have no config reference.
-const tp1SizeFraction = 0.5
+const tp1SizeFraction = 0.7
 
 // fundingInfoGetter is the subset of MarketEngine needed for pre-settlement checks.
 type fundingInfoGetter interface {
@@ -281,16 +281,8 @@ func (m *PositionManager) checkPaperFills(ctx context.Context, pos *domain.Posit
 		return false
 	}
 
-	// TP1 already filled — manage the trailing portion.
+	// TP1 already filled — manage the TP2 portion.
 	remainingQty := pos.OriginalQty - pos.OriginalQty*tp1SizeFraction
-
-	// Update trailing peak (track the lowest price seen — best for a SHORT).
-	if pos.TrailingPeak == 0 || currentPrice < pos.TrailingPeak {
-		pos.TrailingPeak = currentPrice
-		if err := m.cache.SetActivePosition(ctx, *pos); err != nil {
-			slog.Error("paper_trailing: update peak", "symbol", pos.Symbol, "error", err)
-		}
-	}
 
 	// Breakeven SL: price rose back to or above entry price.
 	if currentPrice >= pos.EntryPrice {
@@ -299,21 +291,27 @@ func (m *PositionManager) checkPaperFills(ctx context.Context, pos *domain.Posit
 		return true
 	}
 
-	// Trailing stop: price bounced CallbackRate% off the trailing peak.
-	callbackRate := m.cfg.Execution.TrailingCallbackRate / 100
-	if callbackRate > 0 && pos.TrailingPeak > 0 {
-		trailingTrigger := pos.TrailingPeak * (1 + callbackRate)
-		if currentPrice >= trailingTrigger {
-			slog.Info("paper_trailing_hit",
-				"symbol", pos.Symbol,
-				"price", currentPrice,
-				"peak", pos.TrailingPeak,
-				"trigger", trailingTrigger,
-			)
-			m.handleTrailingFill(ctx, pos, fakeOrder(pos.TrailingOrderID, currentPrice, remainingQty))
-			return true
-		}
+	// TP2: fixed limit order — price fell to or below TP2 price.
+	if pos.TP2Price > 0 && currentPrice <= pos.TP2Price {
+		slog.Info("paper_tp2_hit",
+			"symbol", pos.Symbol,
+			"price", currentPrice,
+			"tp2", pos.TP2Price,
+		)
+		m.handleTP2Fill(ctx, pos, fakeOrder(pos.TP2OrderID, pos.TP2Price, remainingQty))
+		return true
 	}
+
+	// --- Trailing stop (commented out, replaced by fixed TP2) ---
+	// callbackRate := m.cfg.Execution.TrailingCallbackRate / 100
+	// if callbackRate > 0 && pos.TrailingPeak > 0 {
+	// 	trailingTrigger := pos.TrailingPeak * (1 + callbackRate)
+	// 	if currentPrice >= trailingTrigger {
+	// 		slog.Info("paper_trailing_hit", ...)
+	// 		m.handleTrailingFill(ctx, pos, fakeOrder(pos.TrailingOrderID, currentPrice, remainingQty))
+	// 		return true
+	// 	}
+	// }
 
 	return false
 }
@@ -464,6 +462,9 @@ func (m *PositionManager) cancelAllOrders(ctx context.Context, pos domain.Positi
 	if pos.TrailingSLOrderID != "" {
 		_ = m.executor.CancelOrder(ctx, pos.Symbol, pos.TrailingSLOrderID)
 	}
+	if pos.TP2OrderID != "" {
+		_ = m.executor.CancelOrder(ctx, pos.Symbol, pos.TP2OrderID)
+	}
 }
 
 // HandleUserDataEvent is called by the user data stream router on every ORDER_TRADE_UPDATE.
@@ -523,8 +524,10 @@ func (m *PositionManager) HandleUserDataEvent(event exchange.UserDataEvent) {
 		if !pos.TP1Filled {
 			m.handleTP1Fill(ctx, pos, o)
 		}
+	case pos.TP2OrderID:
+		m.handleTP2Fill(ctx, pos, o)
 	case pos.TrailingOrderID:
-		m.handleTrailingFill(ctx, pos, o)
+		slog.Warn("unexpected trailing fill received — trailing replaced by fixed TP2", "symbol", pos.Symbol, "order", orderId)
 	case pos.TrailingSLOrderID:
 		m.handleTrailingSLFill(ctx, pos, o)
 	case pos.SLOrderID:
@@ -543,7 +546,7 @@ func (m *PositionManager) HandleUserDataEvent(event exchange.UserDataEvent) {
 				} else {
 					result = "LOSS"
 				}
-				m.persistClose(ctx, *pos, o.AvgPrice, pnl, result, "force_close")
+				m.persistClose(ctx, *pos, o.AvgPrice, pnl, result, "FORCE_CLOSE")
 				slog.Info("force_close_confirmed_ws",
 					"symbol", o.Symbol,
 					"avg_price", o.AvgPrice,
@@ -585,11 +588,11 @@ func (m *PositionManager) finalizeSLTP(
 	stopLoss := avgFillPrice + slDistance // SHORT: SL above entry
 
 	tpDistance := avgFillPrice * (pending.TpPct / 100)
-	takeProfit := avgFillPrice - tpDistance // SHORT: TP below entry
+	tp1Price := avgFillPrice - tpDistance // SHORT: TP below entry
 
 	tp1SizePct := m.cfg.Execution.TP1SizePct / 100
 	tp1Qty := filledQty * tp1SizePct
-	tpLimit := takeProfit * 1.001
+	tp1Trigger := tp1Price * 1.001
 
 	slOrder, slErr := m.executor.PlaceStopMarketOrder(ctx, domain.OrderRequest{
 		Symbol:        pending.Symbol,
@@ -610,7 +613,7 @@ func (m *PositionManager) finalizeSLTP(
 			Quantity:   filledQty,
 			TP1Qty:     tp1Qty,
 			StopLoss:   stopLoss,
-			TakeProfit: takeProfit,
+			TakeProfit: tp1Price,
 		}
 		if err := m.cache.SetPendingProtection(ctx, pp); err != nil {
 			slog.Error("finalizeSLTP: set pending protection after SL failure", "symbol", pending.Symbol, "error", err)
@@ -624,8 +627,8 @@ func (m *PositionManager) finalizeSLTP(
 		Side:         domain.SideBuy,
 		Type:         domain.OrderTypeTakeProfit,
 		Quantity:     tp1Qty,
-		TriggerPrice: tpLimit,
-		Price:        takeProfit,
+		TriggerPrice: tp1Trigger,
+		Price:        tp1Price,
 		ReduceOnly:   true,
 	})
 	if tpErr != nil {
@@ -643,7 +646,7 @@ func (m *PositionManager) finalizeSLTP(
 			Quantity:   filledQty,
 			TP1Qty:     tp1Qty,
 			StopLoss:   stopLoss,
-			TakeProfit: takeProfit,
+			TakeProfit: tp1Price,
 		}
 		if err := m.cache.SetPendingProtection(ctx, pp); err != nil {
 			slog.Error("finalizeSLTP: set pending protection after TP failure", "symbol", pending.Symbol, "error", err)
@@ -651,6 +654,27 @@ func (m *PositionManager) finalizeSLTP(
 		return
 	}
 	tpOrderID := tpOrder.ClientOrderId
+
+	// Place TP2 fixed limit order on the remaining 30% immediately at open.
+	tp2Qty := filledQty - tp1Qty
+	tp2Price := avgFillPrice * (1 - m.cfg.Execution.TP2Pct/100)
+	tp2Trigger := tp2Price * 1.001 // slightly above trigger for limit fill
+	var tp2OrderID string
+	tp2Order, tp2Err := m.executor.PlaceStopLimitOrder(ctx, domain.OrderRequest{
+		Symbol:       pending.Symbol,
+		Side:         domain.SideBuy,
+		Type:         domain.OrderTypeTakeProfit,
+		Quantity:     tp2Qty,
+		TriggerPrice: tp2Trigger,
+		Price:        tp2Price,
+		ReduceOnly:   true,
+	})
+	if tp2Err != nil {
+		slog.Warn("finalizeSLTP: place TP2 failed, position still activated without TP2",
+			"symbol", pending.Symbol, "error", tp2Err)
+	} else if tp2Order != nil {
+		tp2OrderID = tp2Order.ClientOrderId
+	}
 
 	isPaper := m.cfg.App.Mode == "paper"
 
@@ -663,9 +687,11 @@ func (m *PositionManager) finalizeSLTP(
 		Leverage:           m.cfg.Trading.Leverage,
 		EntryMode:          domain.EntryMode(pending.Window),
 		StopLoss:           stopLoss,
-		TakeProfit:         takeProfit,
+		TakeProfit:         tp1Price,
 		SLOrderID:          slOrderID,
 		TPOrderID:          tpOrderID,
+		TP2OrderID:         tp2OrderID,
+		TP2Price:           tp2Price,
 		TradeID:            pending.TradeId,
 		OpenedAt:           openedAt,
 		IsPaper:            isPaper,
@@ -728,11 +754,13 @@ func (m *PositionManager) finalizeSLTP(
 		"entry", avgFillPrice,
 		"sl", stopLoss,
 		"sl_order", slOrderID,
-		"tp1", takeProfit,
+		"tp1", tp1Price,
 		"tp1_order", tpOrderID,
+		"tp2", tp2Price,
+		"tp2_order", tp2OrderID,
 		"qty_total", filledQty,
 		"qty_tp1", tp1Qty,
-		"qty_trail", filledQty-tp1Qty,
+		"qty_tp2", tp2Qty,
 	)
 
 	if m.notifier != nil {
@@ -743,7 +771,7 @@ func (m *PositionManager) finalizeSLTP(
 			Quantity:   filledQty,
 			Leverage:   m.cfg.Trading.Leverage,
 			StopLoss:   stopLoss,
-			TakeProfit: takeProfit,
+			TakeProfit: tp1Price,
 			EntryMode:  pending.Window,
 			Confidence: pending.Confidence,
 			IsPaper:    isPaper,
@@ -816,9 +844,25 @@ func (m *PositionManager) retryProtection(ctx context.Context, pos domain.Positi
 		if err != nil {
 			slog.Error("retryProtection: TP still failing", "symbol", pos.Symbol, "error", err)
 		} else {
+			tp2Qty := pp.Quantity - pp.TP1Qty
+			tp2Price := pp.EntryPrice * (1 - m.cfg.Execution.TP2Pct/100)
+			tp2Trigger := tp2Price * 1.001 // slightly above trigger for limit fill
+			tp2Order, _ := m.executor.PlaceStopLimitOrder(ctx, domain.OrderRequest{
+				Symbol:       pp.Symbol,
+				Side:         domain.SideBuy,
+				Type:         domain.OrderTypeTakeProfit,
+				Quantity:     tp2Qty,
+				TriggerPrice: tp2Trigger,
+				Price:        tp2Price,
+				ReduceOnly:   true,
+			})
 			pp.NeedsTP = false
 			pos.TPOrderID = tpOrder.ClientOrderId
 			pos.TakeProfit = pp.TakeProfit
+			if tp2Order != nil {
+				pos.TP2OrderID = tp2Order.ClientOrderId
+				pos.TP2Price = tp2Price
+			}
 			if err := m.cache.SetActivePosition(ctx, pos); err != nil {
 				slog.Error("retryProtection: update position", "symbol", pos.Symbol, "error", err)
 			}
@@ -867,25 +911,7 @@ func (m *PositionManager) handleTP1Fill(ctx context.Context, pos *domain.Positio
 		pos.SLOrderID = ""
 	}
 
-	// 2. Place trailing stop on remaining qty
-	trailingOrder, err := m.executor.PlaceTrailingStopOrder(ctx, TrailingStopRequest{
-		Symbol:       pos.Symbol,
-		Side:         domain.SideBuy,
-		Quantity:     remainingQty,
-		CallbackRate: m.cfg.Execution.TrailingCallbackRate,
-		ReduceOnly:   true,
-	})
-	if err != nil {
-		slog.Error("place trailing stop failed, market closing remainder",
-			"symbol", pos.Symbol, "error", err)
-		m.forceClose(ctx, *pos, "trailing placement failed")
-		return
-	}
-	if trailingOrder != nil {
-		pos.TrailingOrderID = trailingOrder.ClientOrderId
-	}
-
-	// 3. Place breakeven SL for the trailing portion (entry price as safety net)
+	// 2. Place breakeven SL at entry price to protect the remaining 30%.
 	beOrder, err := m.executor.PlaceStopMarketOrder(ctx, domain.OrderRequest{
 		Symbol:        pos.Symbol,
 		Side:          domain.SideBuy,
@@ -894,10 +920,31 @@ func (m *PositionManager) handleTP1Fill(ctx context.Context, pos *domain.Positio
 		ClosePosition: true,
 	})
 	if err != nil {
-		slog.Warn("place breakeven SL for trailing failed", "symbol", pos.Symbol, "error", err)
+		slog.Warn("place breakeven SL after TP1 failed", "symbol", pos.Symbol, "error", err)
 	} else if beOrder != nil {
 		pos.TrailingSLOrderID = beOrder.ClientOrderId
+		pos.BreakevenMoved = true
 	}
+
+	// 3. TP2 fixed limit order already placed at position open — nothing to do here.
+
+	// --- Trailing stop (commented out, replaced by fixed TP2) ---
+	// trailingOrder, err := m.executor.PlaceTrailingStopOrder(ctx, TrailingStopRequest{
+	// 	Symbol:       pos.Symbol,
+	// 	Side:         domain.SideBuy,
+	// 	Quantity:     remainingQty,
+	// 	CallbackRate: m.cfg.Execution.TrailingCallbackRate,
+	// 	ReduceOnly:   true,
+	// })
+	// if err != nil {
+	// 	slog.Error("place trailing stop failed, market closing remainder",
+	// 		"symbol", pos.Symbol, "error", err)
+	// 	m.forceClose(ctx, *pos, "trailing placement failed")
+	// 	return
+	// }
+	// if trailingOrder != nil {
+	// 	pos.TrailingOrderID = trailingOrder.ClientOrderId
+	// }
 
 	pos.Quantity = remainingQty
 
@@ -905,45 +952,63 @@ func (m *PositionManager) handleTP1Fill(ctx context.Context, pos *domain.Positio
 		slog.Error("update position after TP1 fill", "symbol", pos.Symbol, "error", err)
 	}
 
-	slog.Info("trailing_stop_placed",
+	slog.Info("tp1_filled_tp2_active",
 		"symbol", pos.Symbol,
-		"trailing_order", pos.TrailingOrderID,
-		"callback_rate", m.cfg.Execution.TrailingCallbackRate,
+		"tp2_order", pos.TP2OrderID,
+		"tp2_price", pos.TP2Price,
+		"breakeven_sl_order", pos.TrailingSLOrderID,
 		"remaining_qty", remainingQty,
 	)
+	tp1PnLPct := (pos.EntryPrice - o.AvgPrice) / pos.EntryPrice * 100
+	securedUSDT := (pos.EntryPrice - o.AvgPrice) * (pos.OriginalQty * tp1SizeFraction)
 	m.notifier.NotifyTp1Event(ctx, notify.Tp1Event{
-		Symbol:   pos.Symbol,
-		ClosedAt: time.UnixMilli(o.TradeTime).UTC(),
-		AvgPrice: o.AvgPrice,
+		Symbol:      pos.Symbol,
+		ClosedAt:    time.UnixMilli(o.TradeTime).UTC(),
+		AvgPrice:    o.AvgPrice,
+		PnLPct:      tp1PnLPct,
+		PnLROI:      tp1PnLPct * float64(m.cfg.Trading.Leverage),
+		SecuredUSDT: securedUSDT,
 	})
 }
 
-// handleTrailingFill fires when the Binance trailing stop fills (best case: price kept falling).
-func (m *PositionManager) handleTrailingFill(ctx context.Context, pos *domain.Position, o exchange.OrderTradeUpdate) {
+// handleTP2Fill fires when the fixed TP2 limit order fills (full thesis validated).
+func (m *PositionManager) handleTP2Fill(ctx context.Context, pos *domain.Position, o exchange.OrderTradeUpdate) {
 	if pos.TrailingSLOrderID != "" {
 		_ = m.executor.CancelOrder(ctx, pos.Symbol, pos.TrailingSLOrderID)
 	}
 	avgClose := computeAvgClosePrice(*pos, o.AvgPrice)
 	pnl := (pos.EntryPrice - avgClose) * pos.OriginalQty
 	pnl = math.Round(pnl*1e8) / 1e8
-	m.persistClose(ctx, *pos, avgClose, pnl, "WIN", "TP_TRAIL")
+	m.persistClose(ctx, *pos, avgClose, pnl, "WIN", "TP2")
 }
 
-// handleTrailingSLFill fires when the breakeven SL on the trailing portion triggers (price reversed).
+// handleTrailingSLFill fires when the breakeven SL on the TP2 portion triggers (price reversed after TP1).
 func (m *PositionManager) handleTrailingSLFill(ctx context.Context, pos *domain.Position, o exchange.OrderTradeUpdate) {
-	if pos.TrailingOrderID != "" {
-		_ = m.executor.CancelOrder(ctx, pos.Symbol, pos.TrailingOrderID)
+	if pos.TP2OrderID != "" {
+		_ = m.executor.CancelOrder(ctx, pos.Symbol, pos.TP2OrderID)
 	}
 	avgClose := computeAvgClosePrice(*pos, o.AvgPrice)
 	pnl := (pos.EntryPrice - avgClose) * pos.OriginalQty
 	pnl = math.Round(pnl*1e8) / 1e8
 	pnl = calcFinalPnl(pnl, *pos)
-	result := "WIN"
+	result := "PARTIAL_WIN"
 	if pnl <= 0 {
 		result = "BREAKEVEN"
 	}
 	m.persistClose(ctx, *pos, avgClose, pnl, result, "TP_TRAIL")
 }
+
+// handleTrailingFill is kept for WS routing compatibility but should not fire with fixed TP2.
+// --- Trailing stop (commented out, replaced by fixed TP2) ---
+// func (m *PositionManager) handleTrailingFill(ctx context.Context, pos *domain.Position, o exchange.OrderTradeUpdate) {
+// 	if pos.TrailingSLOrderID != "" {
+// 		_ = m.executor.CancelOrder(ctx, pos.Symbol, pos.TrailingSLOrderID)
+// 	}
+// 	avgClose := computeAvgClosePrice(*pos, o.AvgPrice)
+// 	pnl := (pos.EntryPrice - avgClose) * pos.OriginalQty
+// 	pnl = math.Round(pnl*1e8) / 1e8
+// 	m.persistClose(ctx, *pos, avgClose, pnl, "WIN", "TP_TRAIL")
+// }
 
 // handleHardSLFill fires when the SL order triggers. If breakeven was already moved,
 // the same SLOrderID points to the breakeven stop — classify as BREAKEVEN, not LOSS.
@@ -1151,6 +1216,9 @@ func (m *PositionManager) checkPreSettlement(ctx context.Context, pos domain.Pos
 	// Rule 2: widen TP1 to 2% + |funding_rate| if not yet done.
 	if m.cfg.PreSettlement.WidenTPOnMiss && !pos.TPWidened && pos.TPOrderID != "" {
 		m.widenTP1(ctx, &pos, fi)
+		if pos.TP2OrderID != "" {
+			m.adjustTP2AfterSettlement(ctx, &pos)
+		}
 	}
 }
 
@@ -1245,7 +1313,48 @@ func (m *PositionManager) onSettlementPassed(ctx context.Context, pos domain.Pos
 			FeePaid:     pos.FundingFeePaidPct * pos.OriginalQty * pos.EntryPrice,
 		})
 	}
+}
 
+// adjustTP2AfterSettlement widens the fixed TP2 by the funding rate magnitude
+// to capture the post-settlement panic dump. e.g. funding=-1.5% → new TP2 = 4% + 1.5% = 5.5%.
+func (m *PositionManager) adjustTP2AfterSettlement(ctx context.Context, pos *domain.Position) {
+	newTP2Pct := m.cfg.Execution.TP2Pct + math.Abs(pos.FundingRateAtEntry*100)
+	newTP2Price := pos.EntryPrice * (1 - newTP2Pct/100)
+	newTP2Trigger := newTP2Price * 1.001
+
+	tp2Qty := pos.OriginalQty * (1 - tp1SizeFraction)
+
+	if err := m.executor.CancelOrder(ctx, pos.Symbol, pos.TP2OrderID); err != nil {
+		slog.Warn("adjustTP2AfterSettlement: cancel old TP2 failed", "symbol", pos.Symbol, "error", err)
+		return
+	}
+	pos.TP2OrderID = ""
+
+	newTP2Order, err := m.executor.PlaceStopLimitOrder(ctx, domain.OrderRequest{
+		Symbol:       pos.Symbol,
+		Side:         domain.SideBuy,
+		Type:         domain.OrderTypeTakeProfit,
+		Quantity:     tp2Qty,
+		TriggerPrice: newTP2Trigger,
+		Price:        newTP2Price,
+		ReduceOnly:   true,
+	})
+	if err != nil {
+		slog.Error("adjustTP2AfterSettlement: place new TP2 failed", "symbol", pos.Symbol, "error", err)
+		return
+	}
+	if newTP2Order != nil {
+		pos.TP2OrderID = newTP2Order.ClientOrderId
+	}
+	pos.TP2Price = newTP2Price
+
+	slog.Info("tp2_widened_post_settlement",
+		"symbol", pos.Symbol,
+		"old_tp2_pct", m.cfg.Execution.TP2Pct,
+		"new_tp2_pct", newTP2Pct,
+		"new_tp2_price", newTP2Price,
+		"new_tp2_order", pos.TP2OrderID,
+	)
 }
 
 // computeAvgClosePrice calculates weighted average exit price for split-leg closes.

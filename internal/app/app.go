@@ -83,6 +83,7 @@ func (a *App) applyBotParams(sc *domain.ScoringConfig) {
 	a.cfg.Funding.MaxRate = p.FundingMaxRate
 	a.cfg.Execution.SlPct = p.SlPct
 	a.cfg.Execution.TpPct = p.TpPct
+	a.cfg.Execution.TP2Pct = p.Tp2Pct
 	a.cfg.Execution.TrailingActivationPct = p.TrailingActivationPct
 	a.cfg.Execution.BreakevenActivationPct = p.BreakevenActivationPct
 }

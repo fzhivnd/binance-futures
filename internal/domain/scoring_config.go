@@ -54,6 +54,7 @@ type BotParams struct {
 	FundingMaxRate         float64
 	SlPct                  float64
 	TpPct                  float64
+	Tp2Pct                 float64
 	TrailingActivationPct  float64
 	BreakevenActivationPct float64
 }

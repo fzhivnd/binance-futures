@@ -47,9 +47,12 @@ type FundingEvent struct {
 }
 
 type Tp1Event struct {
-	Symbol   string
-	ClosedAt time.Time
-	AvgPrice float64
+	Symbol      string
+	ClosedAt    time.Time
+	AvgPrice    float64
+	PnLPct      float64 // price move % on the TP1 leg (e.g. 2.0 = 2%)
+	PnLROI      float64 // leveraged ROI % (e.g. 20.0 = 20%)
+	SecuredUSDT float64 // realised profit in USDT from the TP1 leg
 }
 
 // Notifier dispatches trade/risk notifications to Telegram. All methods are
