@@ -541,10 +541,14 @@ func (m *PositionManager) HandleUserDataEvent(event exchange.UserDataEvent) {
 				pnl = math.Round(pnl*1e8) / 1e8
 				finalPnl := calcFinalPnl(pnl, *pos)
 				var result string
-				if finalPnl > 0.0 {
-					result = "PARTIAL_WIN"
+				if pos.TP1Filled {
+					result = "WIN"
 				} else {
-					result = "LOSS"
+					if finalPnl > 0.0 {
+						result = "PARTIAL_WIN"
+					} else {
+						result = "LOSS"
+					}
 				}
 				m.persistClose(ctx, *pos, o.AvgPrice, pnl, result, "FORCE_CLOSE")
 				slog.Info("force_close_confirmed_ws",
@@ -991,7 +995,7 @@ func (m *PositionManager) handleTrailingSLFill(ctx context.Context, pos *domain.
 	pnl := (pos.EntryPrice - avgClose) * pos.OriginalQty
 	pnl = math.Round(pnl*1e8) / 1e8
 	pnl = calcFinalPnl(pnl, *pos)
-	result := "PARTIAL_WIN"
+	result := "WIN"
 	if pnl <= 0 {
 		result = "BREAKEVEN"
 	}
