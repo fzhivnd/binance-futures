@@ -1094,7 +1094,7 @@ func (m *PositionManager) persistClose(ctx context.Context, pos domain.Position,
 			slog.Error("incr daily loss count", "symbol", pos.Symbol, "error", err)
 		}
 	}
-	if err := m.cache.SetSymbolCooldown(ctx, pos.Symbol, 10*time.Minute); err != nil {
+	if err := m.cache.SetSymbolCooldown(ctx, pos.Symbol, 20*time.Minute); err != nil {
 		slog.Error("set symbol cooldown after close", "symbol", pos.Symbol, "error", err)
 	}
 
