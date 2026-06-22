@@ -9,11 +9,11 @@ import (
 )
 
 // BuildFeatureText creates a normalized text representation of a trade setup
-// for embedding. Structured so semantically similar setups produce similar vectors.
+// for embedding. Structured so semantically similar market conditions produce similar vectors.
 //
-// Key discriminating fields (symbol, entry_mode, funding_bucket, roi_bucket) appear
-// first and are repeated at the bottom as setup_key — text-embedding-3-small weights
-// tokens near both ends more heavily, amplifying their influence on cosine similarity.
+// Symbol and entry_mode are intentionally excluded — they are metadata fields only.
+// Key regime fields (funding_bucket, roi_bucket, RSI zones, OI direction, ATR, patterns)
+// appear first and are repeated at the bottom as setup_key to reinforce embedding weight.
 func BuildFeatureText(
 	snap *domain.IndicatorSnapshot,
 	btc *domain.BTCContext,
@@ -31,8 +31,10 @@ func BuildFeatureText(
 	fundingLabel := FundingBucketLabel(FundingBucket(candidate.FundingRate * 100))
 
 	// Key discriminating fields first — position gives them higher embedding weight.
-	sb.WriteString(fmt.Sprintf("symbol: %s | entry_mode: %s | funding_bucket: %s | roi_bucket: %s | day: %s | funding_window: %02dUTC\n",
-		candidate.Symbol, entryMode, fundingLabel, roiBucket, dayOfWeek, fundingWindow))
+	// Symbol and entry_mode intentionally excluded: we want market-condition similarity,
+	// not ticker identity or decision identity. Entry mode is metadata only (retriever bonus).
+	sb.WriteString(fmt.Sprintf("funding_bucket: %s | roi_bucket: %s | day: %s | funding_window: %02dUTC\n",
+		fundingLabel, roiBucket, dayOfWeek, fundingWindow))
 
 	sb.WriteString(fmt.Sprintf("funding_rate: %.3f%% | daily_roi: %.2f%%\n",
 		candidate.FundingRate*100, candidate.DailyROI))
@@ -72,8 +74,8 @@ func BuildFeatureText(
 	if btc != nil {
 		btcRegimeLabel = BTCRegime(btc.Trend, btc.IsBreakout, btc.MomentumScore)
 	}
-	sb.WriteString(fmt.Sprintf("setup_key: symbol=%s entry_mode=%s funding_bucket=%s roi_bucket=%s day=%s funding_window=%02dUTC btc_regime=%s\n",
-		candidate.Symbol, entryMode, fundingLabel, roiBucket, dayOfWeek, fundingWindow, btcRegimeLabel))
+	sb.WriteString(fmt.Sprintf("setup_key: funding_bucket=%s roi_bucket=%s day=%s funding_window=%02dUTC btc_regime=%s\n",
+		fundingLabel, roiBucket, dayOfWeek, fundingWindow, btcRegimeLabel))
 
 	return sb.String()
 }

@@ -224,7 +224,7 @@ func (e *Engine) RetrieveSimilar(
 		return nil, nil // non-fatal: proceed without memory
 	}
 
-	similar, err := e.retriever.FindSimilar(ctx, embedding, snap, btc, candidate, entryMode, at)
+	similar, err := e.retriever.FindSimilar(ctx, embedding, snap, btc, candidate, at)
 	queryLatency := time.Since(start)
 
 	if err != nil {

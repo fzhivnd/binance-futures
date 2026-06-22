@@ -35,7 +35,6 @@ func (r *Retriever) FindSimilar(
 	snap *domain.IndicatorSnapshot,
 	btc *domain.BTCContext,
 	candidate *domain.Candidate,
-	entryMode string,
 	at time.Time,
 ) ([]domain.SimilarTrade, error) {
 	results, err := r.repo.FindSimilar(ctx, embedding, r.cfg.TopSimilar)
@@ -43,12 +42,12 @@ func (r *Retriever) FindSimilar(
 		return nil, err
 	}
 
-	_ = BTCRegime(btc.Trend, btc.IsBreakout, btc.MomentumScore)
-	_ = FundingBucket(candidate.FundingRate * 100)
-	_ = ROIBucket(candidate.DailyROI)
-	_ = DayOfWeekLabel(at)
-	_ = FundingWindowLabel(at)
-	_ = ATRBucket(snap.ATRRatio)
+	btcRegime := BTCRegime(btc.Trend, btc.IsBreakout, btc.MomentumScore)
+	fundingBucket := FundingBucket(candidate.FundingRate * 100)
+	roiBucket := ROIBucket(candidate.DailyROI)
+	dayOfWeek := DayOfWeekLabel(at)
+	fundingWindow := FundingWindowLabel(at)
+	atrBucket := ATRBucket(snap.ATRRatio)
 
 	now := time.Now()
 	var similar []domain.SimilarTrade
@@ -58,33 +57,28 @@ func (r *Retriever) FindSimilar(
 			continue
 		}
 
-		sim := res.Similarity
+		// Cosine similarity is the base; structural bonuses/penalties push
+		// same-regime setups up and cross-regime setups down in ranking.
+		sim := res.Similarity * 0.60
 
-		// Weighted composite score — cosine is one component, not the whole score.
-		// This prevents saturated cosine (0.99+) from collapsing all scores to 1.0.
-		// sim := res.Similarity * 0.50
-
-		// if res.Memory.EntryMode == entryMode {
-		// 	sim += 0.15
-		// }
-		// if res.Memory.FundingBucket == fundingBucket {
-		// 	sim += 0.08
-		// }
-		// if ROIBucket(res.Memory.DailyROI) == roiBucket {
-		// 	sim += 0.07
-		// }
-		// if DayOfWeekLabel(res.Memory.CreatedAt) == dayOfWeek {
-		// 	sim += 0.05
-		// }
-		// if FundingWindowLabel(res.Memory.CreatedAt) == fundingWindow {
-		// 	sim += 0.07
-		// }
-		// if ATRBucket(res.Memory.ATRRatio) == atrBucket {
-		// 	sim += 0.07
-		// }
-		// if res.Memory.BTCRegime != btcRegime {
-		// 	sim -= 0.05
-		// }
+		if res.Memory.FundingBucket == fundingBucket {
+			sim += 0.12
+		}
+		if ROIBucket(res.Memory.DailyROI) == roiBucket {
+			sim += 0.1
+		}
+		if DayOfWeekLabel(res.Memory.CreatedAt) == dayOfWeek {
+			sim += 0.04
+		}
+		if FundingWindowLabel(res.Memory.CreatedAt) == fundingWindow {
+			sim += 0.05
+		}
+		if ATRBucket(res.Memory.ATRRatio) == atrBucket {
+			sim += 0.07
+		}
+		if res.Memory.BTCRegime != btcRegime {
+			sim -= 0.05
+		}
 
 		if sim < r.cfg.MinSimilarity {
 			continue
