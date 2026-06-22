@@ -99,9 +99,10 @@ type ExecutionConfig struct {
 	BreakevenActivationPct float64 `yaml:"breakeven_activation_pct"`
 	SlippageBps            int     `yaml:"slippage_bps"`
 
-	// Phase 5: Split TP + trailing stop
+	// Phase 5: Split TP + trailing stop (trailing commented out, replaced by fixed TP2)
 	TrailingCallbackRate float64 `yaml:"trailing_callback_rate"` // e.g. 0.5 = 0.5%
-	TP1SizePct           float64 `yaml:"tp1_size_pct"`           // e.g. 50 = 50% of position
+	TP1SizePct           float64 `yaml:"tp1_size_pct"`           // e.g. 70 = 70% of position at TP1
+	TP2Pct               float64 `yaml:"tp2_pct"`                // e.g. 4.0 = 4% fixed limit for remaining 30%
 
 	// Phase 5: Force stop-loss
 	ForceSLEnabled         bool    `yaml:"force_sl_enabled"`
@@ -343,7 +344,10 @@ func setDefaults(cfg *Config) {
 		cfg.Execution.TrailingCallbackRate = 1.05
 	}
 	if cfg.Execution.TP1SizePct == 0 {
-		cfg.Execution.TP1SizePct = 50
+		cfg.Execution.TP1SizePct = 70
+	}
+	if cfg.Execution.TP2Pct == 0 {
+		cfg.Execution.TP2Pct = 4.0
 	}
 	if cfg.Execution.ForceSLStartMin == 0 {
 		cfg.Execution.ForceSLStartMin = 5

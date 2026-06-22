@@ -155,7 +155,7 @@ func (r *PGScoringConfigRepo) loadBotParams(ctx context.Context, cfg *domain.Sco
 		SELECT min_daily_roi_pct, min_volume_24h_m,
 		       max_positions, leverage, position_size_pct,
 		       funding_min_rate, funding_max_rate,
-		       sl_pct, tp_pct, trailing_activation_pct, breakeven_activation_pct
+		       sl_pct, tp_pct, tp2_pct, trailing_activation_pct, breakeven_activation_pct
 		FROM bot_params WHERE config_id = $1
 	`, cfg.ID).Scan(
 		&cfg.BotParams.MinDailyROIPct,
@@ -167,6 +167,7 @@ func (r *PGScoringConfigRepo) loadBotParams(ctx context.Context, cfg *domain.Sco
 		&cfg.BotParams.FundingMaxRate,
 		&cfg.BotParams.SlPct,
 		&cfg.BotParams.TpPct,
+		&cfg.BotParams.Tp2Pct,
 		&cfg.BotParams.TrailingActivationPct,
 		&cfg.BotParams.BreakevenActivationPct,
 	)

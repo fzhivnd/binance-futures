@@ -37,6 +37,8 @@ type Position struct {
 	TP1FilledAt       *time.Time
 	TrailingOrderID   string
 	TrailingSLOrderID string
+	TP2OrderID        string
+	TP2Price          float64
 
 	// Phase 5: Force-SL
 	LastForceSLCheck   time.Time
