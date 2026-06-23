@@ -101,19 +101,19 @@ func (a *App) scanFn(ctx context.Context, window scheduler.WindowType) error {
 		slog.Info("candidate", "symbol", c.Symbol, "funding", c.FundingRate, "roi_1d", c.ROI1D, "score", c.Score)
 	}
 
-	candidates = scanner.FilterByROI(candidates, a.filteringMinROI())
-	if len(candidates) == 0 {
-		slog.Info("no candidates after ROI filter", "window", window)
-		return nil
-	}
+	//candidates = scanner.FilterByROI(candidates, a.filteringMinROI())
+	//if len(candidates) == 0 {
+	//	slog.Info("no candidates after ROI filter", "window", window)
+	//	return nil
+	//}
 
 	filtered := candidates[:0]
 	for _, c := range candidates {
-		if c.DailyROI > 50 && c.FundingRate > -0.01 {
-			slog.Info("candidate excluded: high ROI requires funding <= -1%",
-				"symbol", c.Symbol, "daily_roi_pct", c.DailyROI, "funding_rate_pct", c.FundingRate*100)
-			continue
-		}
+		//if c.DailyROI > 60 && c.FundingRate > -0.01 {
+		//	slog.Info("candidate excluded: high ROI requires funding <= -1%",
+		//		"symbol", c.Symbol, "daily_roi_pct", c.DailyROI, "funding_rate_pct", c.FundingRate*100)
+		//	continue
+		//}
 		filtered = append(filtered, c)
 	}
 	candidates = filtered
