@@ -349,7 +349,7 @@ func replaceMissingOrders(
 				slog.Warn("replaceMissingOrders: cancel stale TP failed", "symbol", symbol, "error", err)
 			}
 		}
-		tp1Qty := pos.OriginalQty * tp1SizeFraction
+		tp1Qty := pos.OriginalQty
 		tpOrder, err := executor.PlaceStopLimitOrder(ctx, domain.OrderRequest{
 			Symbol:       symbol,
 			Side:         domain.SideBuy,

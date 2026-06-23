@@ -51,11 +51,12 @@ type Position struct {
 	LowSinceEntry  float64
 
 	// Phase 8: Funding fee tracking
-	FundingRateAtEntry float64    // funding rate when trade opened (e.g. -0.008 = -0.8%)
-	FundingFeePaid     bool       // true once settlement passes while position is open
-	FundingFeePaidPct  float64    // absolute fee paid (e.g. 0.008)
-	SettlementPassedAt *time.Time // when settlement occurred (nil if not yet)
-	TPWidened          bool       // true after T-2m TP widen was applied
+	FundingRateAtEntry   float64 // funding rate when trade opened (e.g. -0.008 = -0.8%)
+	FundingFeePaid       bool    // true once settlement passes while position is open
+	FundingFeePaidPct    float64 // absolute fee paid (e.g. 0.008)
+	FundingFeePaidAmount float64
+	SettlementPassedAt   *time.Time // when settlement occurred (nil if not yet)
+	TPWidened            bool       // true after T-2m TP widen was applied
 
 	// Paper mode: trailing stop simulation
 	TrailingPeak float64 // lowest mark price seen after TP1 fill (SHORT)

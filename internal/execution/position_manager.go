@@ -1020,6 +1020,10 @@ func (m *PositionManager) handleHardSLFill(ctx context.Context, pos *domain.Posi
 	if pos.TPOrderID != "" {
 		_ = m.executor.CancelOrder(ctx, pos.Symbol, pos.TPOrderID)
 	}
+	if pos.TP2OrderID != "" {
+		_ = m.executor.CancelOrder(ctx, pos.Symbol, pos.TP2OrderID)
+	}
+
 	pnl := (pos.EntryPrice - o.AvgPrice) * pos.OriginalQty
 	if pos.Side == domain.SideBuy {
 		pnl = (o.AvgPrice - pos.EntryPrice) * pos.OriginalQty
@@ -1299,6 +1303,7 @@ func (m *PositionManager) onSettlementPassed(ctx context.Context, pos domain.Pos
 	pos.FundingFeePaid = true
 	pos.FundingFeePaidPct = math.Abs(pos.FundingRateAtEntry)
 	pos.SettlementPassedAt = &now
+	pos.FundingFeePaidAmount = pos.FundingFeePaidPct * pos.Quantity * pos.EntryPrice
 
 	slog.Info("position_settlement_passed",
 		"symbol", pos.Symbol,
@@ -1314,7 +1319,7 @@ func (m *PositionManager) onSettlementPassed(ctx context.Context, pos domain.Pos
 		m.notifier.NotifyFundingSettlement(ctx, notify.FundingEvent{
 			Symbol:      pos.Symbol,
 			FundingRate: pos.FundingFeePaidPct * 100,
-			FeePaid:     pos.FundingFeePaidPct * pos.OriginalQty * pos.EntryPrice,
+			FeePaid:     pos.FundingFeePaidAmount,
 		})
 	}
 }
@@ -1392,7 +1397,7 @@ func calcFinalPnl(pnl float64, position domain.Position) float64 {
 	finalPnl := pnl
 	feePaid := float64(0)
 	if position.FundingFeePaid {
-		feePaid = position.FundingFeePaidPct * position.OriginalQty * position.EntryPrice
+		feePaid = position.FundingFeePaidAmount
 	}
 	finalPnl -= feePaid
 	return finalPnl
