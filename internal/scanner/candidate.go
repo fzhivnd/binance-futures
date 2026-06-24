@@ -7,27 +7,6 @@ type CandleProvider interface {
 	GetCandles(symbol string, tf domain.Timeframe, limit int) []domain.Candle
 }
 
-func mapFundingToScore(rate float64) float64 {
-	switch {
-	case rate > -0.002:
-		return 0
-	case rate >= -0.005:
-		// linear 40–60 between -0.002 and -0.005
-		t := (rate - (-0.002)) / (-0.005 - (-0.002))
-		return 40 + t*20
-	case rate >= -0.01:
-		// linear 60–80 between -0.005 and -0.01
-		t := (rate - (-0.005)) / (-0.01 - (-0.005))
-		return 60 + t*20
-	case rate >= -0.021:
-		// linear 80–90 between -0.01 and -0.02
-		t := (rate - (-0.01)) / (-0.02 - (-0.01))
-		return 80 + t*10
-	default:
-		return 0
-	}
-}
-
 // calcPriceROI returns (close-open)/open*100 for the last closed candle of the
 // given timeframe. Returns 0 if no closed candle is available.
 func calcPriceROI(cp CandleProvider, symbol string, tf domain.Timeframe) float64 {
@@ -102,7 +81,7 @@ func buildCandidate(symbol string, rate, price float64, cp CandleProvider) domai
 		ROI4H:       roi4h,
 		ROI1H:       roi1h,
 		Volume24h:   volume24h,
-		Score:       mapFundingToScore(rate),
+		Score:       rate,
 	}
 }
 

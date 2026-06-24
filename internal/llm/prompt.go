@@ -64,6 +64,7 @@ Parameters:
 - 10x leverage
 - Hard SL ≈ 5% price movement
 - TP1 ≈ 2% price movement
+- TP2 ≈ 4% price movement
 
 ENTRY MODES
 
@@ -104,7 +105,7 @@ Best when:
 - Funding extremely negative (-1.25% to -2.0%).
 - Pre-settlement signals unclear.
 - Squeeze risk elevated.
-- Daily ROI > 50%, extreme activity means squeeze risk is high pre-settlement.
+- Extreme price activity means squeeze risk is high pre-settlement.
 - High ATR and volatility symbols
 
 Advantage:

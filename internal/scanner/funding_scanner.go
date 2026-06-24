@@ -38,7 +38,6 @@ func (s *FundingScanner) Scan(ctx context.Context) ([]domain.Candidate, error) {
 		droppedNoPrice    int
 		droppedInterval1h int
 		droppedWindow     int
-		droppedZeroScore  int
 		candidates        []domain.Candidate
 	)
 	for symbol, rate := range rates {
@@ -60,16 +59,11 @@ func (s *FundingScanner) Scan(ctx context.Context) ([]domain.Candidate, error) {
 			droppedWindow++
 			continue
 		}
-		c := buildCandidate(symbol, rate, price, s.market)
-		if c.Score > 0 {
-			candidates = append(candidates, c)
-		} else {
-			droppedZeroScore++
-		}
+		candidates = append(candidates, buildCandidate(symbol, rate, price, s.market))
 	}
 
 	sort.Slice(candidates, func(i, j int) bool {
-		return candidates[i].Score > candidates[j].Score
+		return candidates[i].FundingRate < candidates[j].FundingRate
 	})
 
 	limit := s.cfg.TopCandidates
@@ -84,7 +78,6 @@ func (s *FundingScanner) Scan(ctx context.Context) ([]domain.Candidate, error) {
 		"dropped_no_price", droppedNoPrice,
 		"dropped_1h_interval", droppedInterval1h,
 		"dropped_window_misalign", droppedWindow,
-		"dropped_zero_score", droppedZeroScore,
 		"candidates", len(candidates),
 	)
 	return candidates, nil
