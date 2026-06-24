@@ -21,20 +21,23 @@ type TradeMemory struct {
 	CreatedAt time.Time
 
 	// Setup conditions at decision time
-	FundingRate     float64
-	DailyROI        float64
-	OIDelta1h       float64
-	OIDelta15m      float64
-	RSI14_15m       float64
-	RSI7_5m         float64
-	ATRRatio        float64
-	VolChange5m     float64
-	VolumeSpike     bool
-	MomentumLoss    bool
-	CandlePatterns  string // serialized: "1h:SHOOTING_STAR(STRONG) 30m:..."
-	CompositeScore  float64
-	EntryMode       string
-	MinutesToSettle int
+	FundingRate           float64
+	DailyROI              float64
+	OIDelta1h             float64
+	OIDelta15m            float64
+	RSI14_15m             float64
+	RSI7_5m               float64
+	ATRRatio              float64
+	VolChange5m           float64
+	VolumeSpike           bool
+	MomentumLoss          bool
+	BullishMomentum       bool
+	BearishMomentumWeak   bool
+	CandlePatterns        string // serialized: "1h:SHOOTING_STAR(STRONG) 30m:..."
+	BullishCandlePatterns string // serialized: "1h:BULLISH_ENGULFING(STRONG) 30m:..."
+	CompositeScore        float64
+	EntryMode             string
+	MinutesToSettle       int
 
 	// BTC context
 	BTCTrend    string

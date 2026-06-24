@@ -39,8 +39,9 @@ func BuildFeatureText(
 	sb.WriteString(fmt.Sprintf("funding_rate: %.3f%% | daily_roi: %.2f%%\n",
 		candidate.FundingRate*100, candidate.DailyROI))
 
-	sb.WriteString(fmt.Sprintf("rsi_14_15m: %s(%.2f) | rsi_7_5m: %s(%.2f) | momentum_loss: %v\n",
-		RSIBucket(snap.RSI14_15m), snap.RSI14_15m, RSIBucket(snap.RSI7_5m), snap.RSI7_5m, snap.MomentumLoss))
+	sb.WriteString(fmt.Sprintf("rsi_14_15m: %s(%.2f) | rsi_7_5m: %s(%.2f) | momentum_loss: %v | bullish_momentum: %v | bearish_momentum_weak: %v\n",
+		RSIBucket(snap.RSI14_15m), snap.RSI14_15m, RSIBucket(snap.RSI7_5m), snap.RSI7_5m,
+		snap.MomentumLoss, snap.BullishMomentum, snap.BearishMomentumWeak))
 
 	sb.WriteString(fmt.Sprintf("oi_delta_1h: %s(%+.2f%%) | oi_delta_15m: %+.2f%%\n",
 		OIDeltaBucket(snap.OIDelta1h), snap.OIDelta1h, snap.OIDelta15m))
@@ -51,6 +52,14 @@ func BuildFeatureText(
 	if len(snap.Patterns) > 0 {
 		sb.WriteString("candle_patterns: ")
 		for _, p := range snap.Patterns {
+			sb.WriteString(fmt.Sprintf("%s:%s(%s) ", p.Timeframe, p.Pattern, p.Strength))
+		}
+		sb.WriteString("\n")
+	}
+
+	if len(snap.BullishPatterns) > 0 {
+		sb.WriteString("bullish_candle_patterns: ")
+		for _, p := range snap.BullishPatterns {
 			sb.WriteString(fmt.Sprintf("%s:%s(%s) ", p.Timeframe, p.Pattern, p.Strength))
 		}
 		sb.WriteString("\n")
@@ -74,8 +83,9 @@ func BuildFeatureText(
 	if btc != nil {
 		btcRegimeLabel = BTCRegime(btc.Trend, btc.IsBreakout, btc.MomentumScore)
 	}
-	sb.WriteString(fmt.Sprintf("setup_key: funding_bucket=%s roi_bucket=%s day=%s funding_window=%02dUTC btc_regime=%s\n",
-		fundingLabel, roiBucket, dayOfWeek, fundingWindow, btcRegimeLabel))
+	sb.WriteString(fmt.Sprintf("setup_key: funding_bucket=%s roi_bucket=%s day=%s funding_window=%02dUTC btc_regime=%s bullish_momentum=%v bearish_momentum_weak=%v\n",
+		fundingLabel, roiBucket, dayOfWeek, fundingWindow, btcRegimeLabel,
+		snap.BullishMomentum, snap.BearishMomentumWeak))
 
 	return sb.String()
 }
