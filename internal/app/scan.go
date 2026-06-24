@@ -97,9 +97,6 @@ func (a *App) scanFn(ctx context.Context, window scheduler.WindowType) error {
 		slog.Info("no candidates after funding filter", "window", window)
 		return nil
 	}
-	for _, c := range candidates {
-		slog.Info("candidate", "symbol", c.Symbol, "funding", c.FundingRate, "roi_1d", c.ROI1D, "score", c.Score)
-	}
 
 	//candidates = scanner.FilterByROI(candidates, a.filteringMinROI())
 	//if len(candidates) == 0 {
@@ -163,21 +160,20 @@ func (a *App) scanFn(ctx context.Context, window scheduler.WindowType) error {
 		err error
 	}
 	results := make([]candResult, len(candidates))
-	sem := make(chan struct{}, len(candidates))
+	var wg sync.WaitGroup
 	for i, c := range candidates {
+		wg.Add(1)
 		go func(idx int, cand domain.Candidate) {
+			defer wg.Done()
 			snap, ierr := a.indEngine.Compute(ctx, cand.Symbol)
 			if ierr != nil {
 				results[idx] = candResult{err: ierr}
 			} else {
 				results[idx] = candResult{sc: a.scorer.Score(cand, snap, btc)}
 			}
-			sem <- struct{}{}
 		}(i, c)
 	}
-	for range candidates {
-		<-sem
-	}
+	wg.Wait()
 
 	var scored []*domain.ScoredCandidate
 	for _, res := range results {
@@ -193,6 +189,20 @@ func (a *App) scanFn(ctx context.Context, window scheduler.WindowType) error {
 	sort.Slice(scored, func(i, j int) bool {
 		return scored[i].CompositeScore > scored[j].CompositeScore
 	})
+
+	for _, sc := range scored {
+		slog.Info("scored candidate",
+			"symbol", sc.Candidate.Symbol,
+			"funding", sc.Candidate.FundingRate,
+			"score", sc.CompositeScore,
+			"funding_score", sc.Breakdown.FundingScore,
+			"oi_score", sc.Breakdown.OIScore,
+			"btc_score", sc.Breakdown.BTCScore,
+			"candle_score", sc.Breakdown.CandleScore,
+			"volume_score", sc.Breakdown.VolumeScore,
+			"volatility_score", sc.Breakdown.VolatilityScore,
+		)
+	}
 
 	topN := a.cfg.LLM.TopCandidates
 	if topN > len(scored) {
