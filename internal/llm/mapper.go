@@ -58,18 +58,28 @@ func MapToLLMRequest(
 				ROI:        sc.Breakdown.ROIScore,
 				Volatility: sc.Breakdown.VolatilityScore,
 			},
-			RSI14_15m:       sc.Indicators.RSI14_15m,
-			RSI7_5m:         sc.Indicators.RSI7_5m,
-			OIDelta1h:       sc.Indicators.OIDelta1h,
-			OIDelta15m:      sc.Indicators.OIDelta15m,
-			ATRRatio:        sc.Indicators.ATRRatio,
-			VolChange5m:     sc.Indicators.VolChange5m,
-			VolumeSpikeFlag: sc.Indicators.VolumeSpike,
-			MomentumLoss:    sc.Indicators.MomentumLoss,
+			RSI14_15m:           sc.Indicators.RSI14_15m,
+			RSI7_5m:             sc.Indicators.RSI7_5m,
+			OIDelta1h:           sc.Indicators.OIDelta1h,
+			OIDelta15m:          sc.Indicators.OIDelta15m,
+			ATRRatio:            sc.Indicators.ATRRatio,
+			VolChange5m:         sc.Indicators.VolChange5m,
+			VolumeSpikeFlag:     sc.Indicators.VolumeSpike,
+			MomentumLoss:        sc.Indicators.MomentumLoss,
+			BullishMomentum:     sc.Indicators.BullishMomentum,
+			BearishMomentumWeak: sc.Indicators.BearishMomentumWeak,
 		}
 
 		for _, sig := range sc.Indicators.Patterns {
 			c.CandlePatterns = append(c.CandlePatterns, LLMCandleInfo{
+				Timeframe: string(sig.Timeframe),
+				Pattern:   string(sig.Pattern),
+				Strength:  string(sig.Strength),
+			})
+		}
+
+		for _, sig := range sc.Indicators.BullishPatterns {
+			c.BullishPatterns = append(c.BullishPatterns, LLMCandleInfo{
 				Timeframe: string(sig.Timeframe),
 				Pattern:   string(sig.Pattern),
 				Strength:  string(sig.Strength),

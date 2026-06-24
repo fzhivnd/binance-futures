@@ -26,19 +26,21 @@ func (r *PGMemoryRepository) Insert(ctx context.Context, memory *domain.TradeMem
 			id, trade_id, symbol, action, created_at,
 			funding_rate, daily_roi, oi_delta_1h, oi_delta_15m,
 			rsi_14_15m, rsi_7_5m, atr_ratio, vol_change_5m,
-			volume_spike, momentum_loss, candle_patterns,
+			volume_spike, momentum_loss, bullish_momentum, bearish_momentum_weak,
+			candle_patterns, bullish_candle_patterns,
 			composite_score, entry_mode, minutes_to_settle,
 			btc_trend, btc_momentum, btc_breakout, btc_rsi, btc_change_1h,
 			outcome, profit_pct, hold_minutes, lesson,
 			btc_regime, funding_bucket, embedding
 		) VALUES (
-			$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,
-			$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31
+			$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,
+			$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34
 		)`,
 		memory.ID, memory.TradeID, memory.Symbol, string(memory.Action), memory.CreatedAt,
 		memory.FundingRate, memory.DailyROI, memory.OIDelta1h, memory.OIDelta15m,
 		memory.RSI14_15m, memory.RSI7_5m, memory.ATRRatio, memory.VolChange5m,
-		memory.VolumeSpike, memory.MomentumLoss, memory.CandlePatterns,
+		memory.VolumeSpike, memory.MomentumLoss, memory.BullishMomentum, memory.BearishMomentumWeak,
+		memory.CandlePatterns, memory.BullishCandlePatterns,
 		memory.CompositeScore, memory.EntryMode, memory.MinutesToSettle,
 		memory.BTCTrend, memory.BTCMomentum, memory.BTCBreakout, memory.BTCRSI, memory.BTCChange1h,
 		nullableString(memory.Outcome), memory.ProfitPct, memory.HoldMinutes, nullableString(memory.Lesson),
@@ -59,7 +61,8 @@ func (r *PGMemoryRepository) FindSimilar(
 			id, trade_id, symbol, action, created_at,
 			funding_rate, daily_roi, oi_delta_1h, oi_delta_15m,
 			rsi_14_15m, rsi_7_5m, atr_ratio, vol_change_5m,
-			volume_spike, momentum_loss, candle_patterns,
+			volume_spike, momentum_loss, bullish_momentum, bearish_momentum_weak,
+			candle_patterns, bullish_candle_patterns,
 			composite_score, entry_mode, minutes_to_settle,
 			btc_trend, btc_momentum, btc_breakout, btc_rsi, btc_change_1h,
 			outcome, profit_pct, hold_minutes, lesson,
@@ -81,7 +84,7 @@ func (r *PGMemoryRepository) FindSimilar(
 		var m domain.TradeMemory
 		var action string
 		var similarity float64
-		var outcome, entryMode, candlePatterns, btcTrend string
+		var outcome, entryMode, candlePatterns, bullishCandlePatterns, btcTrend string
 		var lesson *string
 		var tradeID *uuid.UUID
 
@@ -89,7 +92,8 @@ func (r *PGMemoryRepository) FindSimilar(
 			&m.ID, &tradeID, &m.Symbol, &action, &m.CreatedAt,
 			&m.FundingRate, &m.DailyROI, &m.OIDelta1h, &m.OIDelta15m,
 			&m.RSI14_15m, &m.RSI7_5m, &m.ATRRatio, &m.VolChange5m,
-			&m.VolumeSpike, &m.MomentumLoss, &candlePatterns,
+			&m.VolumeSpike, &m.MomentumLoss, &m.BullishMomentum, &m.BearishMomentumWeak,
+			&candlePatterns, &bullishCandlePatterns,
 			&m.CompositeScore, &entryMode, &m.MinutesToSettle,
 			&btcTrend, &m.BTCMomentum, &m.BTCBreakout, &m.BTCRSI, &m.BTCChange1h,
 			&outcome, &m.ProfitPct, &m.HoldMinutes, &lesson,
@@ -106,6 +110,7 @@ func (r *PGMemoryRepository) FindSimilar(
 		}
 		m.EntryMode = entryMode
 		m.CandlePatterns = candlePatterns
+		m.BullishCandlePatterns = bullishCandlePatterns
 		m.BTCTrend = btcTrend
 		m.TradeID = tradeID
 		results = append(results, MemorySearchResult{Memory: m, Similarity: similarity})
@@ -142,7 +147,8 @@ func (r *PGMemoryRepository) GetByTradeID(ctx context.Context, tradeID uuid.UUID
 		SELECT id, trade_id, symbol, action, created_at,
 			funding_rate, daily_roi, oi_delta_1h, oi_delta_15m,
 			rsi_14_15m, rsi_7_5m, atr_ratio, vol_change_5m,
-			volume_spike, momentum_loss, candle_patterns,
+			volume_spike, momentum_loss, bullish_momentum, bearish_momentum_weak,
+			candle_patterns, bullish_candle_patterns,
 			composite_score, entry_mode, minutes_to_settle,
 			btc_trend, btc_momentum, btc_breakout, btc_rsi, btc_change_1h,
 			outcome, profit_pct, hold_minutes, lesson,
@@ -151,7 +157,7 @@ func (r *PGMemoryRepository) GetByTradeID(ctx context.Context, tradeID uuid.UUID
 	`, tradeID)
 
 	var m domain.TradeMemory
-	var action, outcome, entryMode, candlePatterns, btcTrend string
+	var action, outcome, entryMode, candlePatterns, bullishCandlePatterns, btcTrend string
 	var lesson *string
 	var tid *uuid.UUID
 
@@ -159,7 +165,8 @@ func (r *PGMemoryRepository) GetByTradeID(ctx context.Context, tradeID uuid.UUID
 		&m.ID, &tid, &m.Symbol, &action, &m.CreatedAt,
 		&m.FundingRate, &m.DailyROI, &m.OIDelta1h, &m.OIDelta15m,
 		&m.RSI14_15m, &m.RSI7_5m, &m.ATRRatio, &m.VolChange5m,
-		&m.VolumeSpike, &m.MomentumLoss, &candlePatterns,
+		&m.VolumeSpike, &m.MomentumLoss, &m.BullishMomentum, &m.BearishMomentumWeak,
+		&candlePatterns, &bullishCandlePatterns,
 		&m.CompositeScore, &entryMode, &m.MinutesToSettle,
 		&btcTrend, &m.BTCMomentum, &m.BTCBreakout, &m.BTCRSI, &m.BTCChange1h,
 		&outcome, &m.ProfitPct, &m.HoldMinutes, &lesson,
@@ -175,6 +182,7 @@ func (r *PGMemoryRepository) GetByTradeID(ctx context.Context, tradeID uuid.UUID
 	}
 	m.EntryMode = entryMode
 	m.CandlePatterns = candlePatterns
+	m.BullishCandlePatterns = bullishCandlePatterns
 	m.BTCTrend = btcTrend
 	m.TradeID = tid
 	return &m, nil
@@ -187,7 +195,8 @@ func (r *PGMemoryRepository) GetPendingSkipValidations(ctx context.Context, olde
 			funding_rate, daily_roi,
 			oi_delta_1h, oi_delta_15m,
 			rsi_14_15m, rsi_7_5m, atr_ratio, vol_change_5m,
-			volume_spike, momentum_loss, candle_patterns,
+			volume_spike, momentum_loss, bullish_momentum, bearish_momentum_weak,
+			candle_patterns, bullish_candle_patterns,
 			composite_score, entry_mode, minutes_to_settle,
 			btc_trend, btc_momentum, btc_breakout, btc_rsi, btc_change_1h,
 			btc_regime, funding_bucket
@@ -204,13 +213,14 @@ func (r *PGMemoryRepository) GetPendingSkipValidations(ctx context.Context, olde
 	var memories []domain.TradeMemory
 	for rows.Next() {
 		var m domain.TradeMemory
-		var action, btcTrend, candlePatterns, entryMode string
+		var action, btcTrend, candlePatterns, bullishCandlePatterns, entryMode string
 		if err := rows.Scan(
 			&m.ID, &m.Symbol, &action, &m.CreatedAt,
 			&m.FundingRate, &m.DailyROI,
 			&m.OIDelta1h, &m.OIDelta15m,
 			&m.RSI14_15m, &m.RSI7_5m, &m.ATRRatio, &m.VolChange5m,
-			&m.VolumeSpike, &m.MomentumLoss, &candlePatterns,
+			&m.VolumeSpike, &m.MomentumLoss, &m.BullishMomentum, &m.BearishMomentumWeak,
+			&candlePatterns, &bullishCandlePatterns,
 			&m.CompositeScore, &entryMode, &m.MinutesToSettle,
 			&btcTrend, &m.BTCMomentum, &m.BTCBreakout, &m.BTCRSI, &m.BTCChange1h,
 			&m.BTCRegime, &m.FundingBucket,
@@ -220,6 +230,7 @@ func (r *PGMemoryRepository) GetPendingSkipValidations(ctx context.Context, olde
 		m.Action = domain.TradeAction(action)
 		m.BTCTrend = btcTrend
 		m.CandlePatterns = candlePatterns
+		m.BullishCandlePatterns = bullishCandlePatterns
 		m.EntryMode = entryMode
 		memories = append(memories, m)
 	}

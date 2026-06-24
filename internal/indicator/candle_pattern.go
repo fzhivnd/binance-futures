@@ -199,6 +199,108 @@ func DetectPatterns(candles []domain.Candle, tf domain.Timeframe, atr1h float64,
 	return signals
 }
 
+// DetectBullishPatterns detects strong bullish candle patterns on higher timeframes (1h, 30m).
+// These are used as penalty signals — their presence means a short is fighting the momentum.
+// Only called for 1h and 30m; 5m/15m noise would produce too many false positives.
+func DetectBullishPatterns(candles []domain.Candle, tf domain.Timeframe, atr1h float64, avgVolume float64) []domain.CandleSignal {
+	cfg, ok := tfConfigs[tf]
+	if !ok {
+		cfg = defaultConfig
+	}
+
+	if len(candles) < 3 {
+		return nil
+	}
+
+	c := candles[len(candles)-1]
+	p := candles[len(candles)-2]
+
+	body := c.Close - c.Open
+	upperWick := c.High - math.Max(c.Open, c.Close)
+	lowerWick := math.Min(c.Open, c.Close) - c.Low
+	candleRange := c.High - c.Low
+
+	if candleRange == 0 {
+		return nil
+	}
+
+	bodySize := math.Abs(body)
+
+	if c.Close > 0 && candleRange/c.Close < cfg.MinCandleRange {
+		return nil
+	}
+
+	if atr1h > 0 {
+		tfATR := atr1h * cfg.ATRMultiplier
+		if candleRange < tfATR*0.5 {
+			return nil
+		}
+	}
+
+	var signals []domain.CandleSignal
+
+	// Bullish Engulfing: large green body fully engulfs previous red body
+	currBody := math.Abs(c.Close - c.Open)
+	prevBody := math.Abs(p.Close - p.Open)
+	if body > 0 &&
+		p.Close < p.Open && // previous was red
+		prevBody > 0 &&
+		currBody > prevBody*1.2 &&
+		c.Close > p.Open {
+		sig := domain.CandleSignal{
+			Timeframe: tf,
+			Pattern:   domain.PatternBullishEngulfing,
+			Strength:  domain.StrengthStrong,
+		}
+		signals = append(signals, adjustStrength(sig, c.Volume, avgVolume))
+	}
+
+	// Hammer: small body at top, long lower wick after downtrend — bullish reversal
+	if lowerWick >= cfg.WickBodyRatio*bodySize &&
+		upperWick <= bodySize*0.5 &&
+		body > 0 &&
+		isDowntrend(candles, cfg.TrendLookback) {
+		sig := domain.CandleSignal{
+			Timeframe: tf,
+			Pattern:   domain.PatternHammer,
+			Strength:  domain.StrengthStrong,
+		}
+		signals = append(signals, adjustStrength(sig, c.Volume, avgVolume))
+	}
+
+	// Strong Momentum: large green body (>65% of range), small upper wick — buyers in control
+	if body > 0 &&
+		bodySize/candleRange > 0.65 &&
+		upperWick/candleRange < 0.15 {
+		sig := domain.CandleSignal{
+			Timeframe: tf,
+			Pattern:   domain.PatternStrongMomentum,
+			Strength:  domain.StrengthMedium,
+		}
+		signals = append(signals, adjustStrength(sig, c.Volume, avgVolume))
+	}
+
+	return signals
+}
+
+// isDowntrend returns true if candles show a falling trend over the last lookback candles.
+func isDowntrend(candles []domain.Candle, lookback int) bool {
+	if len(candles) < lookback+1 {
+		return false
+	}
+	start := candles[len(candles)-lookback-1]
+	end := candles[len(candles)-2]
+	if start.Close <= 0 {
+		return false
+	}
+	dropPct := (start.Close - end.Close) / start.Close
+	if dropPct < 0.01 {
+		return false
+	}
+	window := candles[len(candles)-lookback-1 : len(candles)-1]
+	return countGreenCandles(window) <= lookback/3
+}
+
 // isUptrend returns true if candles show a rising trend over the last lookback candles.
 // It requires both a higher close and a majority of green candles.
 func isUptrend(candles []domain.Candle, lookback int) bool {

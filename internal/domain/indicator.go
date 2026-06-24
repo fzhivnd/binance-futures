@@ -17,6 +17,11 @@ const (
 	PatternUpperWickReject  CandlePattern = "UPPER_WICK_REJECTION"
 	PatternDojiAfterPump    CandlePattern = "DOJI_AFTER_PUMP"
 	PatternFailedBreakout   CandlePattern = "FAILED_BREAKOUT"
+
+	// Bullish patterns — used as penalty signals for short candidates.
+	PatternBullishEngulfing CandlePattern = "BULLISH_ENGULFING"
+	PatternHammer           CandlePattern = "HAMMER"
+	PatternStrongMomentum   CandlePattern = "STRONG_MOMENTUM" // large green body with little upper wick
 )
 
 type PatternStrength string
@@ -53,10 +58,13 @@ type IndicatorSnapshot struct {
 	VolChange5m float64
 	VolumeSpike bool
 
-	Patterns       []CandleSignal
-	RSIDivergences []RSIDivergence
+	Patterns        []CandleSignal
+	BullishPatterns []CandleSignal // bullish candles on 1h/30m — penalty signal
+	RSIDivergences  []RSIDivergence
 
-	MomentumLoss bool
+	MomentumLoss        bool // RSI14_15m<50 & RSI7_5m<50 & OI flat/down — setup fading
+	BullishMomentum     bool // RSI14_15m>57 & RSI7_5m>57 & OI rising — squeeze risk
+	BearishMomentumWeak bool // RSI14_15m was high but RSI7_5m<50 & OIDelta15m<0 — stale setup
 }
 
 type BTCContext struct {

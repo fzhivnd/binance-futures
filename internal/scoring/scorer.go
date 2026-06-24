@@ -66,8 +66,19 @@ func (s *Scorer) Score(c domain.Candidate, ind *domain.IndicatorSnapshot, btc *d
 	// 8. RSI Divergence
 	bd.RSIDivergenceScore = evalRSIDivergence(ind.RSIDivergences) * cfg.Weights.RSIDivergence
 
+	// 9. Bullish candle penalty: each strong bullish candle on 1h/30m costs half the candle weight;
+	// medium costs a quarter. Capped at the full candle weight so we can't go doubly negative.
+	bd.BullishCandlePenalty = scoreBullishPenalty(ind.BullishPatterns, cfg.Weights.Candle)
+
+	// 10. Momentum penalty: applied to composite directly.
+	//   BullishMomentum (squeeze risk): −20% of current composite signals.
+	//   BearishMomentumWeak (stale setup): −10%.
+	//   Both together: −28% (multiplicative).
+	bd.MomentumPenalty = scoreMomentumPenalty(ind, bd.FundingScore+bd.OIScore+bd.BTCScore+bd.CandleScore+bd.VolumeScore+bd.ROIScore+bd.VolatilityScore+bd.RSIDivergenceScore+bd.BullishCandlePenalty)
+
 	composite := bd.FundingScore + bd.OIScore + bd.BTCScore +
-		bd.CandleScore + bd.VolumeScore + bd.ROIScore + bd.VolatilityScore + bd.RSIDivergenceScore
+		bd.CandleScore + bd.VolumeScore + bd.ROIScore + bd.VolatilityScore + bd.RSIDivergenceScore +
+		bd.BullishCandlePenalty + bd.MomentumPenalty
 
 	confidence, sizePct := mapScoreToConfidence(cfg.ConfidenceTiers, composite)
 
@@ -303,6 +314,47 @@ func strengthRank(s domain.PatternStrength) int {
 		return 1
 	}
 	return 0
+}
+
+// scoreBullishPenalty returns a negative score for bullish candle signals on 1h/30m.
+// Strong bullish pattern: costs 50% of candle weight. Medium: 25%. Capped at full candle weight.
+func scoreBullishPenalty(signals []domain.CandleSignal, candleWeight float64) float64 {
+	if len(signals) == 0 {
+		return 0
+	}
+	penalty := 0.0
+	for _, sig := range signals {
+		switch sig.Strength {
+		case domain.StrengthStrong:
+			penalty += candleWeight * 0.50
+		case domain.StrengthMedium:
+			penalty += candleWeight * 0.25
+		}
+	}
+	// Cap so we don't penalise beyond the full candle weight.
+	if penalty > candleWeight {
+		penalty = candleWeight
+	}
+	return -penalty
+}
+
+// scoreMomentumPenalty returns a negative adjustment to composite based on momentum flags.
+// BullishMomentum alone: −20%. BearishMomentumWeak alone: −10%. Both: −28% (multiplicative).
+func scoreMomentumPenalty(ind *domain.IndicatorSnapshot, preComposite float64) float64 {
+	if ind == nil || preComposite <= 0 {
+		return 0
+	}
+	multiplier := 1.0
+	if ind.BullishMomentum {
+		multiplier *= 0.80
+	}
+	if ind.BearishMomentumWeak {
+		multiplier *= 0.90
+	}
+	if multiplier == 1.0 {
+		return 0
+	}
+	return preComposite*multiplier - preComposite // always negative
 }
 
 func mapScoreToConfidence(tiers []domain.ConfidenceTier, score float64) (string, float64) {

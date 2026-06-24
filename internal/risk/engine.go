@@ -28,7 +28,7 @@ var DefaultConfig = Config{
 	MaxATRRatio:       6.0,
 	BTCBreakoutReject: true,
 	MinCompositeScore: 60,
-	MaxPositions:      2,
+	MaxPositions:      4,
 	CooldownMinutes:   15,
 }
 

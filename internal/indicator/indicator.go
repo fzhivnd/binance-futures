@@ -85,10 +85,21 @@ func (e *Engine) Compute(_ context.Context, symbol string) (*domain.IndicatorSna
 		}
 		avgVol := avgVolume(closed)
 		snap.Patterns = append(snap.Patterns, DetectPatterns(closed, tf, snap.ATR14_1h, avgVol)...)
+
+		// Bullish patterns only on higher timeframes — lower TF noise is too high.
+		if tf == domain.Timeframe1h || tf == domain.Timeframe30m {
+			snap.BullishPatterns = append(snap.BullishPatterns, DetectBullishPatterns(closed, tf, snap.ATR14_1h, avgVol)...)
+		}
 	}
 
-	// MomentumLoss: RSI on both timeframes declining + OI flat/down
+	// MomentumLoss: RSI on both timeframes declining + OI flat/down — setup fading
 	snap.MomentumLoss = snap.RSI14_15m < 50 && snap.RSI7_5m < 50 && snap.OIDelta1h <= 0
+
+	// BullishMomentum: coin is squeezing up — dangerous to short
+	snap.BullishMomentum = snap.RSI14_15m > 57 && snap.RSI7_5m > 57 && snap.OIDelta1h > 5
+
+	// BearishMomentumWeak: setup was forming but short-term momentum already reversed — stale entry
+	snap.BearishMomentumWeak = snap.RSI14_15m > 55 && snap.RSI7_5m < 50 && snap.OIDelta15m < 0
 
 	// RSI divergence on 1h and 15m (need rsiPeriod+lookback+buffer closed candles)
 	for _, tf := range []domain.Timeframe{domain.Timeframe1h, domain.Timeframe15m} {
