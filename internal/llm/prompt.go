@@ -99,17 +99,16 @@ Risk:
 
 3. AFTER
 Thesis:
-Post-settlement panic selling.
+Post-settlement panic selling. Intent is queued now, executed after settlement.
 
-Best when:
-- Funding extremely negative (-1.25% to -2.0%).
-- Pre-settlement signals unclear.
-- Squeeze risk elevated.
-- Extreme price activity means squeeze risk is high pre-settlement.
-- High ATR and volatility symbols
+Best when ANY of these are true:
+- Funding extremely negative (-1.25% to -2.0%) — post-settlement dump is more likely.
+- Pre-settlement reversal signals are absent or weak.
+- Squeeze risk is elevated (BTC breakout, rising OI with no reversal, high ATR with no directional signal).
+- ATRRatio > 2.5 and no clear bearish candle pattern.
 
-Advantage:
-- No funding fee paid.
+Use AFTER when you like the symbol but don't trust the pre-settlement timing.
+Advantage: no funding fee paid, avoids the pre-settlement squeeze window.
 
 EVALUATION FRAMEWORK
 
@@ -205,15 +204,16 @@ Per-mode history:
 - Consistent wins in a mode: Prefer that mode when the time window permits.
 - Mixed history: Default to current signal quality.
 
-TIME BIAS
+MODE TIMING CONSTRAINTS
 
-Default preference based on minutes before settlement:
-20m-10m: FRONTRUN
-10m-4m: LAST_MINUTE
-4m-0m: AFTER
+You are called during the FRONTRUN window (T-20m to T-4m before settlement).
+All three modes are valid choices at this point:
+- FRONTRUN: enters immediately.
+- LAST_MINUTE: intent queued, fires when T-6m window opens.
+- AFTER: intent queued, fires after settlement occurs.
 
-This is only a bias.
-Setup quality overrides time preference.
+Pick based on setup quality, not on time remaining.
+Time remaining is a constraint on execution, not a preference signal.
 
 OUTPUT RULES
 
@@ -240,19 +240,13 @@ func (p *PromptBuilder) UserMessage(req *LLMRequest) string {
 	t := time.Unix(req.Timestamp, 0).UTC()
 	sb.WriteString(fmt.Sprintf("Current time: %s\n", t.Format(time.RFC3339)))
 
-	var bias string
-	switch {
-	case req.MinutesToSettlement > 10:
-		bias = "FRONTRUN"
-	case req.MinutesToSettlement > 6:
-		bias = "LAST_MINUTE"
-	default:
-		bias = "AFTER"
-	}
-
-	sb.WriteString(fmt.Sprintf(
-		"Next funding settlement in: %dm\nPreferred mode bias: %s (override if another mode has stronger evidence)\n\n",
-		req.MinutesToSettlement, bias))
+	sb.WriteString(fmt.Sprintf("Next funding settlement in: %dm\n\n", req.MinutesToSettlement))
+	sb.WriteString("Available entry modes for this evaluation:\n")
+	sb.WriteString("  FRONTRUN   — enter now, before settlement. Requires clear reversal signals already visible.\n")
+	sb.WriteString("  LAST_MINUTE — enter close to settlement. Use when setup is building but not yet confirmed.\n")
+	sb.WriteString("  AFTER      — queue for post-settlement entry. Use when signals are unclear, squeeze risk is elevated, or ATR is very high.\n")
+	sb.WriteString("  SKIP       — no trade this cycle.\n")
+	sb.WriteString("Pick the mode that best fits the setup quality. Do not anchor to the current time window.\n\n")
 
 	sb.WriteString("=== BTC MARKET CONTEXT ===\n")
 	sb.WriteString(fmt.Sprintf("Trend: %s | Momentum: %d/100 | Volatility: %s\n",
@@ -272,9 +266,26 @@ func (p *PromptBuilder) UserMessage(req *LLMRequest) string {
 			c.RSI14_15m, c.RSI7_5m, c.OIDelta1h, c.OIDelta15m))
 		sb.WriteString(fmt.Sprintf("  ATR ratio: %.1f | Vol change 5m: %.1f%% | Volume spike: %v | Momentum loss: %v\n",
 			c.ATRRatio, c.VolChange5m, c.VolumeSpikeFlag, c.MomentumLoss))
+		if c.BullishMomentum || c.BearishMomentumWeak {
+			sb.WriteString("  Momentum flags:")
+			if c.BullishMomentum {
+				sb.WriteString(" BULLISH_MOMENTUM(squeeze risk — RSI rising on both TFs, OI expanding)")
+			}
+			if c.BearishMomentumWeak {
+				sb.WriteString(" BEARISH_MOMENTUM_WEAK(stale setup — short-term RSI already reversed below 50)")
+			}
+			sb.WriteString("\n")
+		}
 		if len(c.CandlePatterns) > 0 {
-			sb.WriteString("  Candle patterns: ")
+			sb.WriteString("  Bearish candle patterns: ")
 			for _, cp := range c.CandlePatterns {
+				sb.WriteString(fmt.Sprintf("[%s:%s(%s)] ", cp.Timeframe, cp.Pattern, cp.Strength))
+			}
+			sb.WriteString("\n")
+		}
+		if len(c.BullishPatterns) > 0 {
+			sb.WriteString("  Bullish candle patterns (penalty): ")
+			for _, cp := range c.BullishPatterns {
 				sb.WriteString(fmt.Sprintf("[%s:%s(%s)] ", cp.Timeframe, cp.Pattern, cp.Strength))
 			}
 			sb.WriteString("\n")

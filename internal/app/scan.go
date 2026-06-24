@@ -201,8 +201,36 @@ func (a *App) scanFn(ctx context.Context, window scheduler.WindowType) error {
 			"candle_score", sc.Breakdown.CandleScore,
 			"volume_score", sc.Breakdown.VolumeScore,
 			"volatility_score", sc.Breakdown.VolatilityScore,
+			"bullish_candle_penalty", sc.Breakdown.BullishCandlePenalty,
+			"momentum_penalty", sc.Breakdown.MomentumPenalty,
+			"bullish_momentum", sc.Indicators.BullishMomentum,
+			"bearish_momentum_weak", sc.Indicators.BearishMomentumWeak,
 		)
 	}
+
+	// Confluence gate: reject candidates with zero reversal evidence before sending to LLM.
+	// Funding alone is not enough — we need at least one bearish signal.
+	confluenceFiltered := scored[:0]
+	for _, sc := range scored {
+		hasReversalEvidence := sc.Breakdown.CandleScore > 0 ||
+			sc.Breakdown.RSIDivergenceScore > 0 ||
+			sc.Indicators.RSI7_5m >= 65
+		if !hasReversalEvidence {
+			slog.Info("candidate excluded: no reversal evidence",
+				"symbol", sc.Candidate.Symbol,
+				"candle_score", sc.Breakdown.CandleScore,
+				"rsi_div_score", sc.Breakdown.RSIDivergenceScore,
+				"rsi7_5m", sc.Indicators.RSI7_5m,
+			)
+			continue
+		}
+		confluenceFiltered = append(confluenceFiltered, sc)
+	}
+	if len(confluenceFiltered) == 0 {
+		slog.Info("no candidates after confluence gate", "window", window)
+		return nil
+	}
+	scored = confluenceFiltered
 
 	topN := a.cfg.LLM.TopCandidates
 	if topN > len(scored) {
