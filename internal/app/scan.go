@@ -208,13 +208,16 @@ func (a *App) scanFn(ctx context.Context, window scheduler.WindowType) error {
 		)
 	}
 
-	// Confluence gate: reject candidates with zero reversal evidence before sending to LLM.
-	// Funding alone is not enough — we need at least one bearish signal.
+	// Confluence gate: hard-block candidates with zero reversal evidence.
+	// The scoring system already penalises these heavily (score ~15-20), so
+	// most are blocked by min_score. This gate catches any that slip through
+	// via RSI overbought (RSI7_5m >= 70 counts as reversal evidence even without
+	// a detected candle pattern).
 	confluenceFiltered := scored[:0]
 	for _, sc := range scored {
 		hasReversalEvidence := sc.Breakdown.CandleScore > 0 ||
 			sc.Breakdown.RSIDivergenceScore > 0 ||
-			sc.Indicators.RSI7_5m >= 65
+			sc.Indicators.RSI7_5m >= 70
 		if !hasReversalEvidence {
 			slog.Info("candidate excluded: no reversal evidence",
 				"symbol", sc.Candidate.Symbol,
