@@ -1,0 +1,4 @@
+ALTER TABLE trade_memories
+    ADD COLUMN IF NOT EXISTS bullish_momentum        BOOLEAN NOT NULL DEFAULT FALSE,
+    ADD COLUMN IF NOT EXISTS bearish_momentum_weak   BOOLEAN NOT NULL DEFAULT FALSE,
+    ADD COLUMN IF NOT EXISTS bullish_candle_patterns TEXT    NOT NULL DEFAULT '';
