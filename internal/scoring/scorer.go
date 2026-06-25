@@ -222,17 +222,30 @@ func scoreCandlePatterns(
 
 	for _, sig := range signals {
 		tw := tfWeights[string(sig.Timeframe)]
-		sw := strWeights[string(sig.Strength)]
+		strength := sig.Strength
+		// FAILED_BREAKOUT is a secondary confirmation, not a primary reversal signal.
+		// Downgrade its strength one tier so it can't carry a trade on its own.
+		if sig.Pattern == domain.PatternFailedBreakout {
+			switch strength {
+			case domain.StrengthStrong:
+				strength = domain.StrengthMedium
+			case domain.StrengthMedium:
+				strength = domain.StrengthWeak
+			}
+		}
+		sw := strWeights[string(strength)]
 		rawScore += tw * sw
 		tfHit[sig.Timeframe] = true
 	}
 
 	bonus := multitfBonus[len(tfHit)]
 
-	// max possible raw: sum of all tf weights × STRONG (1.0)
+	// Normalize against the sum of weights of TFs that actually fired, not all
+	// possible TFs. This ensures a single STRONG pattern on any timeframe scores
+	// close to the full candle weight — a lone 1h engulfing is a real signal.
 	maxRaw := 0.0
-	for _, w := range tfWeights {
-		maxRaw += w
+	for tf := range tfHit {
+		maxRaw += tfWeights[string(tf)]
 	}
 	if maxRaw == 0 {
 		return 0

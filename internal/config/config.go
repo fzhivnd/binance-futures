@@ -297,7 +297,7 @@ func setDefaults(cfg *Config) {
 	}
 
 	if cfg.Scoring.MinScore == 0 {
-		cfg.Scoring.MinScore = 60.0
+		cfg.Scoring.MinScore = 40.0
 	}
 
 	if cfg.Risk.MaxDailyLosses == 0 {
