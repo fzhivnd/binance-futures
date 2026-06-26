@@ -18,6 +18,7 @@ funding:
   top_candidates: 10    # not configurable via DB
 
 execution:
+  tp1_size_pct: 50
   slippage_bps: 1
   trailing_callback_rate: 1.05
   tp2_pct: 4.0
@@ -41,11 +42,15 @@ websocket:
 
 database:
   postgres:
-    host: "${POSTGRES_HOST}"
+#    host: "${POSTGRES_HOST}"
+    host: localhost
     port: 5432
-    user: "${POSTGRES_USER}"
-    password: "${POSTGRES_PASSWORD}"
-    dbname: "${POSTGRES_DB}"
+#    user: "${POSTGRES_USER}"
+    user: futures
+#    password: "${POSTGRES_PASSWORD}"
+    password: futures_dev
+#    dbname: "${POSTGRES_DB}"
+    dbname: futures_bot
     sslmode: "disable"
     max_conns: 10
   redis:
@@ -55,7 +60,7 @@ database:
 
 scoring:
   min_score: 40.0
-  min_score_override: 20.0
+  min_score_override: 15.0
   # weights, thresholds, filtering, trading, funding, execution params → managed via scoring config in DB
 
 
@@ -67,7 +72,8 @@ risk:
 
 llm:
   enabled: true
-  api_key: "${OPENAI_API_KEY}"
+#  api_key: "${OPENAI_API_KEY}"
+  api_key: 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
   model: "gpt-5-mini"
   timeout_secs: 45
   max_retries: 1
