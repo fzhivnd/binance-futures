@@ -1065,12 +1065,13 @@ func (m *PositionManager) persistClose(ctx context.Context, pos domain.Position,
 	} else {
 		roiPct := pnl / (pos.EntryPrice * pos.OriginalQty) * float64(pos.Leverage) * 100
 		if err := m.tradeRepo.UpdateResult(ctx, id, domain.ExitInfo{
-			AvgClosePrice: avgClose,
-			PnL:           pnl,
-			ROIPct:        roiPct,
-			Result:        result,
-			CloseReason:   closeReason,
-			ClosedAt:      now,
+			AvgClosePrice:  avgClose,
+			PnL:            pnl,
+			ROIPct:         roiPct,
+			Result:         result,
+			CloseReason:    closeReason,
+			ClosedAt:       now,
+			FundingFeePaid: pos.FundingFeePaid,
 		}); err != nil {
 			slog.Error("update trade result", "symbol", pos.Symbol, "error", err)
 		}

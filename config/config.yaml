@@ -42,15 +42,11 @@ websocket:
 
 database:
   postgres:
-#    host: "${POSTGRES_HOST}"
-    host: localhost
+    host: "${POSTGRES_HOST}"
     port: 5432
-#    user: "${POSTGRES_USER}"
-    user: futures
-#    password: "${POSTGRES_PASSWORD}"
-    password: futures_dev
-#    dbname: "${POSTGRES_DB}"
-    dbname: futures_bot
+    user: "${POSTGRES_USER}"
+    password: "${POSTGRES_PASSWORD}"
+    dbname: "${POSTGRES_DB}"
     sslmode: "disable"
     max_conns: 10
   redis:
@@ -72,8 +68,7 @@ risk:
 
 llm:
   enabled: true
-#  api_key: "${OPENAI_API_KEY}"
-  api_key: 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
+  api_key: "${OPENAI_API_KEY}"
   model: "gpt-5-mini"
   timeout_secs: 45
   max_retries: 1
