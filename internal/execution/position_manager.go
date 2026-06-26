@@ -536,7 +536,7 @@ func (m *PositionManager) HandleUserDataEvent(event exchange.UserDataEvent) {
 		if o.ReduceOnly {
 			if storedID, ok := m.pendingForceClose.Load(o.Symbol); ok && storedID.(string) == o.ClientOrderID {
 				m.pendingForceClose.Delete(o.Symbol)
-				avgClose := computeAvgClosePrice(*pos, o.AvgPrice)
+				avgClose := m.computeAvgClosePrice(*pos, o.AvgPrice)
 				pnl := (pos.EntryPrice - avgClose) * pos.OriginalQty
 				pnl = math.Round(pnl*1e8) / 1e8
 				finalPnl := calcFinalPnl(pnl, *pos)
@@ -896,7 +896,7 @@ func (m *PositionManager) handleTP1Fill(ctx context.Context, pos *domain.Positio
 
 	tp1Qty := o.FilledQty
 	if tp1Qty == 0 {
-		tp1Qty = pos.OriginalQty * tp1SizeFraction
+		tp1Qty = pos.OriginalQty * m.cfg.Execution.TP1SizePct / 100
 	}
 	remainingQty := pos.OriginalQty - tp1Qty
 
@@ -964,7 +964,7 @@ func (m *PositionManager) handleTP1Fill(ctx context.Context, pos *domain.Positio
 		"remaining_qty", remainingQty,
 	)
 	tp1PnLPct := (pos.EntryPrice - o.AvgPrice) / pos.EntryPrice * 100
-	securedUSDT := (pos.EntryPrice - o.AvgPrice) * (pos.OriginalQty * tp1SizeFraction)
+	securedUSDT := (pos.EntryPrice - o.AvgPrice) * (pos.OriginalQty * m.cfg.Execution.TP1SizePct / 100)
 	m.notifier.NotifyTp1Event(ctx, notify.Tp1Event{
 		Symbol:      pos.Symbol,
 		ClosedAt:    time.UnixMilli(o.TradeTime).UTC(),
@@ -980,7 +980,7 @@ func (m *PositionManager) handleTP2Fill(ctx context.Context, pos *domain.Positio
 	if pos.TrailingSLOrderID != "" {
 		_ = m.executor.CancelOrder(ctx, pos.Symbol, pos.TrailingSLOrderID)
 	}
-	avgClose := computeAvgClosePrice(*pos, o.AvgPrice)
+	avgClose := m.computeAvgClosePrice(*pos, o.AvgPrice)
 	pnl := (pos.EntryPrice - avgClose) * pos.OriginalQty
 	pnl = math.Round(pnl*1e8) / 1e8
 	m.persistClose(ctx, *pos, avgClose, pnl, "WIN", "TP2")
@@ -991,7 +991,7 @@ func (m *PositionManager) handleTrailingSLFill(ctx context.Context, pos *domain.
 	if pos.TP2OrderID != "" {
 		_ = m.executor.CancelOrder(ctx, pos.Symbol, pos.TP2OrderID)
 	}
-	avgClose := computeAvgClosePrice(*pos, o.AvgPrice)
+	avgClose := m.computeAvgClosePrice(*pos, o.AvgPrice)
 	pnl := (pos.EntryPrice - avgClose) * pos.OriginalQty
 	pnl = math.Round(pnl*1e8) / 1e8
 	pnl = calcFinalPnl(pnl, *pos)
@@ -1043,7 +1043,7 @@ func (m *PositionManager) handleHardSLFill(ctx context.Context, pos *domain.Posi
 }
 
 func (m *PositionManager) recordManualClose(ctx context.Context, pos domain.Position, exitPrice float64, closeReason string) {
-	avgClose := computeAvgClosePrice(pos, exitPrice)
+	avgClose := m.computeAvgClosePrice(pos, exitPrice)
 	pnl := (pos.EntryPrice - avgClose) * pos.OriginalQty
 	finalPnl := calcFinalPnl(pnl, pos)
 	var result string
@@ -1065,12 +1065,13 @@ func (m *PositionManager) persistClose(ctx context.Context, pos domain.Position,
 	} else {
 		roiPct := pnl / (pos.EntryPrice * pos.OriginalQty) * float64(pos.Leverage) * 100
 		if err := m.tradeRepo.UpdateResult(ctx, id, domain.ExitInfo{
-			AvgClosePrice: avgClose,
-			PnL:           pnl,
-			ROIPct:        roiPct,
-			Result:        result,
-			CloseReason:   closeReason,
-			ClosedAt:      now,
+			AvgClosePrice:  avgClose,
+			PnL:            pnl,
+			ROIPct:         roiPct,
+			Result:         result,
+			CloseReason:    closeReason,
+			ClosedAt:       now,
+			FundingFeePaid: pos.FundingFeePaid,
 		}); err != nil {
 			slog.Error("update trade result", "symbol", pos.Symbol, "error", err)
 		}
@@ -1331,7 +1332,7 @@ func (m *PositionManager) adjustTP2PreSettlement(ctx context.Context, pos *domai
 	newTP2Price := pos.EntryPrice * (1 - newTP2Pct/100)
 	newTP2Trigger := newTP2Price * 1.001
 
-	tp2Qty := pos.OriginalQty * (1 - tp1SizeFraction)
+	tp2Qty := pos.OriginalQty * (1 - m.cfg.Execution.TP1SizePct/100)
 
 	if err := m.executor.CancelOrder(ctx, pos.Symbol, pos.TP2OrderID); err != nil {
 		slog.Warn("adjustTP2PreSettlement: cancel old TP2 failed", "symbol", pos.Symbol, "error", err)
@@ -1367,11 +1368,11 @@ func (m *PositionManager) adjustTP2PreSettlement(ctx context.Context, pos *domai
 }
 
 // computeAvgClosePrice calculates weighted average exit price for split-leg closes.
-func computeAvgClosePrice(pos domain.Position, finalExitPrice float64) float64 {
+func (m *PositionManager) computeAvgClosePrice(pos domain.Position, finalExitPrice float64) float64 {
 	if !pos.TP1Filled || pos.OriginalQty == 0 {
 		return finalExitPrice
 	}
-	tp1Qty := pos.OriginalQty * tp1SizeFraction
+	tp1Qty := pos.OriginalQty * m.cfg.Execution.TP1SizePct / 100
 	trailQty := pos.OriginalQty - tp1Qty
 	return (pos.TP1FillPrice*tp1Qty + finalExitPrice*trailQty) / pos.OriginalQty
 }

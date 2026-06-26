@@ -344,7 +344,7 @@ func setDefaults(cfg *Config) {
 		cfg.Execution.TrailingCallbackRate = 1.05
 	}
 	if cfg.Execution.TP1SizePct == 0 {
-		cfg.Execution.TP1SizePct = 70
+		cfg.Execution.TP1SizePct = 50
 	}
 	if cfg.Execution.TP2Pct == 0 {
 		cfg.Execution.TP2Pct = 4.0

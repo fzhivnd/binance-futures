@@ -93,9 +93,9 @@ func (r *PGTradeRepository) UpdateResult(ctx context.Context, id uuid.UUID, exit
 	_, err := r.pool.Exec(ctx, `
 		UPDATE trades SET
 			exit_price=$1, avg_close_price=$1, pnl=$2, roi_pct=$3, result=$4,
-			close_reason=$5, closed_at=$6
-		WHERE id=$7
-	`, exit.AvgClosePrice, exit.PnL, exit.ROIPct, exit.Result, exit.CloseReason, exit.ClosedAt, id)
+			close_reason=$5, closed_at=$6, funding_fee_paid=$7
+		WHERE id=$8
+	`, exit.AvgClosePrice, exit.PnL, exit.ROIPct, exit.Result, exit.CloseReason, exit.ClosedAt, exit.FundingFeePaid, id)
 	return err
 }
 
