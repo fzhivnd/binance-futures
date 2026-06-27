@@ -1,0 +1,1 @@
+ALTER TABLE trades ADD COLUMN IF NOT EXISTS funding_fee_paid BOOLEAN NOT NULL DEFAULT false;

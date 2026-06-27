@@ -17,11 +17,15 @@ const (
 	PatternUpperWickReject  CandlePattern = "UPPER_WICK_REJECTION"
 	PatternDojiAfterPump    CandlePattern = "DOJI_AFTER_PUMP"
 	PatternFailedBreakout   CandlePattern = "FAILED_BREAKOUT"
+	PatternBreakStructure   CandlePattern = "BREAK_STRUCTURE"
 
 	// Bullish patterns — used as penalty signals for short candidates.
 	PatternBullishEngulfing CandlePattern = "BULLISH_ENGULFING"
 	PatternHammer           CandlePattern = "HAMMER"
 	PatternStrongMomentum   CandlePattern = "STRONG_MOMENTUM" // large green body with little upper wick
+	PatternMorningStar      CandlePattern = "MORNING_STAR"
+	PatternBreakOfStructure CandlePattern = "BREAK_OF_STRUCTURE"
+	PatternLiquiditySweep   CandlePattern = "LIQUIDITY_SWEEP"
 )
 
 type PatternStrength string

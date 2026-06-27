@@ -18,13 +18,13 @@ type RSIDivergenceConfig struct {
 }
 
 var RSIDivConfig = RSIDivergenceConfig{
-	Lookback:            50,
+	Lookback:            80,
 	MinSwingDistance:    3,
-	MinSwingProminence:  0.3,
-	StrongPriceDiffPct:  0.5,
-	StrongRSIDiffPts:    5.0,
-	MinRSIPeak:          55,
-	MaxBarsSinceSwing:   8,
+	MinSwingProminence:  0.15,
+	StrongPriceDiffPct:  1.0,
+	StrongRSIDiffPts:    6,
+	MinRSIPeak:          50,
+	MaxBarsSinceSwing:   15,
 	RSIPeakSearchRadius: 3,
 }
 
@@ -34,7 +34,9 @@ func DetectRSIDivergence(
 ) *domain.RSIDivergence {
 	const rsiPeriod = 14
 
-	if len(candles) < rsiPeriod+RSIDivConfig.Lookback+10 {
+	cfg := RSIDivConfig
+
+	if len(candles) < rsiPeriod+cfg.Lookback+10 {
 		return nil
 	}
 
@@ -45,104 +47,132 @@ func DetectRSIDivergence(
 
 	offset := len(candles) - len(rsiSeries)
 
-	windowCandles := candles[len(candles)-RSIDivConfig.Lookback:]
-	windowStart := len(candles) - RSIDivConfig.Lookback
+	windowStart := max(
+		0,
+		len(candles)-cfg.Lookback,
+	)
+
+	windowCandles := candles[windowStart:]
 
 	swings := findSwingHighs(
 		windowCandles,
-		RSIDivConfig.MinSwingDistance,
-		RSIDivConfig.MinSwingProminence,
+		cfg.MinSwingDistance,
+		cfg.MinSwingProminence,
 	)
 
 	if len(swings) < 2 {
 		return nil
 	}
 
-	b := swings[len(swings)-1]
+	var best *domain.RSIDivergence
+	bestScore := -1.0
 
-	if len(windowCandles)-1-b > RSIDivConfig.MaxBarsSinceSwing {
-		return nil
-	}
+	for i := len(swings) - 1; i >= 1; i-- {
+		b := swings[i]
 
-	var a = -1
+		if len(windowCandles)-1-b >
+			cfg.MaxBarsSinceSwing {
+			continue
+		}
 
-	for i := len(swings) - 2; i >= 0; i-- {
-		prev := swings[i]
+		for j := i - 1; j >= 0; j-- {
+			a := swings[j]
 
-		priceA := windowCandles[prev].High
-		priceB := windowCandles[b].High
+			globalA := windowStart + a
+			globalB := windowStart + b
 
-		diffPct := math.Abs(priceB-priceA) / priceA * 100
+			rsiIdxA := globalA - offset
+			rsiIdxB := globalB - offset
 
-		if diffPct >= RSIDivConfig.MinSwingProminence {
-			a = prev
-			break
+			if rsiIdxA < 0 ||
+				rsiIdxB < 0 ||
+				rsiIdxA >= len(rsiSeries) ||
+				rsiIdxB >= len(rsiSeries) {
+				continue
+			}
+
+			priceA := windowCandles[a].High
+			priceB := windowCandles[b].High
+
+			if priceB <= priceA {
+				continue
+			}
+
+			rsiA := localRSIPeak(
+				rsiSeries,
+				rsiIdxA,
+				cfg.RSIPeakSearchRadius,
+			)
+
+			rsiB := localRSIPeak(
+				rsiSeries,
+				rsiIdxB,
+				cfg.RSIPeakSearchRadius,
+			)
+
+			if rsiB >= rsiA {
+				continue
+			}
+
+			if math.Max(rsiA, rsiB) <
+				cfg.MinRSIPeak {
+				continue
+			}
+
+			priceDiffPct :=
+				(priceB - priceA) /
+					priceA *
+					100
+
+			rsiDiffPts :=
+				rsiA - rsiB
+
+			score :=
+				priceDiffPct +
+					rsiDiffPts
+
+			if score <= bestScore {
+				continue
+			}
+
+			var strength domain.PatternStrength
+
+			switch {
+			case priceDiffPct >= cfg.StrongPriceDiffPct &&
+				rsiDiffPts >= cfg.StrongRSIDiffPts:
+				strength = domain.StrengthStrong
+
+			case priceDiffPct >= cfg.StrongPriceDiffPct ||
+				rsiDiffPts >= cfg.StrongRSIDiffPts:
+				strength = domain.StrengthMedium
+
+			default:
+				strength = domain.StrengthWeak
+			}
+
+			// Overbought bonus.
+			if rsiA >= 75 ||
+				rsiB >= 75 {
+				switch strength {
+				case domain.StrengthWeak:
+					strength =
+						domain.StrengthMedium
+				case domain.StrengthMedium:
+					strength =
+						domain.StrengthStrong
+				}
+			}
+
+			bestScore = score
+
+			best = &domain.RSIDivergence{
+				Timeframe: tf,
+				Strength:  strength,
+			}
 		}
 	}
 
-	if a == -1 {
-		return nil
-	}
-
-	globalA := windowStart + a
-	globalB := windowStart + b
-
-	rsiIdxA := globalA - offset
-	rsiIdxB := globalB - offset
-
-	if rsiIdxA < 0 || rsiIdxB < 0 {
-		return nil
-	}
-
-	rsiA := localRSIPeak(
-		rsiSeries,
-		rsiIdxA,
-		RSIDivConfig.RSIPeakSearchRadius,
-	)
-
-	rsiB := localRSIPeak(
-		rsiSeries,
-		rsiIdxB,
-		RSIDivConfig.RSIPeakSearchRadius,
-	)
-
-	if math.Max(rsiA, rsiB) < RSIDivConfig.MinRSIPeak {
-		return nil
-	}
-
-	priceA := windowCandles[a].High
-	priceB := windowCandles[b].High
-
-	if priceB <= priceA {
-		return nil
-	}
-
-	if rsiB >= rsiA {
-		return nil
-	}
-
-	priceDiffPct := (priceB - priceA) / priceA * 100
-	rsiDiffPts := rsiA - rsiB
-
-	var strength domain.PatternStrength
-
-	switch {
-	case priceDiffPct >= RSIDivConfig.StrongPriceDiffPct &&
-		rsiDiffPts >= RSIDivConfig.StrongRSIDiffPts:
-		strength = domain.StrengthStrong
-
-	case priceDiffPct >= RSIDivConfig.StrongPriceDiffPct ||
-		rsiDiffPts >= RSIDivConfig.StrongRSIDiffPts:
-		strength = domain.StrengthMedium
-
-	default:
-		strength = domain.StrengthWeak
-	}
-
-	return &domain.RSIDivergence{
-		Timeframe: tf,
-		Strength:  strength,
-	}
+	return best
 }
 
 func localRSIPeak(
@@ -176,25 +206,14 @@ func findSwingHighs(
 
 		isSwing := true
 
-		leftMax := candles[i-minDist].High
-		rightMax := candles[i+minDist].High
-
 		for j := i - minDist; j <= i+minDist; j++ {
 			if j == i {
 				continue
 			}
 
-			if candles[j].High >= high {
+			if candles[j].High > high {
 				isSwing = false
 				break
-			}
-
-			if j < i {
-				leftMax = math.Max(leftMax, candles[j].High)
-			}
-
-			if j > i {
-				rightMax = math.Max(rightMax, candles[j].High)
 			}
 		}
 
@@ -202,11 +221,19 @@ func findSwingHighs(
 			continue
 		}
 
-		ref := math.Max(leftMax, rightMax)
+		left := candles[i-minDist].High
+		right := candles[i+minDist].High
 
-		prominencePct := (high - ref) / ref * 100
+		ref := math.Max(left, right)
 
-		if prominencePct < minProminencePct {
+		if ref <= 0 {
+			continue
+		}
+
+		prominence :=
+			(high - ref) / ref * 100
+
+		if prominence < minProminencePct {
 			continue
 		}
 

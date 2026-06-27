@@ -70,11 +70,11 @@ func (a *App) backfillCandles(ctx context.Context, symbols []string, existing ma
 		interval string
 		limit    int
 	}{
-		{"5m", 80},
-		{"15m", 80},
-		{"30m", 80},
-		{"1h", 80},
-		{"4h", 80},
+		{"5m", 100},
+		{"15m", 100},
+		{"30m", 100},
+		{"1h", 100},
+		{"4h", 100},
 	}
 
 	// VERIFIED, COMMENT LOG
