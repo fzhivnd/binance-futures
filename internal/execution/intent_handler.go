@@ -21,6 +21,7 @@ type IntentHandler struct {
 	indEngine  BTCContextProvider
 	executor   Executor
 	leverage   int
+	minScore   float64
 }
 
 func NewIntentHandler(
@@ -29,6 +30,7 @@ func NewIntentHandler(
 	indEngine BTCContextProvider,
 	executor Executor,
 	leverage int,
+	minScore float64,
 ) *IntentHandler {
 	return &IntentHandler{
 		execEng:    execEng,
@@ -36,20 +38,18 @@ func NewIntentHandler(
 		indEngine:  indEngine,
 		executor:   executor,
 		leverage:   leverage,
+		minScore:   minScore,
 	}
 }
 
 func (h *IntentHandler) Fire(ctx context.Context, sc *domain.ScoredCandidate, decision *domain.LLMDecision) error {
 	fireStart := time.Now()
 
-	// LAST_MINUTE entries on weak setups are EV-negative (data: WIN=62%, LOSS=38% when score<55).
-	// Pre-settlement timing amplifies the loss side — not enough edge to justify the window risk.
-	const lastMinuteMinScore = 50.0
-	if decision.EntryMode == domain.EntryModeLastMinute && sc.CompositeScore < lastMinuteMinScore {
+	if decision.EntryMode == domain.EntryModeLastMinute && sc.CompositeScore < h.minScore {
 		slog.Info("intent rejected: LAST_MINUTE score too low",
 			"symbol", sc.Candidate.Symbol,
 			"score", sc.CompositeScore,
-			"min", lastMinuteMinScore,
+			"min", h.minScore,
 		)
 		return domain.ErrSkipped
 	}
