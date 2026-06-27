@@ -1,6 +1,7 @@
 package scoring
 
 import (
+	"math"
 	"sort"
 	"sync"
 
@@ -18,6 +19,26 @@ func NewScorerFromConfig(cfg *domain.ScoringConfig) *Scorer {
 
 func NewDefaultScorer() *Scorer {
 	return &Scorer{cfg: DefaultScoringConfig()}
+}
+
+var bearishPatternWeight = map[domain.CandlePattern]float64{
+	domain.PatternUpperWickReject:  2.0,
+	domain.PatternDojiAfterPump:    1.5,
+	domain.PatternFailedBreakout:   3.0,
+	domain.PatternShootingStar:     3.0,
+	domain.PatternBearishEngulfing: 4.0,
+	domain.PatternEveningStar:      5.0,
+	domain.PatternBreakStructure:   6.0,
+	domain.PatternLiquiditySweep:   6.0,
+}
+
+var bullishPatternWeight = map[domain.CandlePattern]float64{
+	domain.PatternHammer:           0.5,
+	domain.PatternStrongMomentum:   1.0,
+	domain.PatternBullishEngulfing: 1.5,
+	domain.PatternMorningStar:      2.0,
+	domain.PatternBreakOfStructure: 6.0,
+	domain.PatternLiquiditySweep:   6.0,
 }
 
 func (s *Scorer) UpdateConfig(cfg *domain.ScoringConfig) {
@@ -220,43 +241,86 @@ func scoreCandlePatterns(
 	var rawScore float64
 	tfHit := make(map[domain.Timeframe]bool)
 
+	hasFailedBreakout := false
+	hasUpperWickReject := false
+	hasLiquiditySweep := false
+	hasBearishEngulfing := false
+
 	for _, sig := range signals {
+		pw := bearishPatternWeight[sig.Pattern]
 		tw := tfWeights[string(sig.Timeframe)]
-		strength := sig.Strength
-		// FAILED_BREAKOUT is a secondary confirmation, not a primary reversal signal.
-		// Downgrade its strength one tier so it can't carry a trade on its own.
-		if sig.Pattern == domain.PatternFailedBreakout {
-			switch strength {
-			case domain.StrengthStrong:
-				strength = domain.StrengthMedium
-			case domain.StrengthMedium:
-				strength = domain.StrengthWeak
-			}
-		}
-		sw := strWeights[string(strength)]
-		rawScore += tw * sw
+		sw := strWeights[string(sig.Strength)]
+
+		rawScore += pw * tw * sw
 		tfHit[sig.Timeframe] = true
+
+		switch sig.Pattern {
+		case domain.PatternFailedBreakout:
+			hasFailedBreakout = true
+
+		case domain.PatternUpperWickReject:
+			hasUpperWickReject = true
+
+		case domain.PatternLiquiditySweep:
+			hasLiquiditySweep = true
+
+		case domain.PatternBearishEngulfing:
+			hasBearishEngulfing = true
+		}
 	}
 
-	bonus := multitfBonus[len(tfHit)]
+	//////////////////////////////////////////////////
+	// Synergy bonuses
+	//////////////////////////////////////////////////
 
-	// Normalize against the sum of weights of TFs that actually fired, not all
-	// possible TFs. This ensures a single STRONG pattern on any timeframe scores
-	// close to the full candle weight — a lone 1h engulfing is a real signal.
+	if hasFailedBreakout && hasUpperWickReject {
+		rawScore *= 1.20
+	}
+
+	if hasLiquiditySweep && hasBearishEngulfing {
+		rawScore *= 1.20
+	}
+
+	//////////////////////////////////////////////////
+	// Normalization
+	//////////////////////////////////////////////////
+
 	maxRaw := 0.0
+
 	for tf := range tfHit {
-		maxRaw += tfWeights[string(tf)]
+		tw := tfWeights[string(tf)]
+
+		// strongest possible pattern
+		pw := 6.0
+
+		// strongest strength
+		sw := 1.5
+
+		maxRaw += pw * tw * sw
 	}
+
 	if maxRaw == 0 {
 		return 0
 	}
 
 	normalized := rawScore / maxRaw
-	if normalized > 1.0 {
-		normalized = 1.0
+	if normalized > 1 {
+		normalized = 1
 	}
 
-	return (normalized + bonus) * maxScore
+	//////////////////////////////////////////////////
+	// Multi-timeframe bonus
+	//////////////////////////////////////////////////
+
+	bonus := multitfBonus[len(tfHit)]
+
+	score := (normalized + bonus) * maxScore
+
+	if score > maxScore {
+		score = maxScore
+	}
+
+	return score
 }
 
 // evalRSIDivergence resolves the strongest divergence condition across all detected
@@ -331,23 +395,28 @@ func strengthRank(s domain.PatternStrength) int {
 
 // scoreBullishPenalty returns a negative score for bullish candle signals on 1h/30m.
 // Strong bullish pattern: costs 50% of candle weight. Medium: 25%. Capped at full candle weight.
-func scoreBullishPenalty(signals []domain.CandleSignal, candleWeight float64) float64 {
-	if len(signals) == 0 {
+func scoreBullishPenalty(
+	signals []domain.CandleSignal,
+	candleWeight float64,
+) float64 {
+	score := bullishSignalScore(signals)
+
+	var penalty float64
+
+	switch {
+	case score >= 16:
+		return -candleWeight
+
+	case score >= 12:
+		return -(candleWeight * 0.5)
+
+	case score >= 8:
+		return -(candleWeight * 0.25)
+
+	default:
 		return 0
 	}
-	penalty := 0.0
-	for _, sig := range signals {
-		switch sig.Strength {
-		case domain.StrengthStrong:
-			penalty += candleWeight * 0.50
-		case domain.StrengthMedium:
-			penalty += candleWeight * 0.25
-		}
-	}
-	// Cap so we don't penalise beyond the full candle weight.
-	if penalty > candleWeight {
-		penalty = candleWeight
-	}
+
 	return -penalty
 }
 
@@ -382,4 +451,27 @@ func mapScoreToConfidence(tiers []domain.ConfidenceTier, score float64) (string,
 		}
 	}
 	return "SKIP", 0
+}
+
+func bullishSignalScore(
+	signals []domain.CandleSignal,
+) float64 {
+	score := 0.0
+
+	for _, sig := range signals {
+		s := bullishPatternWeight[sig.Pattern]
+
+		switch sig.Strength {
+		case domain.StrengthStrong:
+			score += s
+
+		case domain.StrengthMedium:
+			score += math.Ceil(float64(s) * 0.5)
+
+		case domain.StrengthWeak:
+			score += 1
+		}
+	}
+
+	return score
 }
