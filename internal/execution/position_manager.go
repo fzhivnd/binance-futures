@@ -915,6 +915,13 @@ func (m *PositionManager) handleTP1Fill(ctx context.Context, pos *domain.Positio
 		pos.SLOrderID = ""
 	}
 
+	// 1a. check if fully closed at Tp1
+	if pos.TP2OrderID == "" {
+		slog.Info("position fully closed at TP1", "symbol", pos.Symbol)
+		m.handleTP2Fill(ctx, pos, o)
+		return
+	}
+
 	// 2. Place breakeven SL at entry price to protect the remaining 30%.
 	beOrder, err := m.executor.PlaceStopMarketOrder(ctx, domain.OrderRequest{
 		Symbol:        pos.Symbol,
@@ -1248,8 +1255,11 @@ func (m *PositionManager) widenTP(ctx context.Context, pos *domain.Position, _ *
 	}
 	pos.TPOrderID = ""
 
-	tp1SizePct := m.cfg.Execution.TP1SizePct / 100
-	tp1Qty := pos.OriginalQty * tp1SizePct
+	tp1SizeFrac := m.cfg.Execution.TP1SizePct / 100
+	if pos.FundingRateAtEntry < -0.01 { // if funding less than 1% entry before settlement -> full exit at 2% final profit
+		tp1SizeFrac = 1
+	}
+	tp1Qty := pos.OriginalQty * tp1SizeFrac
 
 	newTPOrder, err := m.executor.PlaceStopLimitOrder(ctx, domain.OrderRequest{
 		Symbol:       pos.Symbol,
@@ -1338,7 +1348,13 @@ func (m *PositionManager) adjustTP2PreSettlement(ctx context.Context, pos *domai
 		slog.Warn("adjustTP2PreSettlement: cancel old TP2 failed", "symbol", pos.Symbol, "error", err)
 		return
 	}
+
 	pos.TP2OrderID = ""
+
+	if pos.FundingRateAtEntry < -0.01 {
+		slog.Info("adjustTP2PreSettlement: full exit at TP1 for funding rate < -1% and entry before settlement", "symbol", pos.Symbol)
+		return
+	}
 
 	newTP2Order, err := m.executor.PlaceStopLimitOrder(ctx, domain.OrderRequest{
 		Symbol:       pos.Symbol,
