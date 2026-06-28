@@ -14,8 +14,12 @@ import (
 	"futures/internal/scheduler"
 )
 
-func (a *App) setSymbolCooldown(ctx context.Context, symbol string) {
-	if err := a.cache.SetSymbolCooldown(ctx, symbol, symbolCooldownDurationLLM); err != nil {
+func (a *App) setSymbolCooldown(ctx context.Context, symbol string, decision string) {
+	cooldown := symbolCooldownDurationLLM
+	if decision != "SKIP" {
+		cooldown += 10 * time.Minute
+	}
+	if err := a.cache.SetSymbolCooldown(ctx, symbol, cooldown); err != nil {
 		slog.Warn("failed to set symbol cooldown", "symbol", symbol, "error", err)
 	}
 }
@@ -249,7 +253,7 @@ func (a *App) scanFn(ctx context.Context, window scheduler.WindowType) error {
 	if lc := a.lastLLMCall; lc != nil {
 		withinCooldown := time.Since(lc.calledAt) < cooldown
 		inputsUnchanged := lc.window == window &&
-			math.Abs(lc.score-top[0].CompositeScore) < 2.5 &&
+			math.Abs(lc.score-top[0].CompositeScore) < 0.5 &&
 			lc.btcTrend == btcTrend
 		if withinCooldown || inputsUnchanged {
 			slog.Info("skipping LLM call: inputs unchanged or in cooldown",
@@ -303,7 +307,7 @@ func (a *App) scanFn(ctx context.Context, window scheduler.WindowType) error {
 		"symbol", decision.Symbol,
 		"confidence", decision.Confidence,
 	)
-	a.setSymbolCooldown(ctx, decision.Symbol)
+	a.setSymbolCooldown(ctx, decision.Symbol, decision.Action)
 	selectedScore := float64(0)
 	for _, t := range top {
 		if decision.Symbol == t.Candidate.Symbol {
