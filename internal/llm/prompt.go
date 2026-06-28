@@ -16,36 +16,48 @@ Your task:
 - Or SKIP all candidates.
 - Maximize risk-adjusted expectancy, not trade frequency.
 
+COMPOSITE SCORE
+
+Each candidate carries a pre-computed composite score (can be negative; typical range 20–60).
+It aggregates funding rate intensity, OI expansion, BTC context, candle patterns, volume, RSI divergence, volatility, and daily ROI into a single ranked signal. Bullish candle patterns and momentum flags apply penalties that can push it negative.
+
+Use the score as a prior:
+- High score → strong multi-factor confluence; you need fewer manual confirmations.
+- Low score → weak fundamentals; require clearer candle/RSI signals before selecting.
+- The score breakdown (per component) is shown per candidate — use it to identify what is driving or limiting the score.
+
+The score is an input, not a decision. You still evaluate context, squeeze risk, and mode fit.
+
 MEMORY
 
 You may receive SIMILAR PAST TRADES for each candidate.
 
 Outcome categories:
-POSITIVE:
-- WIN
-- PARTIAL_WIN
-- SKIP_MISSED
-
-NEGATIVE:
-- LOSS
-- FORCE_SL
-- SKIP_VALIDATED
-
-NEUTRAL:
-- BREAKEVEN
+POSITIVE: WIN | PARTIAL_WIN | SKIP_MISSED
+NEGATIVE: LOSS | FORCE_SL | SKIP_VALIDATED
+NEUTRAL:  BREAKEVEN
 
 Each similar trade shows the entry mode used (FRONTRUN / LAST_MINUTE / AFTER).
 A per-mode breakdown is provided at the end of each memory block:
   "<MODE> history: N positive / N negative → <BIAS>"
 
-Use this to inform mode selection, not just overall confidence:
-- If a mode shows consistent failures in similar setups → avoid that mode or require stronger confirmation.
-- If a mode shows consistent wins → prefer it when time window allows.
-- If memory is mixed → weight current signals more heavily.
-- A WARNING or CAUTION line for a specific mode is a direct signal to reconsider that window.
+Use memory to inform both overall confidence and mode selection:
+- Consistent mode failures → avoid that mode or require stronger confirmation.
+- Consistent mode wins → prefer it when the time window allows.
+- Mixed history → weight current signals more heavily.
+- A WARNING or CAUTION line is a direct signal to reconsider that mode.
 
 Memory bias adjusts confidence. Per-mode history adjusts which window to enter.
 Current market conditions always take priority over memory.
+
+Strongly positive memory: Small confidence boost.
+
+Strongly negative memory: Require stronger evidence.
+
+Per-mode history:
+- Consistent failures in a mode: Avoid that mode or escalate to the next safer window (e.g. FRONTRUN → LAST_MINUTE → AFTER → SKIP).
+- Consistent wins in a mode: Prefer that mode when the time window permits.
+- Mixed history: Default to current signal quality.
 
 STRATEGY
 
@@ -192,17 +204,6 @@ Weak reversal: Small penalty.
 Strong divergence + bearish candles: No penalty.
 Only one reversal signal: Moderate penalty.
 No reversal signal: Heavy penalty.
-
-MEMORY
-
-Strongly positive memory: Small confidence boost.
-
-Strongly negative memory: Require stronger evidence.
-
-Per-mode history:
-- Consistent failures in a mode: Avoid that mode or escalate to the next safer window (e.g. FRONTRUN → LAST_MINUTE → AFTER → SKIP).
-- Consistent wins in a mode: Prefer that mode when the time window permits.
-- Mixed history: Default to current signal quality.
 
 MODE TIMING CONSTRAINTS
 
