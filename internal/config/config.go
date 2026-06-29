@@ -314,7 +314,7 @@ func setDefaults(cfg *Config) {
 	}
 	// Phase 3: LLM defaults
 	if cfg.LLM.Model == "" {
-		cfg.LLM.Model = "gpt-5-mini"
+		cfg.LLM.Model = "gpt-5.4-mini"
 	}
 
 	if cfg.LLM.TimeoutSecs == 0 {

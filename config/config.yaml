@@ -69,7 +69,7 @@ risk:
 llm:
   enabled: true
   api_key: "${OPENAI_API_KEY}"
-  model: "gpt-5-mini"
+  model: "gpt-5.4-mini"
   timeout_secs: 45
   max_retries: 1
   max_rpm: 20
