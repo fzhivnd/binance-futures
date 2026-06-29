@@ -53,24 +53,26 @@ func (l *LiveExecutor) PlaceMarketOrder(ctx context.Context, req domain.OrderReq
 
 func (l *LiveExecutor) PlaceLimitOrder(ctx context.Context, req domain.OrderRequest) (*domain.OrderResult, error) {
 	resp, err := l.client.NewOrder(ctx, exchange.NewOrderRequest{
-		Symbol:   req.Symbol,
-		Side:     string(req.Side),
-		Type:     "LIMIT",
-		Quantity: l.formatQty(req.Symbol, req.Quantity),
-		Price:    l.formatPrice(req.Symbol, req.Price),
+		Symbol:     req.Symbol,
+		Side:       string(req.Side),
+		Type:       string(domain.OrderTypeLimit),
+		Quantity:   l.formatQty(req.Symbol, req.Quantity),
+		Price:      l.formatPrice(req.Symbol, req.Price),
+		ReduceOnly: req.ReduceOnly,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("binance limit order: %w", err)
 	}
 	return &domain.OrderResult{
-		OrderID:   strconv.FormatInt(resp.OrderID, 10),
-		Symbol:    resp.Symbol,
-		Side:      domain.Side(resp.Side),
-		FillPrice: resp.AvgPrice,
-		Quantity:  resp.ExecutedQty,
-		Status:    resp.Status,
-		IsPaper:   false,
-		Timestamp: time.UnixMilli(resp.UpdateTime),
+		OrderID:       strconv.FormatInt(resp.OrderID, 10),
+		Symbol:        resp.Symbol,
+		Side:          domain.Side(resp.Side),
+		FillPrice:     resp.AvgPrice,
+		Quantity:      resp.ExecutedQty,
+		Status:        resp.Status,
+		IsPaper:       false,
+		Timestamp:     time.UnixMilli(resp.UpdateTime),
+		ClientOrderId: resp.ClientOrderId,
 	}, nil
 }
 

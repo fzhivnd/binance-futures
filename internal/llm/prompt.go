@@ -37,25 +37,33 @@ POSITIVE: WIN | PARTIAL_WIN | SKIP_MISSED
 NEGATIVE: LOSS | FORCE_SL | SKIP_VALIDATED
 NEUTRAL:  BREAKEVEN
 
-Each similar trade shows the entry mode used (FRONTRUN / LAST_MINUTE / AFTER).
-A per-mode breakdown is provided at the end of each memory block:
-  "<MODE> history: N positive / N negative → <BIAS>"
+Each candidate includes two memory signals:
 
-Use memory to inform both overall confidence and mode selection:
-- Consistent mode failures → avoid that mode or require stronger confirmation.
-- Consistent mode wins → prefer it when the time window allows.
-- Mixed history → weight current signals more heavily.
-- A WARNING or CAUTION line is a direct signal to reconsider that mode.
+1. MODE WIN RATES — computed from up to 200 similar setups (broad statistical base):
+   "<MODE>: W/T trades won (X% win rate, L losses)"
+   Use this as the primary statistical signal for mode selection.
+   - Win rate ≥ 60%: mode has a meaningful edge in similar setups.
+   - Win rate 40–60%: mixed — weight current signals more heavily.
+   - Win rate < 40%: mode has historically underperformed — require stronger confirmation or avoid.
+   - Low sample count (Total < 5): treat as weak signal regardless of rate.
 
-Memory bias adjusts confidence. Per-mode history adjusts which window to enter.
+2. SIMILAR PAST TRADES — top 5 most similar individual setups (qualitative detail):
+   Shows outcome, P&L, entry mode, and any LLM-generated lesson.
+   A per-mode bias label and WARNING/CAUTION lines are derived from these 5 trades.
+   Use these for pattern recognition and lesson extraction, not for win rate statistics.
+
+When the two signals conflict (e.g. high win rate but recent similar trades failed):
+- Favour the win rates for statistical confidence.
+- Favour the individual trades for regime-shift awareness (recent losses may signal a changing market).
+
+Memory bias adjusts confidence. Mode win rates adjust which window to enter.
 Current market conditions always take priority over memory.
 
-Strongly positive memory: Small confidence boost.
+Strongly positive win rate (≥ 60%): Small confidence boost.
+Strongly negative win rate (< 40%): Require stronger evidence or escalate mode (FRONTRUN → LAST_MINUTE → AFTER → SKIP).
 
-Strongly negative memory: Require stronger evidence.
-
-Per-mode history:
-- Consistent failures in a mode: Avoid that mode or escalate to the next safer window (e.g. FRONTRUN → LAST_MINUTE → AFTER → SKIP).
+Per-mode history (from individual trades):
+- Consistent failures in a mode: Avoid that mode or escalate to the next safer window.
 - Consistent wins in a mode: Prefer that mode when the time window permits.
 - Mixed history: Default to current signal quality.
 
@@ -188,8 +196,8 @@ CONFIDENCE
 90-100 Exceptional.
 80-89 Strong.
 70-79 Decent.
-60-69 Marginal.
-Below 60 Return SKIP.
+65-69 Marginal.
+Below 65 Return SKIP.
 
 ADJUSTMENTS
 
@@ -220,7 +228,7 @@ OUTPUT RULES
 
 - Select exactly one candidate or SKIP.
 - Confidence reflects belief in the chosen plan.
-- Confidence < 60 = SKIP.
+- Confidence < 65 = SKIP.
 - Provide 1-3 reasons.
 - Provide warnings.
 - Be probabilistic.`
@@ -299,6 +307,7 @@ func (p *PromptBuilder) UserMessage(req *LLMRequest) string {
 			sb.WriteString("\n")
 		}
 
+		renderModeWinRates(&sb, c.ModeWinRates)
 		renderCandidateMemory(&sb, c.SimilarTrades)
 		sb.WriteString("\n")
 	}
@@ -311,6 +320,22 @@ type modeStat struct {
 	positive int // WIN + PARTIAL_WIN + SKIP_MISSED
 	negative int // LOSS + FORCE_SL + SKIP_VALIDATED
 	score    float64
+}
+
+func renderModeWinRates(sb *strings.Builder, rates map[string]LLMModeWinRate) {
+	if len(rates) == 0 {
+		return
+	}
+	sb.WriteString("  Mode win rates (from up to 200 similar setups):\n")
+	for _, mode := range []string{"FRONTRUN", "LAST_MINUTE", "AFTER"} {
+		wr, ok := rates[mode]
+		if !ok || wr.Total == 0 {
+			continue
+		}
+		winPct := float64(wr.Wins) / float64(wr.Total) * 100
+		sb.WriteString(fmt.Sprintf("    %s: %d/%d trades won (%.0f%% win rate, %d losses)\n",
+			mode, wr.Wins, wr.Total, winPct, wr.Losses))
+	}
 }
 
 func renderCandidateMemory(sb *strings.Builder, trades []LLMSimilarTrade) {

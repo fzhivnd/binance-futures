@@ -26,9 +26,13 @@ func NewRetriever(repo storage.MemoryRepository, cfg RetrieverConfig) *Retriever
 	return &Retriever{repo: repo, cfg: cfg}
 }
 
+const statsPoolSize = 200
+
 // FindSimilar retrieves the most similar historical trade setups.
-// The DB returns a wider pool (limit*3) ordered by raw cosine distance; we apply
-// bonuses for priority match fields and a penalty for BTC regime mismatch.
+// It fetches a large pool (statsPoolSize) from the DB for winrate aggregation, scores
+// all results with structural bonuses/penalties, then returns:
+//   - the top TopSimilar trades as detail for the LLM prompt
+//   - per-mode win/loss counts computed from the full scored pool
 func (r *Retriever) FindSimilar(
 	ctx context.Context,
 	embedding pgvector.Vector,
@@ -36,10 +40,10 @@ func (r *Retriever) FindSimilar(
 	btc *domain.BTCContext,
 	candidate *domain.Candidate,
 	at time.Time,
-) ([]domain.SimilarTrade, error) {
-	results, err := r.repo.FindSimilar(ctx, embedding, r.cfg.TopSimilar)
+) ([]domain.SimilarTrade, map[string]domain.ModeWinRate, error) {
+	results, err := r.repo.FindSimilar(ctx, embedding, statsPoolSize)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	btcRegime := BTCRegime(btc.Trend, btc.IsBreakout, btc.MomentumScore)
@@ -50,7 +54,7 @@ func (r *Retriever) FindSimilar(
 	atrBucket := ATRBucket(snap.ATRRatio)
 
 	now := time.Now()
-	var similar []domain.SimilarTrade
+	var scored []domain.SimilarTrade
 
 	for _, res := range results {
 		if res.Memory.Outcome == "" {
@@ -97,7 +101,7 @@ func (r *Retriever) FindSimilar(
 		}
 
 		daysAgo := int(now.Sub(res.Memory.CreatedAt).Hours() / 24)
-		similar = append(similar, domain.SimilarTrade{
+		scored = append(scored, domain.SimilarTrade{
 			Outcome:     res.Memory.Outcome,
 			ProfitPct:   res.Memory.ProfitPct,
 			Similarity:  sim,
@@ -108,13 +112,44 @@ func (r *Retriever) FindSimilar(
 		})
 	}
 
-	sort.Slice(similar, func(i, j int) bool {
-		return similar[i].Similarity > similar[j].Similarity
+	sort.Slice(scored, func(i, j int) bool {
+		return scored[i].Similarity > scored[j].Similarity
 	})
 
-	if len(similar) > r.cfg.TopSimilar {
-		similar = similar[:r.cfg.TopSimilar]
+	// Compute per-mode winrates from the full scored pool.
+	winRates := computeModeWinRates(scored)
+
+	// Trim to top N for LLM detail block.
+	detail := scored
+	if len(detail) > r.cfg.TopSimilar {
+		detail = detail[:r.cfg.TopSimilar]
 	}
 
-	return similar, nil
+	return detail, winRates, nil
+}
+
+func computeModeWinRates(trades []domain.SimilarTrade) map[string]domain.ModeWinRate {
+	stats := map[string]*domain.ModeWinRate{}
+	for _, t := range trades {
+		mode := t.EntryMode
+		if mode == "" {
+			continue
+		}
+		if stats[mode] == nil {
+			stats[mode] = &domain.ModeWinRate{}
+		}
+		s := stats[mode]
+		s.Total++
+		switch t.Outcome {
+		case "WIN", "PARTIAL_WIN", "SKIP_MISSED":
+			s.Wins++
+		case "LOSS", "FORCE_SL", "SKIP_VALIDATED":
+			s.Losses++
+		}
+	}
+	out := make(map[string]domain.ModeWinRate, len(stats))
+	for k, v := range stats {
+		out[k] = *v
+	}
+	return out
 }
