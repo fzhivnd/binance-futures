@@ -26,6 +26,7 @@ const (
 	PatternMorningStar      CandlePattern = "MORNING_STAR"
 	PatternBreakOfStructure CandlePattern = "BREAK_OF_STRUCTURE"
 	PatternLiquiditySweep   CandlePattern = "LIQUIDITY_SWEEP"
+	PatternLowerWickReject  CandlePattern = "LOWER_WICK_REJECTION"
 )
 
 type PatternStrength string
