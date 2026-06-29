@@ -5,16 +5,16 @@ import (
 	"time"
 )
 
-func confidenceToSize(confidence int) float64 {
+func confidenceToSize(confidence int, maxSizePct float64) float64 {
 	switch {
 	case confidence >= 90:
-		return 5.0
+		return maxSizePct
 	case confidence >= 80:
-		return 4.0
+		return 0.8 * maxSizePct
 	case confidence >= 70:
-		return 3.0
-	case confidence >= 60:
-		return 2.0
+		return maxSizePct
+	case confidence >= 65:
+		return 0.5 * maxSizePct
 	default:
 		return 0
 	}

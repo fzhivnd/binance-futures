@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math"
 	"time"
 
 	"futures/internal/config"
@@ -145,9 +146,8 @@ func (e *ExecutionEngine) execute(
 		return fmt.Errorf("get balance: %w", err)
 	}
 
-	// comment for testing purposes
-	//margin := math.Min(balance.TotalBalance*e.cfg.Trading.PositionSizePct/100, 500)
-	margin := 15.0
+	sizePct := sc.PositionSizePct
+	margin := math.Min(balance.TotalBalance*sizePct/100, 500)
 	if balance.AvailableBalance < margin { // for testing live trade
 		return fmt.Errorf("insufficient balance: %.2f, desired: %.2f", balance.AvailableBalance, margin)
 	}

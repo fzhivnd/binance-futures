@@ -338,7 +338,7 @@ func (a *App) scanFn(ctx context.Context, window scheduler.WindowType) error {
 		if a.cfg.Memory.EmbedSkips {
 			go func() {
 				bgCtx := context.Background()
-				if err := a.memoryEngine.RecordSkip(bgCtx, top, btc, decision.SkipReason, string(window)); err != nil {
+				if err := a.memoryEngine.RecordSkip(bgCtx, top[0], btc, decision.SkipReason, string(window)); err != nil {
 					slog.Error("failed to record skip memory", "error", err)
 				}
 			}()
@@ -358,7 +358,19 @@ func (a *App) scanFn(ctx context.Context, window scheduler.WindowType) error {
 		return nil
 	}
 
-	selected.PositionSizePct = confidenceToSize(decision.Confidence)
+	selected.PositionSizePct = confidenceToSize(decision.Confidence, a.cfg.Trading.PositionSizePct)
+	if selected.PositionSizePct <= 0 {
+		slog.Info("LLM selected confidence is too low, decided to skip", "symbol", selected.Candidate.Symbol, "confidence", decision.Confidence)
+		if a.cfg.Memory.EmbedSkips {
+			go func() {
+				bgCtx := context.Background()
+				if err := a.memoryEngine.RecordSkip(bgCtx, selected, btc, "confidence is too low", string(window)); err != nil {
+					slog.Error("failed to record skip memory", "error", err)
+				}
+			}()
+		}
+		return nil
+	}
 
 	nextSettlement := scheduler.NextFundingTime(time.Now().UTC())
 	ti := &intent.TradeIntent{

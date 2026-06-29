@@ -188,8 +188,8 @@ CONFIDENCE
 90-100 Exceptional.
 80-89 Strong.
 70-79 Decent.
-60-69 Marginal.
-Below 60 Return SKIP.
+65-69 Marginal.
+Below 65 Return SKIP.
 
 ADJUSTMENTS
 
@@ -220,7 +220,7 @@ OUTPUT RULES
 
 - Select exactly one candidate or SKIP.
 - Confidence reflects belief in the chosen plan.
-- Confidence < 60 = SKIP.
+- Confidence < 65 = SKIP.
 - Provide 1-3 reasons.
 - Provide warnings.
 - Be probabilistic.`

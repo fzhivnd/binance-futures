@@ -136,16 +136,16 @@ func (e *Engine) RecordTrade(
 // RecordSkip embeds and stores a skip decision. Called asynchronously when LLM decides to skip.
 func (e *Engine) RecordSkip(
 	ctx context.Context,
-	candidates []*domain.ScoredCandidate,
+	candidate *domain.ScoredCandidate,
 	btc *domain.BTCContext,
 	skipReason string,
 	window string,
 ) error {
-	if !e.enabled || len(candidates) == 0 {
+	if !e.enabled || candidate == nil {
 		return nil
 	}
 
-	top := candidates[0]
+	top := candidate
 	snap := top.Indicators
 	now := time.Now().UTC()
 
