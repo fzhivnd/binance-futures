@@ -69,3 +69,10 @@ type SimilarTrade struct {
 	EntryMode   string
 	FundingRate float64 // funding rate at decision time (e.g. -0.8)
 }
+
+// ModeWinRate holds win/loss stats for a single entry mode computed from a large pool.
+type ModeWinRate struct {
+	Wins   int
+	Losses int
+	Total  int
+}

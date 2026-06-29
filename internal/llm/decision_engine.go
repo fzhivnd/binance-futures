@@ -31,8 +31,9 @@ func (e *DecisionEngine) Evaluate(
 	btc *domain.BTCContext,
 	tpPct float64,
 	similarTrades map[string][]domain.SimilarTrade,
+	modeWinRates map[string]map[string]domain.ModeWinRate,
 ) (*domain.LLMDecision, error) {
-	req := MapToLLMRequest(candidates, btc, tpPct, similarTrades)
+	req := MapToLLMRequest(candidates, btc, tpPct, similarTrades, modeWinRates)
 
 	systemPrompt := e.prompt.SystemPrompt()
 	userMessage := e.prompt.UserMessage(req)

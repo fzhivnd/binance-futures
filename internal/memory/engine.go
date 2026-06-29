@@ -207,7 +207,7 @@ func (e *Engine) RecordSkip(
 
 // RetrieveSimilar finds similar historical setups for the current candidate.
 // Called synchronously before LLM decision (~120ms overhead).
-// Returns nil,nil if memory is disabled or embedding fails (non-fatal).
+// Returns nil,nil,nil if memory is disabled or embedding fails (non-fatal).
 func (e *Engine) RetrieveSimilar(
 	ctx context.Context,
 	snap *domain.IndicatorSnapshot,
@@ -216,9 +216,9 @@ func (e *Engine) RetrieveSimilar(
 	score float64,
 	entryMode string,
 	at time.Time,
-) ([]domain.SimilarTrade, error) {
+) ([]domain.SimilarTrade, map[string]domain.ModeWinRate, error) {
 	if !e.enabled {
-		return nil, nil
+		return nil, nil, nil
 	}
 
 	featureText := BuildFeatureText(snap, btc, candidate, score, entryMode, at)
@@ -227,19 +227,19 @@ func (e *Engine) RetrieveSimilar(
 	embedding, err := e.embedder.Embed(ctx, featureText)
 	if err != nil {
 		slog.Warn("failed to embed for retrieval, skipping memory", "error", err)
-		return nil, nil // non-fatal: proceed without memory
+		return nil, nil, nil // non-fatal: proceed without memory
 	}
 
-	similar, err := e.retriever.FindSimilar(ctx, embedding, snap, btc, candidate, at)
+	detail, winRates, err := e.retriever.FindSimilar(ctx, embedding, snap, btc, candidate, at)
 	queryLatency := time.Since(start)
 
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	topSimilarity := 0.0
 	winCount := 0
-	for _, s := range similar {
+	for _, s := range detail {
 		if s.Similarity > topSimilarity {
 			topSimilarity = s.Similarity
 		}
@@ -250,13 +250,13 @@ func (e *Engine) RetrieveSimilar(
 
 	slog.Info("memory_retrieved",
 		"candidate", candidate.Symbol,
-		"similar_count", len(similar),
+		"similar_count", len(detail),
 		"top_similarity", fmt.Sprintf("%.2f", topSimilarity),
 		"win_count", winCount,
 		"query_latency_ms", queryLatency.Milliseconds(),
 	)
 
-	return similar, nil
+	return detail, winRates, nil
 }
 
 // GenerateLessonForTrade fetches the stored memory for a trade, summarizes it, and persists the lesson.

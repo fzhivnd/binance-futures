@@ -108,20 +108,21 @@ func (a *App) scanFn(ctx context.Context, window scheduler.WindowType) error {
 	//	return nil
 	//}
 
-	filtered := candidates[:0]
-	for _, c := range candidates {
-		if c.DailyROI > 60 && c.FundingRate > -0.01 {
-			slog.Info("candidate excluded: high ROI requires funding <= -1%",
-				"symbol", c.Symbol, "daily_roi_pct", c.DailyROI, "funding_rate_pct", c.FundingRate*100)
-			continue
-		}
-		filtered = append(filtered, c)
-	}
-	candidates = filtered
-	if len(candidates) == 0 {
-		slog.Info("no candidates after high-ROI funding filter", "window", window)
-		return nil
-	}
+	// COMMENTED HIGH ROI AND MIN FUNDING RATE FILTER TO MONITOR FIRST
+	//filtered := candidates[:0]
+	//for _, c := range candidates {
+	//	if c.DailyROI > 60 && c.FundingRate > -0.01 {
+	//		slog.Info("candidate excluded: high ROI requires funding <= -1%",
+	//			"symbol", c.Symbol, "daily_roi_pct", c.DailyROI, "funding_rate_pct", c.FundingRate*100)
+	//		continue
+	//	}
+	//	filtered = append(filtered, c)
+	//}
+	//candidates = filtered
+	//if len(candidates) == 0 {
+	//	slog.Info("no candidates after high-ROI funding filter", "window", window)
+	//	return nil
+	//}
 
 	candidates = scanner.FilterByVolume(candidates, a.filteringMinVolume())
 	if len(candidates) == 0 {
@@ -267,6 +268,7 @@ func (a *App) scanFn(ctx context.Context, window scheduler.WindowType) error {
 	}
 
 	similarTrades := make(map[string][]domain.SimilarTrade)
+	modeWinRates := make(map[string]map[string]domain.ModeWinRate)
 	if a.memoryEngine != nil && len(top) > 0 {
 		now := time.Now().UTC()
 
@@ -276,7 +278,7 @@ func (a *App) scanFn(ctx context.Context, window scheduler.WindowType) error {
 			wg.Add(1)
 			go func(sc *domain.ScoredCandidate) {
 				defer wg.Done()
-				similar, serr := a.memoryEngine.RetrieveSimilar(ctx,
+				similar, winRates, serr := a.memoryEngine.RetrieveSimilar(ctx,
 					sc.Indicators, btc, &sc.Candidate,
 					sc.CompositeScore, string(window), now,
 				)
@@ -285,18 +287,21 @@ func (a *App) scanFn(ctx context.Context, window scheduler.WindowType) error {
 						"symbol", sc.Candidate.Symbol, "error", serr)
 					return
 				}
+				mu.Lock()
 				if len(similar) > 0 {
-					mu.Lock()
 					similarTrades[sc.Candidate.Symbol] = similar
-					mu.Unlock()
 				}
+				if len(winRates) > 0 {
+					modeWinRates[sc.Candidate.Symbol] = winRates
+				}
+				mu.Unlock()
 			}(sc)
 		}
 		wg.Wait()
 	}
 
 	llmStart := time.Now()
-	decision, err := a.llmEngine.Evaluate(ctx, top, btc, a.cfg.Execution.TpPct, similarTrades)
+	decision, err := a.llmEngine.Evaluate(ctx, top, btc, a.cfg.Execution.TpPct, similarTrades, modeWinRates)
 	if err != nil {
 		slog.Error("LLM engine error", "error", err, "latency_ms", time.Since(llmStart).Milliseconds())
 		return nil

@@ -13,6 +13,7 @@ func MapToLLMRequest(
 	btc *domain.BTCContext,
 	tpPct float64,
 	similarTrades map[string][]domain.SimilarTrade,
+	modeWinRates map[string]map[string]domain.ModeWinRate,
 ) *LLMRequest {
 	next := scheduler.NextFundingTime(time.Now().UTC())
 	minutesTo := int(math.Round(time.Until(next).Minutes()))
@@ -95,6 +96,17 @@ func MapToLLMRequest(
 
 		if trades, ok := similarTrades[sc.Candidate.Symbol]; ok && len(trades) > 0 {
 			c.SimilarTrades = mapSimilarTrades(trades)
+		}
+
+		if rates, ok := modeWinRates[sc.Candidate.Symbol]; ok && len(rates) > 0 {
+			c.ModeWinRates = make(map[string]LLMModeWinRate, len(rates))
+			for mode, wr := range rates {
+				c.ModeWinRates[mode] = LLMModeWinRate{
+					Wins:   wr.Wins,
+					Losses: wr.Losses,
+					Total:  wr.Total,
+				}
+			}
 		}
 
 		req.Candidates = append(req.Candidates, c)
