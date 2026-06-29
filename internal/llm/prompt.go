@@ -39,7 +39,7 @@ NEUTRAL:  BREAKEVEN
 
 Each candidate includes two memory signals:
 
-1. MODE WIN RATES — computed from up to 200 similar setups (broad statistical base):
+1. MODE WIN RATES — computed from up to 200 similar setups filtered at similarity ≥ 0.55 (high-confidence matches only):
    "<MODE>: W/T trades won (X% win rate, L losses)"
    Use this as the primary statistical signal for mode selection.
    - Win rate ≥ 60%: mode has a meaningful edge in similar setups.

@@ -27,6 +27,7 @@ func NewRetriever(repo storage.MemoryRepository, cfg RetrieverConfig) *Retriever
 }
 
 const statsPoolSize = 200
+const statsMinSimilarity = 0.55
 
 // FindSimilar retrieves the most similar historical trade setups.
 // It fetches a large pool (statsPoolSize) from the DB for winrate aggregation, scores
@@ -116,8 +117,8 @@ func (r *Retriever) FindSimilar(
 		return scored[i].Similarity > scored[j].Similarity
 	})
 
-	// Compute per-mode winrates from the full scored pool.
-	winRates := computeModeWinRates(scored)
+	// Compute per-mode winrates from the high-confidence subset only.
+	winRates := computeModeWinRates(scored, statsMinSimilarity)
 
 	// Trim to top N for LLM detail block.
 	detail := scored
@@ -128,9 +129,12 @@ func (r *Retriever) FindSimilar(
 	return detail, winRates, nil
 }
 
-func computeModeWinRates(trades []domain.SimilarTrade) map[string]domain.ModeWinRate {
+func computeModeWinRates(trades []domain.SimilarTrade, minSimilarity float64) map[string]domain.ModeWinRate {
 	stats := map[string]*domain.ModeWinRate{}
 	for _, t := range trades {
+		if t.Similarity < minSimilarity {
+			continue
+		}
 		mode := t.EntryMode
 		if mode == "" {
 			continue
