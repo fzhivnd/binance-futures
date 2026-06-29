@@ -184,14 +184,12 @@ func rehydratePosition(
 	// Place missing TP1.
 	tp1Qty := qty * (cfg.Execution.TP1SizePct / 100)
 	if tpOrderID == "" {
-		tpOrder, err := executor.PlaceStopLimitOrder(ctx, domain.OrderRequest{
-			Symbol:       symbol,
-			Side:         domain.SideBuy,
-			Type:         domain.OrderTypeTakeProfit,
-			Quantity:     tp1Qty,
-			Price:        takeProfit,
-			TriggerPrice: takeProfit * 1.001,
-			ReduceOnly:   true,
+		tpOrder, err := executor.PlaceLimitOrder(ctx, domain.OrderRequest{
+			Symbol:     symbol,
+			Side:       domain.SideBuy,
+			Quantity:   tp1Qty,
+			Price:      takeProfit,
+			ReduceOnly: true,
 		})
 		if err != nil {
 			slog.Error("rehydrate: place TP1 failed", "symbol", symbol, "error", err)
@@ -350,14 +348,12 @@ func replaceMissingOrders(
 			}
 		}
 		tp1Qty := pos.OriginalQty
-		tpOrder, err := executor.PlaceStopLimitOrder(ctx, domain.OrderRequest{
-			Symbol:       symbol,
-			Side:         domain.SideBuy,
-			Type:         domain.OrderTypeTakeProfit,
-			Quantity:     tp1Qty,
-			Price:        pos.TakeProfit,
-			TriggerPrice: pos.TakeProfit * 1.001,
-			ReduceOnly:   true,
+		tpOrder, err := executor.PlaceLimitOrder(ctx, domain.OrderRequest{
+			Symbol:     symbol,
+			Side:       domain.SideBuy,
+			Quantity:   tp1Qty,
+			Price:      pos.TakeProfit,
+			ReduceOnly: true,
 		})
 		if err != nil {
 			return fmt.Errorf("replace TP1: %w", err)
