@@ -39,6 +39,7 @@ var bullishPatternWeight = map[domain.CandlePattern]float64{
 	domain.PatternMorningStar:      2.0,
 	domain.PatternBreakOfStructure: 6.0,
 	domain.PatternLiquiditySweep:   6.0,
+	domain.PatternLowerWickReject:  1.0,
 }
 
 func (s *Scorer) UpdateConfig(cfg *domain.ScoringConfig) {

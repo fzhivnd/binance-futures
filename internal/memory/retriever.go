@@ -27,7 +27,7 @@ func NewRetriever(repo storage.MemoryRepository, cfg RetrieverConfig) *Retriever
 }
 
 const statsPoolSize = 200
-const statsMinSimilarity = 0.55
+const statsMinSimilarity = 0.75
 
 // FindSimilar retrieves the most similar historical trade setups.
 // It fetches a large pool (statsPoolSize) from the DB for winrate aggregation, scores

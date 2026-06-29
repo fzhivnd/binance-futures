@@ -424,7 +424,7 @@ func setDefaults(cfg *Config) {
 		cfg.Memory.EmbeddingDimensions = 1536
 	}
 	if cfg.Memory.TopSimilar == 0 {
-		cfg.Memory.TopSimilar = 5
+		cfg.Memory.TopSimilar = 3
 	}
 	if cfg.Memory.MinSimilarity == 0 {
 		cfg.Memory.MinSimilarity = 0.40

@@ -354,9 +354,12 @@ func DetectBullishPatterns(
 
 		tolerance := candleRange * 0.05
 
+		prevMid := (p.Open + p.Close) / 2
+
 		engulf :=
-			c.Open <= p.Close+tolerance &&
-				c.Close >= p.Open-tolerance
+			c.Close > prevMid &&
+				c.Close > p.Open &&
+				c.Open <= p.Close+tolerance
 
 		if engulf && volumeConfirmed {
 			signals = append(
@@ -374,18 +377,18 @@ func DetectBullishPatterns(
 	// Hammer
 	////////////////////////////////////////////////////////////////////
 
-	bodyAtTop :=
-		(math.Max(c.Open, c.Close)-c.Low)/candleRange >= 0.6
+	bodyPos :=
+		(math.Max(c.Open, c.Close) - c.Low) / candleRange
 
-	if body > 0 &&
-		bodySize/candleRange <= 0.35 &&
-		lowerWick >= bodySize*2 &&
-		upperWick <= bodySize &&
-		bodyAtTop &&
+	isHammer :=
+		bodyPos >= 0.65 &&
+			lowerWick >= bodySize*1.8 &&
+			upperWick <= candleRange*0.2 &&
+			bodySize/candleRange <= 0.4
+
+	if isHammer &&
 		isDowntrend(candles, cfg.TrendLookback) {
-
-		signals = append(
-			signals,
+		signals = append(signals,
 			adjustStrength(domain.CandleSignal{
 				Timeframe: tf,
 				Pattern:   domain.PatternHammer,
@@ -399,9 +402,9 @@ func DetectBullishPatterns(
 	////////////////////////////////////////////////////////////////////
 
 	if body > 0 &&
-		bodySize/candleRange >= 0.7 &&
-		upperWick/candleRange <= 0.1 &&
-		c.Close > p.High &&
+		bodySize/candleRange >= 0.6 &&
+		upperWick/candleRange <= 0.2 &&
+		c.Close >= c.High-candleRange*0.2 &&
 		volumeConfirmed &&
 		atrExpansion {
 
@@ -430,11 +433,14 @@ func DetectBullishPatterns(
 			pp.High > pp.Low &&
 				ppBody/(pp.High-pp.Low) >= 0.5
 
+		middleRange := p.High - p.Low
+
 		smallMiddle :=
-			pBody <= ppBody*0.5
+			middleRange > 0 &&
+				pBody/middleRange <= 0.35
 
 		recovery :=
-			c.Close >= pp.Open-(ppBody*0.5)
+			c.Close >= pp.Close+(ppBody*0.5)
 
 		if firstBear &&
 			smallMiddle &&
@@ -482,6 +488,24 @@ func DetectBullishPatterns(
 		)
 	}
 
+	////////////////////////////////////////////////////////////////////
+	// Bullish Reject
+	////////////////////////////////////////////////////////////////////
+
+	if lowerWick/candleRange >= 0.55 &&
+		lowerWick >= upperWick*2 &&
+		c.Close > c.Open &&
+		isDowntrend(candles, cfg.TrendLookback) {
+
+		signals = append(signals,
+			adjustStrength(domain.CandleSignal{
+				Timeframe: tf,
+				Pattern:   domain.PatternLowerWickReject,
+				Strength:  domain.StrengthMedium,
+			}, c.Volume, avgVolume),
+		)
+	}
+
 	return signals
 }
 
@@ -494,24 +518,6 @@ func isDowntrend(candles []domain.Candle, lookback int) bool {
 	start := len(candles) - lookback - 1
 	end := len(candles) - 2
 
-	lowerHighs := 0
-	lowerLows := 0
-	redCandles := 0
-
-	for i := start + 1; i <= end; i++ {
-		if candles[i].High < candles[i-1].High {
-			lowerHighs++
-		}
-
-		if candles[i].Low < candles[i-1].Low {
-			lowerLows++
-		}
-
-		if candles[i].Close < candles[i].Open {
-			redCandles++
-		}
-	}
-
 	first := candles[start]
 	last := candles[end]
 
@@ -519,12 +525,24 @@ func isDowntrend(candles []domain.Candle, lookback int) bool {
 		return false
 	}
 
-	dropPct := (first.Close - last.Close) / first.Close
+	lowerHighs := 0
+	lowerLows := 0
 
-	return dropPct >= 0.01 &&
-		lowerHighs >= lookback/2 &&
-		lowerLows >= lookback/2 &&
-		redCandles >= lookback/2
+	for i := start + 1; i <= end; i++ {
+		if candles[i].High < candles[i-1].High {
+			lowerHighs++
+		}
+		if candles[i].Low < candles[i-1].Low {
+			lowerLows++
+		}
+	}
+
+	dropPct :=
+		(first.Close - last.Close) / first.Close
+
+	return dropPct >= 0.005 &&
+		lowerHighs >= lookback/3 &&
+		lowerLows >= lookback/3
 }
 
 // isUptrend returns true if candles show a rising trend over the last lookback candles.

@@ -73,7 +73,7 @@ func (r *PGMemoryRepository) FindSimilar(
 		  AND created_at > $2
 		ORDER BY embedding <=> $1
 		LIMIT $3
-	`, embedding, cutoff, limit*3)
+	`, embedding, cutoff, limit)
 	if err != nil {
 		return nil, err
 	}

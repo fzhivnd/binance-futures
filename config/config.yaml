@@ -69,7 +69,7 @@ risk:
 llm:
   enabled: true
   api_key: "${OPENAI_API_KEY}"
-  model: "gpt-5.4-mini"
+  model: "gpt-5.4"
   timeout_secs: 45
   max_retries: 1
   max_rpm: 20
@@ -88,11 +88,11 @@ memory:
   enabled: true
   embedding_model: "text-embedding-3-small"
   embedding_dimensions: 1536
-  top_similar: 5
+  top_similar: 3
   min_similarity: 0.4
   embed_skips: true
   max_memory_age: "90d"
-  summarizer_model: "gpt-5-mini"
+  summarizer_model: "gpt-5.4-mini"
 
 after_execution:
   enabled: true
