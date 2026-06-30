@@ -179,6 +179,8 @@ Requirements:
 - Confirmation incomplete.
 - Some squeeze risk remains.
 
+Note: Never open short symbols with funding < -1% with LAST_MINUTE mode
+
 Risk: May pay funding.
 
 ### AFTER
@@ -192,6 +194,7 @@ Preferred when ANY condition exists:
 - OI still expanding aggressively
 - No meaningful bearish confirmation
 = Elevated squeeze risk
+- Avoid when OI already unloading hard
 
 Use AFTER when: The symbol looks attractive, but the pre-settlement timing is poor.
 
