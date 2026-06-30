@@ -62,23 +62,23 @@ Treat the score as a Bayesian prior.
 
 Interpretation
 
-Score ≥ 80:
+Score ≥ 60:
 Exceptional setup.
 Require only modest confirmation.
 
-Score 70–79:
+Score 45–59:
 Strong setup.
 Require one or two confirming signals.
 
-Score 60–69:
+Score 30–45:
 Moderate setup.
 Require clear reversal confirmation.
 
-Score < 60:
+Score 20–29:
 Weak setup.
 Require exceptional reversal evidence or skip.
 
-Score < 50:
+Score < 20:
 Default bias is SKIP.
 
 The score is not a decision by itself.
