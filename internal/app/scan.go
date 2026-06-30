@@ -222,13 +222,14 @@ func (a *App) scanFn(ctx context.Context, window scheduler.WindowType) error {
 	for _, sc := range scored {
 		hasReversalEvidence := sc.Breakdown.CandleScore > 0 ||
 			sc.Breakdown.RSIDivergenceScore > 0 ||
-			sc.Indicators.RSI7_5m >= 70
+			sc.Indicators.RSI7_5m >= 70 || sc.CompositeScore >= 50
 		if !hasReversalEvidence {
 			slog.Info("candidate excluded: no reversal evidence",
 				"symbol", sc.Candidate.Symbol,
 				"candle_score", sc.Breakdown.CandleScore,
 				"rsi_div_score", sc.Breakdown.RSIDivergenceScore,
 				"rsi7_5m", sc.Indicators.RSI7_5m,
+				"composite_score", sc.CompositeScore,
 			)
 			continue
 		}
