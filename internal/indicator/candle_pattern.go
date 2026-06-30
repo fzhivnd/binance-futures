@@ -97,35 +97,37 @@ func DetectPatterns(
 		return nil
 	}
 
-	volumeConfirmed := avgVolume <= 0 ||
-		c.Volume >= avgVolume*1.2
+	// volume above average strengthens signals but doesn't gate them
+	highVolume := avgVolume > 0 && c.Volume >= avgVolume*1.2
 
 	var signals []domain.CandleSignal
 
 	////////////////////////////////////////////////////
 	// Shooting Star
+	// Classic: long upper wick (≥2× body), small lower wick, body at bottom,
+	// confirmed by uptrend. Use cfg.WickBodyRatio.
 	////////////////////////////////////////////////////
 
-	bodyAtBottom :=
-		(math.Max(c.Open, c.Close)-c.Low)/candleRange <= 0.4
+	bodyAtBottom := (math.Max(c.Open, c.Close)-c.Low)/candleRange <= 0.35
 
-	if upperWick >= bodySize*2 &&
-		lowerWick <= bodySize &&
+	if upperWick >= bodySize*cfg.WickBodyRatio &&
+		upperWick/candleRange >= 0.55 &&
+		lowerWick <= bodySize*0.5 &&
 		bodyAtBottom &&
 		isUptrend(candles, cfg.TrendLookback) {
 
-		signals = append(
-			signals,
-			adjustStrength(domain.CandleSignal{
-				Timeframe: tf,
-				Pattern:   domain.PatternShootingStar,
-				Strength:  domain.StrengthStrong,
-			}, c.Volume, avgVolume),
-		)
+		str := domain.StrengthMedium
+		if highVolume || body < 0 {
+			str = domain.StrengthStrong
+		}
+		signals = append(signals, domain.CandleSignal{
+			Timeframe: tf, Pattern: domain.PatternShootingStar, Strength: str,
+		})
 	}
 
 	////////////////////////////////////////////////////
 	// Bearish Engulfing
+	// Current red candle fully engulfs prior green candle body.
 	////////////////////////////////////////////////////
 
 	prevBody := math.Abs(p.Close - p.Open)
@@ -134,85 +136,79 @@ func DetectPatterns(
 	if body < 0 &&
 		p.Close > p.Open &&
 		prevRange > 0 &&
-		prevBody/prevRange >= 0.4 &&
+		prevBody/prevRange >= 0.35 &&
 		isUptrend(candles, cfg.TrendLookback) {
 
-		tolerance := candleRange * 0.05
+		// c.Open at or above p.Close, c.Close at or below p.Open
+		tolerance := candleRange * 0.03
+		engulf := c.Open >= p.Close-tolerance && c.Close <= p.Open+tolerance
 
-		engulf :=
-			c.Open >= p.Close-tolerance &&
-				c.Close <= p.Open+tolerance
-
-		if engulf && volumeConfirmed {
-			signals = append(
-				signals,
-				adjustStrength(domain.CandleSignal{
-					Timeframe: tf,
-					Pattern:   domain.PatternBearishEngulfing,
-					Strength:  domain.StrengthStrong,
-				}, c.Volume, avgVolume),
-			)
+		if engulf {
+			str := domain.StrengthMedium
+			if bodySize >= prevBody && highVolume {
+				str = domain.StrengthStrong
+			} else if bodySize >= prevBody*1.2 {
+				str = domain.StrengthStrong
+			}
+			signals = append(signals, domain.CandleSignal{
+				Timeframe: tf, Pattern: domain.PatternBearishEngulfing, Strength: str,
+			})
 		}
 	}
 
 	////////////////////////////////////////////////////
 	// Upper Wick Reject
+	// Large upper wick rejection — works on both red and small green bodies.
 	////////////////////////////////////////////////////
 
-	if upperWick/candleRange >= 0.55 &&
-		upperWick >= lowerWick*2 &&
-		body <= 0 &&
+	if upperWick/candleRange >= cfg.WickRejectRatio &&
+		upperWick >= lowerWick*2.5 &&
+		bodySize/candleRange <= 0.35 &&
 		isUptrend(candles, cfg.TrendLookback) {
 
-		signals = append(
-			signals,
-			adjustStrength(domain.CandleSignal{
-				Timeframe: tf,
-				Pattern:   domain.PatternUpperWickReject,
-				Strength:  domain.StrengthMedium,
-			}, c.Volume, avgVolume),
-		)
+		signals = append(signals, adjustStrength(domain.CandleSignal{
+			Timeframe: tf, Pattern: domain.PatternUpperWickReject, Strength: domain.StrengthMedium,
+		}, c.Volume, avgVolume))
 	}
 
 	////////////////////////////////////////////////////
 	// Evening Star
+	// 3-candle: strong bull, small-body middle gapping up, bearish close back into first body.
 	////////////////////////////////////////////////////
 
 	ppBody := math.Abs(pp.Close - pp.Open)
 	pBody := math.Abs(p.Close - p.Open)
+	ppRange := pp.High - pp.Low
 
 	if pp.Close > pp.Open &&
+		ppRange > 0 &&
+		ppBody/ppRange >= 0.5 &&
 		body < 0 &&
-		isUptrend(candles[:len(candles)-1], cfg.TrendLookback) {
+		isUptrend(candles[:len(candles)-2], cfg.TrendLookback) {
 
-		firstBull :=
-			pp.High > pp.Low &&
-				ppBody/(pp.High-pp.Low) >= 0.5
+		// Middle candle is small relative to first bull body
+		smallMiddle := pBody <= ppBody*0.45
 
-		smallMiddle :=
-			pBody <= ppBody*0.5
+		// Middle trades near or above first candle's top (gap up or high close)
+		middleHigh := math.Max(p.Open, p.Close) >= pp.Close-ppBody*0.1
 
-		reversal :=
-			c.Close <= pp.Open+(ppBody*0.5)
+		// Bearish candle closes back into at least half of first bull body
+		reversal := c.Close <= pp.Open+(ppBody*0.5)
 
-		if firstBull &&
-			smallMiddle &&
-			reversal &&
-			volumeConfirmed {
-
-			signals = append(
-				signals,
-				adjustStrength(domain.CandleSignal{
-					Timeframe: tf,
-					Pattern:   domain.PatternEveningStar,
-					Strength:  domain.StrengthStrong,
-				}, c.Volume, avgVolume),
-			)
+		if smallMiddle && middleHigh && reversal {
+			str := domain.StrengthMedium
+			if c.Close <= pp.Open+(ppBody*0.3) || highVolume {
+				str = domain.StrengthStrong
+			}
+			signals = append(signals, domain.CandleSignal{
+				Timeframe: tf, Pattern: domain.PatternEveningStar, Strength: str,
+			})
 		}
 	}
 
 	////////////////////////////////////////////////////
 	// Doji After Pump
+	// Prior candle strong green, current candle near-doji — indecision after push.
 	////////////////////////////////////////////////////
 
 	prevBody = math.Abs(p.Close - p.Open)
@@ -220,38 +216,32 @@ func DetectPatterns(
 
 	if prevRange > 0 &&
 		p.Close > p.Open &&
-		prevBody/prevRange >= 0.7 &&
-		bodySize/candleRange <= cfg.DojiThreshold {
+		prevBody/prevRange >= 0.65 &&
+		bodySize/candleRange <= cfg.DojiThreshold &&
+		isUptrend(candles, cfg.TrendLookback) {
 
-		signals = append(
-			signals,
-			adjustStrength(domain.CandleSignal{
-				Timeframe: tf,
-				Pattern:   domain.PatternDojiAfterPump,
-				Strength:  domain.StrengthMedium,
-			}, c.Volume, avgVolume),
-		)
+		signals = append(signals, adjustStrength(domain.CandleSignal{
+			Timeframe: tf, Pattern: domain.PatternDojiAfterPump, Strength: domain.StrengthMedium,
+		}, c.Volume, avgVolume))
 	}
 
 	////////////////////////////////////////////////////
 	// Failed Breakout
+	// Candle wicks above prior high then closes back below it — bull trap.
+	// Use stricter threshold to avoid noise; require meaningful breakout attempt.
 	////////////////////////////////////////////////////
 
 	if p.High > 0 {
 		breakoutPct := (c.High - p.High) / p.High
 
-		if breakoutPct >= 0.002 &&
+		if breakoutPct >= 0.004 &&
 			c.Close < p.High &&
-			body <= 0 {
+			c.Close < c.Open &&
+			upperWick/candleRange >= 0.40 {
 
-			signals = append(
-				signals,
-				adjustStrength(domain.CandleSignal{
-					Timeframe: tf,
-					Pattern:   domain.PatternFailedBreakout,
-					Strength:  domain.StrengthMedium,
-				}, c.Volume, avgVolume),
-			)
+			signals = append(signals, adjustStrength(domain.CandleSignal{
+				Timeframe: tf, Pattern: domain.PatternFailedBreakout, Strength: domain.StrengthMedium,
+			}, c.Volume, avgVolume))
 		}
 	}
 
@@ -259,30 +249,20 @@ func DetectPatterns(
 	// Break Structure
 	////////////////////////////////////////////////////
 
-	if bearishBreakOfStructure(candles, 5) {
-		signals = append(
-			signals,
-			adjustStrength(domain.CandleSignal{
-				Timeframe: tf,
-				Pattern:   domain.PatternBreakStructure,
-				Strength:  domain.StrengthStrong,
-			}, c.Volume, avgVolume),
-		)
+	if bearishBreakOfStructure(candles, cfg.TrendLookback) {
+		signals = append(signals, adjustStrength(domain.CandleSignal{
+			Timeframe: tf, Pattern: domain.PatternBreakStructure, Strength: domain.StrengthStrong,
+		}, c.Volume, avgVolume))
 	}
 
 	////////////////////////////////////////////////////
 	// Liquidity Sweep
 	////////////////////////////////////////////////////
 
-	if bearishLiquiditySweep(candles) {
-		signals = append(
-			signals,
-			adjustStrength(domain.CandleSignal{
-				Timeframe: tf,
-				Pattern:   domain.PatternLiquiditySweep,
-				Strength:  domain.StrengthStrong,
-			}, c.Volume, avgVolume),
-		)
+	if bearishLiquiditySweep(candles, cfg.TrendLookback) {
+		signals = append(signals, adjustStrength(domain.CandleSignal{
+			Timeframe: tf, Pattern: domain.PatternLiquiditySweep, Strength: domain.StrengthStrong,
+		}, c.Volume, avgVolume))
 	}
 
 	return signals
@@ -331,16 +311,16 @@ func DetectBullishPatterns(
 		tfATR = atr1h * cfg.ATRMultiplier
 	}
 
-	volumeConfirmed := avgVolume <= 0 ||
-		c.Volume >= avgVolume*1.2
+	// volume above average strengthens signals but doesn't gate them
+	highVolume := avgVolume > 0 && c.Volume >= avgVolume*1.2
 
-	atrExpansion := tfATR <= 0 ||
-		candleRange >= tfATR
+	atrExpansion := tfATR <= 0 || candleRange >= tfATR
 
 	var signals []domain.CandleSignal
 
 	////////////////////////////////////////////////////////////////////
 	// Bullish Engulfing
+	// Current green candle fully engulfs prior red candle body.
 	////////////////////////////////////////////////////////////////////
 
 	prevBody := math.Abs(p.Close - p.Open)
@@ -349,112 +329,95 @@ func DetectBullishPatterns(
 	if body > 0 &&
 		p.Close < p.Open &&
 		prevRange > 0 &&
-		prevBody/prevRange >= 0.4 &&
+		prevBody/prevRange >= 0.35 &&
 		isDowntrend(candles, cfg.TrendLookback) {
 
-		tolerance := candleRange * 0.05
+		tolerance := candleRange * 0.03
+		engulf := c.Open <= p.Close+tolerance && c.Close >= p.Open-tolerance
 
-		prevMid := (p.Open + p.Close) / 2
-
-		engulf :=
-			c.Close > prevMid &&
-				c.Close > p.Open &&
-				c.Open <= p.Close+tolerance
-
-		if engulf && volumeConfirmed {
-			signals = append(
-				signals,
-				adjustStrength(domain.CandleSignal{
-					Timeframe: tf,
-					Pattern:   domain.PatternBullishEngulfing,
-					Strength:  domain.StrengthStrong,
-				}, c.Volume, avgVolume),
-			)
+		if engulf {
+			str := domain.StrengthMedium
+			if bodySize >= prevBody && highVolume {
+				str = domain.StrengthStrong
+			} else if bodySize >= prevBody*1.2 {
+				str = domain.StrengthStrong
+			}
+			signals = append(signals, domain.CandleSignal{
+				Timeframe: tf, Pattern: domain.PatternBullishEngulfing, Strength: str,
+			})
 		}
 	}
 
 	////////////////////////////////////////////////////////////////////
 	// Hammer
+	// Long lower wick, small body at the top, little upper wick.
 	////////////////////////////////////////////////////////////////////
 
-	bodyPos :=
-		(math.Max(c.Open, c.Close) - c.Low) / candleRange
+	bodyPos := (math.Max(c.Open, c.Close) - c.Low) / candleRange
 
 	isHammer :=
-		bodyPos >= 0.65 &&
-			lowerWick >= bodySize*1.8 &&
-			upperWick <= candleRange*0.2 &&
-			bodySize/candleRange <= 0.4
+		bodyPos >= 0.60 &&
+			lowerWick >= bodySize*cfg.WickBodyRatio &&
+			upperWick <= candleRange*0.25 &&
+			bodySize/candleRange <= 0.45
 
-	if isHammer &&
-		isDowntrend(candles, cfg.TrendLookback) {
-		signals = append(signals,
-			adjustStrength(domain.CandleSignal{
-				Timeframe: tf,
-				Pattern:   domain.PatternHammer,
-				Strength:  domain.StrengthStrong,
-			}, c.Volume, avgVolume),
-		)
+	if isHammer && isDowntrend(candles, cfg.TrendLookback) {
+		str := domain.StrengthMedium
+		if highVolume || body > 0 {
+			str = domain.StrengthStrong
+		}
+		signals = append(signals, domain.CandleSignal{
+			Timeframe: tf, Pattern: domain.PatternHammer, Strength: str,
+		})
 	}
 
 	////////////////////////////////////////////////////////////////////
 	// Strong Momentum
+	// Large green body, closes near high — volume or ATR expansion required.
 	////////////////////////////////////////////////////////////////////
 
 	if body > 0 &&
-		bodySize/candleRange >= 0.6 &&
-		upperWick/candleRange <= 0.2 &&
-		c.Close >= c.High-candleRange*0.2 &&
-		volumeConfirmed &&
-		atrExpansion {
+		bodySize/candleRange >= 0.60 &&
+		upperWick/candleRange <= 0.20 &&
+		c.Close >= c.High-candleRange*0.15 &&
+		(highVolume || atrExpansion) {
 
-		signals = append(
-			signals,
-			adjustStrength(domain.CandleSignal{
-				Timeframe: tf,
-				Pattern:   domain.PatternStrongMomentum,
-				Strength:  domain.StrengthMedium,
-			}, c.Volume, avgVolume),
-		)
+		signals = append(signals, adjustStrength(domain.CandleSignal{
+			Timeframe: tf, Pattern: domain.PatternStrongMomentum, Strength: domain.StrengthMedium,
+		}, c.Volume, avgVolume))
 	}
 
 	////////////////////////////////////////////////////////////////////
 	// Morning Star
+	// 3-candle: strong bear, small-body middle near the low, bullish recovery.
 	////////////////////////////////////////////////////////////////////
 
 	ppBody := math.Abs(pp.Close - pp.Open)
 	pBody := math.Abs(p.Close - p.Open)
+	ppRange := pp.High - pp.Low
 
 	if pp.Close < pp.Open &&
+		ppRange > 0 &&
+		ppBody/ppRange >= 0.5 &&
 		body > 0 &&
-		isDowntrend(candles[:len(candles)-1], cfg.TrendLookback) {
+		isDowntrend(candles[:len(candles)-2], cfg.TrendLookback) {
 
-		firstBear :=
-			pp.High > pp.Low &&
-				ppBody/(pp.High-pp.Low) >= 0.5
+		smallMiddle := pBody <= ppBody*0.45
 
-		middleRange := p.High - p.Low
+		// Middle trades near or below first candle's low (gap down or low close)
+		middleLow := math.Min(p.Open, p.Close) <= pp.Close+ppBody*0.1
 
-		smallMiddle :=
-			middleRange > 0 &&
-				pBody/middleRange <= 0.35
+		// Bullish candle recovers at least half of the first bear body
+		recovery := c.Close >= pp.Close+(ppBody*0.5)
 
-		recovery :=
-			c.Close >= pp.Close+(ppBody*0.5)
-
-		if firstBear &&
-			smallMiddle &&
-			recovery &&
-			volumeConfirmed {
-
-			signals = append(
-				signals,
-				adjustStrength(domain.CandleSignal{
-					Timeframe: tf,
-					Pattern:   domain.PatternMorningStar,
-					Strength:  domain.StrengthStrong,
-				}, c.Volume, avgVolume),
-			)
+		if smallMiddle && middleLow && recovery {
+			str := domain.StrengthMedium
+			if c.Close >= pp.Close+(ppBody*0.7) || highVolume {
+				str = domain.StrengthStrong
+			}
+			signals = append(signals, domain.CandleSignal{
+				Timeframe: tf, Pattern: domain.PatternMorningStar, Strength: str,
+			})
 		}
 	}
 
@@ -462,54 +425,42 @@ func DetectBullishPatterns(
 	// Break Of Structure
 	////////////////////////////////////////////////////////////////////
 
-	if bullishBreakOfStructure(candles, 5) {
-		signals = append(
-			signals,
-			adjustStrength(domain.CandleSignal{
-				Timeframe: tf,
-				Pattern:   domain.PatternBreakOfStructure,
-				Strength:  domain.StrengthStrong,
-			}, c.Volume, avgVolume),
-		)
+	if bullishBreakOfStructure(candles, cfg.TrendLookback) {
+		signals = append(signals, adjustStrength(domain.CandleSignal{
+			Timeframe: tf, Pattern: domain.PatternBreakOfStructure, Strength: domain.StrengthStrong,
+		}, c.Volume, avgVolume))
 	}
 
 	////////////////////////////////////////////////////////////////////
 	// Liquidity Sweep
 	////////////////////////////////////////////////////////////////////
 
-	if bullishLiquiditySweep(candles) {
-		signals = append(
-			signals,
-			adjustStrength(domain.CandleSignal{
-				Timeframe: tf,
-				Pattern:   domain.PatternLiquiditySweep,
-				Strength:  domain.StrengthStrong,
-			}, c.Volume, avgVolume),
-		)
+	if bullishLiquiditySweep(candles, cfg.TrendLookback) {
+		signals = append(signals, adjustStrength(domain.CandleSignal{
+			Timeframe: tf, Pattern: domain.PatternLiquiditySweep, Strength: domain.StrengthStrong,
+		}, c.Volume, avgVolume))
 	}
 
 	////////////////////////////////////////////////////////////////////
-	// Bullish Reject
+	// Lower Wick Reject
+	// Large lower wick rejection — works on both green and small-body doji candles.
 	////////////////////////////////////////////////////////////////////
 
-	if lowerWick/candleRange >= 0.55 &&
-		lowerWick >= upperWick*2 &&
-		c.Close > c.Open &&
+	if lowerWick/candleRange >= cfg.WickRejectRatio &&
+		lowerWick >= upperWick*2.5 &&
+		bodySize/candleRange <= 0.35 &&
 		isDowntrend(candles, cfg.TrendLookback) {
 
-		signals = append(signals,
-			adjustStrength(domain.CandleSignal{
-				Timeframe: tf,
-				Pattern:   domain.PatternLowerWickReject,
-				Strength:  domain.StrengthMedium,
-			}, c.Volume, avgVolume),
-		)
+		signals = append(signals, adjustStrength(domain.CandleSignal{
+			Timeframe: tf, Pattern: domain.PatternLowerWickReject, Strength: domain.StrengthMedium,
+		}, c.Volume, avgVolume))
 	}
 
 	return signals
 }
 
 // isDowntrend returns true if candles show a falling trend over the last lookback candles.
+// Uses a scoring approach: price drop + majority of lower-highs or lower-lows or red candles.
 func isDowntrend(candles []domain.Candle, lookback int) bool {
 	if len(candles) < lookback+1 {
 		return false
@@ -525,8 +476,15 @@ func isDowntrend(candles []domain.Candle, lookback int) bool {
 		return false
 	}
 
+	dropPct := (first.Close - last.Close) / first.Close
+	if dropPct < 0.005 {
+		return false
+	}
+
 	lowerHighs := 0
 	lowerLows := 0
+	redCandles := 0
+	n := end - start
 
 	for i := start + 1; i <= end; i++ {
 		if candles[i].High < candles[i-1].High {
@@ -535,18 +493,31 @@ func isDowntrend(candles []domain.Candle, lookback int) bool {
 		if candles[i].Low < candles[i-1].Low {
 			lowerLows++
 		}
+		if candles[i].Close < candles[i].Open {
+			redCandles++
+		}
 	}
 
-	dropPct :=
-		(first.Close - last.Close) / first.Close
+	threshold := n / 3
+	if threshold < 1 {
+		threshold = 1
+	}
+	conditions := 0
+	if lowerHighs >= threshold {
+		conditions++
+	}
+	if lowerLows >= threshold {
+		conditions++
+	}
+	if redCandles >= n/2+1 {
+		conditions++
+	}
 
-	return dropPct >= 0.005 &&
-		lowerHighs >= lookback/3 &&
-		lowerLows >= lookback/3
+	return conditions >= 2
 }
 
 // isUptrend returns true if candles show a rising trend over the last lookback candles.
-// It requires both a higher close and a majority of green candles.
+// Uses a scoring approach: price gain + majority of higher-highs or higher-lows or green candles.
 func isUptrend(candles []domain.Candle, lookback int) bool {
 	if len(candles) < lookback+1 {
 		return false
@@ -554,24 +525,6 @@ func isUptrend(candles []domain.Candle, lookback int) bool {
 
 	start := len(candles) - lookback - 1
 	end := len(candles) - 2
-
-	higherHighs := 0
-	higherLows := 0
-	greenCandles := 0
-
-	for i := start + 1; i <= end; i++ {
-		if candles[i].High > candles[i-1].High {
-			higherHighs++
-		}
-
-		if candles[i].Low > candles[i-1].Low {
-			higherLows++
-		}
-
-		if candles[i].Close > candles[i].Open {
-			greenCandles++
-		}
-	}
 
 	first := candles[start]
 	last := candles[end]
@@ -581,11 +534,44 @@ func isUptrend(candles []domain.Candle, lookback int) bool {
 	}
 
 	gainPct := (last.Close - first.Close) / first.Close
+	if gainPct < 0.005 {
+		return false
+	}
 
-	return gainPct >= 0.01 &&
-		higherHighs >= lookback/2 &&
-		higherLows >= lookback/2 &&
-		greenCandles >= lookback/2
+	higherHighs := 0
+	higherLows := 0
+	greenCandles := 0
+	n := end - start
+
+	for i := start + 1; i <= end; i++ {
+		if candles[i].High > candles[i-1].High {
+			higherHighs++
+		}
+		if candles[i].Low > candles[i-1].Low {
+			higherLows++
+		}
+		if candles[i].Close > candles[i].Open {
+			greenCandles++
+		}
+	}
+
+	// At least 2 of 3 structural conditions must be met (majority threshold)
+	threshold := n / 3
+	if threshold < 1 {
+		threshold = 1
+	}
+	conditions := 0
+	if higherHighs >= threshold {
+		conditions++
+	}
+	if higherLows >= threshold {
+		conditions++
+	}
+	if greenCandles >= n/2+1 {
+		conditions++
+	}
+
+	return conditions >= 2
 }
 
 func countGreenCandles(candles []domain.Candle) int {
@@ -622,32 +608,38 @@ func bullishBreakOfStructure(
 
 	c := candles[len(candles)-1]
 
-	highest := candles[len(candles)-lookback-1].High
-
-	for i := len(candles) - lookback; i < len(candles)-1; i++ {
+	// Find the highest high over the lookback window (excluding last candle)
+	start := len(candles) - lookback - 1
+	highest := candles[start].High
+	for i := start + 1; i < len(candles)-1; i++ {
 		if candles[i].High > highest {
 			highest = candles[i].High
 		}
 	}
 
-	return c.Close > highest
+	// Close must clearly break above the structure high
+	return c.Close > highest && c.Close > c.Open
 }
 
-func bullishLiquiditySweep(candles []domain.Candle) bool {
-	if len(candles) < 5 {
+// bullishLiquiditySweep detects a sweep of a prior swing low followed by recovery:
+// candle wicks below the recent swing low but closes back above it bullishly.
+func bullishLiquiditySweep(candles []domain.Candle, lookback int) bool {
+	if len(candles) < lookback+2 {
 		return false
 	}
 
 	c := candles[len(candles)-1]
 
-	lowest := candles[len(candles)-5].Low
-
-	for i := len(candles) - 4; i < len(candles)-1; i++ {
+	// Find the lowest low over the lookback window (excluding last candle)
+	start := len(candles) - lookback - 1
+	lowest := candles[start].Low
+	for i := start + 1; i < len(candles)-1; i++ {
 		if candles[i].Low < lowest {
 			lowest = candles[i].Low
 		}
 	}
 
+	// Wick below the swing low, then close back above it — bullish recovery
 	return c.Low < lowest &&
 		c.Close > lowest &&
 		c.Close > c.Open
@@ -663,32 +655,38 @@ func bearishBreakOfStructure(
 
 	c := candles[len(candles)-1]
 
-	lowest := candles[len(candles)-lookback-1].Low
-
-	for i := len(candles) - lookback; i < len(candles)-1; i++ {
+	// Find the lowest low over the lookback window (excluding last candle)
+	start := len(candles) - lookback - 1
+	lowest := candles[start].Low
+	for i := start + 1; i < len(candles)-1; i++ {
 		if candles[i].Low < lowest {
 			lowest = candles[i].Low
 		}
 	}
 
-	return c.Close < lowest
+	// Close must clearly break below the structure low
+	return c.Close < lowest && c.Close < c.Open
 }
 
-func bearishLiquiditySweep(candles []domain.Candle) bool {
-	if len(candles) < 5 {
+// bearishLiquiditySweep detects a sweep of a prior swing high followed by rejection:
+// candle wicks above the recent swing high but closes back below it bearishly.
+func bearishLiquiditySweep(candles []domain.Candle, lookback int) bool {
+	if len(candles) < lookback+2 {
 		return false
 	}
 
 	c := candles[len(candles)-1]
 
-	highest := candles[len(candles)-5].High
-
-	for i := len(candles) - 4; i < len(candles)-1; i++ {
+	// Find the highest high over the lookback window (excluding last candle)
+	start := len(candles) - lookback - 1
+	highest := candles[start].High
+	for i := start + 1; i < len(candles)-1; i++ {
 		if candles[i].High > highest {
 			highest = candles[i].High
 		}
 	}
 
+	// Wick above the swing high, then close back below it — bearish rejection
 	return c.High > highest &&
 		c.Close < highest &&
 		c.Close < c.Open
