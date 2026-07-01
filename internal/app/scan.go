@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"math"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -202,6 +203,19 @@ func (a *App) scanFn(ctx context.Context, window scheduler.WindowType) error {
 	if len(candidates) == 0 {
 		slog.Info("no candidates after funding filter", "window", window)
 		return nil
+	}
+
+	// Ensure @bookTicker streams are subscribed for all current candidates so the
+	// cache is warm for filterThinOrderBook. WSConnection deduplicates subscriptions
+	// so re-subscribing already-active symbols is a no-op.
+	if a.wsKlines != nil {
+		streams := make([]string, len(candidates))
+		for i, c := range candidates {
+			streams[i] = strings.ToLower(c.Symbol) + "@bookTicker"
+		}
+		if err := a.wsKlines.Subscribe(ctx, streams); err != nil {
+			slog.Warn("failed to subscribe bookTicker streams", "error", err)
+		}
 	}
 
 	//candidates = scanner.FilterByROI(candidates, a.filteringMinROI())
