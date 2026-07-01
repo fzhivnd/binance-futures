@@ -65,6 +65,27 @@ func (a *App) klineSubscriber(ctx context.Context) {
 	}
 }
 
+func (a *App) bookTickerSubscriber(ctx context.Context) {
+	ticker := time.NewTicker(60 * time.Second)
+	defer ticker.Stop()
+
+	var currentSymbols []string
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			newSymbols := a.engine.GetTopNegativeFundingSymbols(20)
+			if len(newSymbols) == 0 {
+				continue
+			}
+			a.updateBookTickerSubscriptions(ctx, currentSymbols, newSymbols)
+			currentSymbols = newSymbols
+		}
+	}
+}
+
 // fundingIntervalRefresher re-fetches /fapi/v1/fundingInfo shortly after each
 // funding settlement so that interval changes (e.g. 4h → 1h) are picked up
 // before the next scan cycle uses the updated daily ROI calculation.

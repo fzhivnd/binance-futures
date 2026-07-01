@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"log/slog"
+	"strings"
 )
 
 const btcSymbol = "BTCUSDT"
@@ -44,11 +45,11 @@ func (a *App) updateKlineSubscriptions(ctx context.Context, old, new []string) {
 	}
 
 	if len(toUnsub) > 0 {
-		_ = a.wsKlines.Unsubscribe(ctx, toUnsub)
+		_ = a.wsMarketData.Unsubscribe(ctx, toUnsub)
 	}
 	if len(toSub) > 0 {
 		a.backfillCandles(ctx, new, oldSet)
-		_ = a.wsKlines.Subscribe(ctx, toSub)
+		_ = a.wsMarketData.Subscribe(ctx, toSub)
 	}
 
 	for _, sym := range removed {
@@ -56,7 +57,44 @@ func (a *App) updateKlineSubscriptions(ctx context.Context, old, new []string) {
 	}
 }
 
-// backfillCandles seeds the candle store for newly added symbols by fetching
+// updateBookTickerSubscriptions diffs old and new symbol sets and issues the
+// minimal subscribe/unsubscribe calls on wsMarketData for @bookTicker streams.
+// old and new are plain symbol names (e.g. "BTCUSDT"); stream names are built here.
+func (a *App) updateBookTickerSubscriptions(ctx context.Context, old, new []string) {
+	if a.wsMarketData == nil {
+		return
+	}
+	oldSet := make(map[string]bool, len(old))
+	for _, s := range old {
+		oldSet[s] = true
+	}
+	newSet := make(map[string]bool, len(new))
+	for _, s := range new {
+		newSet[s] = true
+	}
+	var toSub, toUnsub []string
+	for sym := range newSet {
+		if !oldSet[sym] {
+			toSub = append(toSub, strings.ToLower(sym)+"@bookTicker")
+		}
+	}
+	for sym := range oldSet {
+		if !newSet[sym] {
+			toUnsub = append(toUnsub, strings.ToLower(sym)+"@bookTicker")
+		}
+	}
+	if len(toUnsub) > 0 {
+		if err := a.wsMarketData.Unsubscribe(ctx, toUnsub); err != nil {
+			slog.Warn("failed to unsubscribe bookTicker streams", "error", err)
+		}
+	}
+	if len(toSub) > 0 {
+		if err := a.wsMarketData.Subscribe(ctx, toSub); err != nil {
+			slog.Warn("failed to subscribe bookTicker streams", "error", err)
+		}
+	}
+}
+
 // recent history from the REST API. Failure is non-fatal — indicators degrade
 // gracefully and the WS stream fills in data going forward.
 func (a *App) backfillCandles(ctx context.Context, symbols []string, existing map[string]bool) {
