@@ -29,7 +29,7 @@ func NewBinanceClient(apiKey, apiSecret, baseURL string) *BinanceClient {
 		apiKey:    apiKey,
 		apiSecret: apiSecret,
 		baseURL:   baseURL,
-		http:      &http.Client{Timeout: 10 * time.Second},
+		http:      &http.Client{Timeout: 30 * time.Second},
 	}
 }
 
