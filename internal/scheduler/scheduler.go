@@ -73,7 +73,7 @@ func (s *Scheduler) tick(ctx context.Context) {
 		return
 	}
 
-	// Stop scanning for new candidates from T-3m to settlement.
+	// Stop scanning for new candidates from T-30s to settlement.
 	// Intent firing above continues uninterrupted during this window.
 	next := NextFundingTime(time.Now().UTC())
 	if until := next.Sub(time.Now().UTC()); until > 0 && until <= 30*time.Second {

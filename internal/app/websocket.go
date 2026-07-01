@@ -61,7 +61,7 @@ func (a *App) updateKlineSubscriptions(ctx context.Context, old, new []string) {
 // minimal subscribe/unsubscribe calls on wsMarketData for @bookTicker streams.
 // old and new are plain symbol names (e.g. "BTCUSDT"); stream names are built here.
 func (a *App) updateBookTickerSubscriptions(ctx context.Context, old, new []string) {
-	if a.wsMarketData == nil {
+	if a.wsPublicData == nil {
 		return
 	}
 	oldSet := make(map[string]bool, len(old))
@@ -84,12 +84,12 @@ func (a *App) updateBookTickerSubscriptions(ctx context.Context, old, new []stri
 		}
 	}
 	if len(toUnsub) > 0 {
-		if err := a.wsMarketData.Unsubscribe(ctx, toUnsub); err != nil {
+		if err := a.wsPublicData.Unsubscribe(ctx, toUnsub); err != nil {
 			slog.Warn("failed to unsubscribe bookTicker streams", "error", err)
 		}
 	}
 	if len(toSub) > 0 {
-		if err := a.wsMarketData.Subscribe(ctx, toSub); err != nil {
+		if err := a.wsPublicData.Subscribe(ctx, toSub); err != nil {
 			slog.Warn("failed to subscribe bookTicker streams", "error", err)
 		}
 	}
