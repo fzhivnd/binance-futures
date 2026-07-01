@@ -54,3 +54,12 @@ func (c *BookTickerCache) BidDepthUSDT(symbol string) (float64, bool) {
 	}
 	return bt.BidQty * bt.BidPrice, true
 }
+
+// AskDepthUSDT returns bestAskQty * bestAskPrice, or false if not available.
+func (c *BookTickerCache) AskDepthUSDT(symbol string) (float64, bool) {
+	bt, ok := c.Get(symbol)
+	if !ok || bt.AskPrice == 0 {
+		return 0, false
+	}
+	return bt.AskQty * bt.AskPrice, true
+}

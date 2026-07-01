@@ -40,6 +40,10 @@ type StateCache interface {
 	// Daily loss counter (resets at midnight UTC via TTL)
 	GetDailyLossCount(ctx context.Context) (int, error)
 	IncrDailyLossCount(ctx context.Context) error
+
+	// Account balance cache (2-min TTL) — shared across scan and execution.
+	GetCachedBalance(ctx context.Context) (*domain.Balance, error)
+	SetCachedBalance(ctx context.Context, b *domain.Balance) error
 }
 
 type TradeRepository interface {

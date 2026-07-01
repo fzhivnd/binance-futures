@@ -159,7 +159,7 @@ Risk:
 
 ### FRONTRUN
 
-Enter immediately.
+Enter immediately around T-20m until T-5m before settlement.
 
 Requirements:
 - Clear reversal already visible.
@@ -172,35 +172,36 @@ Risk: Highest squeeze exposure.
 
 ### LAST_MINUTE
 
-Queue entry before settlement.
+Queue entry before settlement and will be executed around T-4m before settlement.
 
 Requirements:
 - Reversal setup developing.
 - Confirmation incomplete.
 - Some squeeze risk remains.
 
-Note: Never open short symbols with funding < -1% with LAST_MINUTE mode
-
 Risk: May pay funding.
+
+Note: Never entry a position on symbols with funding < -1% in LAST_MINUTE mode
 
 ### AFTER
 
-Queue entry after settlement.
+Queue entry after settlement and will be executed around T+0m.
 
 Preferred when ANY condition exists:
 - Funding < -1%
 - ATRRatio > 2.5 and reversal is unclear
-- BTC strength remains high
 - OI still expanding aggressively
+- BTC strength remains high
 - No meaningful bearish confirmation
-= Elevated squeeze risk
-- Avoid when OI already unloading hard
+- Elevated squeeze risk
 
 Use AFTER when: The symbol looks attractive, but the pre-settlement timing is poor.
 
 Advantages:
-= Avoids funding payment.
-= Avoids pre-settlement squeeze.
+- Avoids funding payment.
+- Avoids pre-settlement squeeze.
+
+Note: Avoid entry in AFTER mode when OI already unloading hard
 
 ## EVALUATION FRAMEWORK
 

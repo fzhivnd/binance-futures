@@ -188,3 +188,17 @@ func (i *InstrumentedStateCache) IncrDailyLossCount(ctx context.Context) error {
 	record("StateCache.IncrDailyLossCount", time.Since(start), err)
 	return err
 }
+
+func (i *InstrumentedStateCache) GetCachedBalance(ctx context.Context) (*domain.Balance, error) {
+	start := time.Now()
+	res, err := i.inner.GetCachedBalance(ctx)
+	record("StateCache.GetCachedBalance", time.Since(start), err, "found", res != nil)
+	return res, err
+}
+
+func (i *InstrumentedStateCache) SetCachedBalance(ctx context.Context, b *domain.Balance) error {
+	start := time.Now()
+	err := i.inner.SetCachedBalance(ctx, b)
+	record("StateCache.SetCachedBalance", time.Since(start), err)
+	return err
+}
