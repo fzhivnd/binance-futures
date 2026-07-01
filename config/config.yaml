@@ -56,7 +56,7 @@ database:
 
 scoring:
   min_score: 40.0
-  min_score_override: 15.0
+  min_score_override: 20.0
   # weights, thresholds, filtering, trading, funding, execution params → managed via scoring config in DB
 
 
@@ -88,7 +88,7 @@ memory:
   enabled: true
   embedding_model: "text-embedding-3-small"
   embedding_dimensions: 1536
-  top_similar: 3
+  top_similar: 5
   min_similarity: 0.4
   embed_skips: true
   max_memory_age: "90d"
@@ -113,4 +113,4 @@ order_book_filter:
   enabled: true
   max_spread_bps: 10.0  # exclude if spread > 0.10%
   depth_ratio_n: 30.0   # ask wall between entry and SL must be >= 30× position notional
-  depth_levels: 200      # order book levels to fetch per symbol
+  depth_levels: 50      # order book levels to fetch per symbol
