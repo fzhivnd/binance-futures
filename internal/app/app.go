@@ -52,7 +52,7 @@ type App struct {
 	posMgr          *execution.PositionManager
 	sched           *scheduler.Scheduler
 	wsMarkPx        *exchange.WSConnection
-	wsKlines        *exchange.WSConnection
+	wsMarketData    *exchange.WSConnection
 	wsUserData      *exchange.WSConnection
 	indEngine       *indicator.Engine
 	scorer          *scoring.Scorer
@@ -233,16 +233,16 @@ func (a *App) Run(
 		killSwitchFn,
 	)
 
-	klineURL := a.cfg.Binance.WsURL + "/market/stream"
-	a.wsKlines = exchange.NewWSConnection(
-		klineURL,
+	marketUrl := a.cfg.Binance.WsURL + "/market/stream"
+	a.wsMarketData = exchange.NewWSConnection(
+		marketUrl,
 		router.Handle,
-		10*time.Minute, // kline stream starts empty — long stale timeout until symbols are subscribed
+		10*time.Minute, // market data stream starts empty — long stale timeout until symbols are subscribed
 		wsCfg.GetPingInterval(),
 		wsCfg.GetReconnectBaseBackoff(),
 		wsCfg.GetReconnectMaxBackoff(),
 		wsCfg.MaxReconnectFailures,
-		nil, // kline stream is non-critical — don't trigger kill switch on failure
+		nil, // market data stream is non-critical — don't trigger kill switch on failure
 	)
 
 	var listenKey string
@@ -343,7 +343,7 @@ func (a *App) Run(
 		a.intentQueue,
 		afterStrategy,
 		a.bookTickerCache,
-		a.wsKlines, // subscribe @bookTicker on the combined stream
+		a.wsMarketData, // subscribe @bookTicker on the combined stream
 		a.binanceClient,
 		a.engine,
 		a.executor,
@@ -371,11 +371,12 @@ func (a *App) Run(
 	}
 
 	go a.wsMarkPx.Run(ctx)
-	go a.wsKlines.Run(ctx)
+	go a.wsMarketData.Run(ctx)
 	go a.posMgr.Run(ctx)
 	go a.sched.Run(ctx)
 	go a.oiPoller(ctx, binanceClient)
 	go a.klineSubscriber(ctx)
+	go a.bookTickerSubscriber(ctx)
 	go a.fundingIntervalRefresher(ctx, binanceClient)
 	if a.cfg.Memory.Enabled {
 		go a.startSkipValidator(ctx)
