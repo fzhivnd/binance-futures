@@ -26,6 +26,7 @@ type Config struct {
 	AfterExecution   AfterExecConfig        `yaml:"after_execution"`
 	PreSettlement    PreSettlementConfig    `yaml:"pre_settlement"`
 	FundingAvoidance FundingAvoidanceConfig `yaml:"funding_avoidance"`
+	OrderBookFilter  OrderBookFilterConfig  `yaml:"order_book_filter"`
 }
 
 // AfterExecConfig controls the Phase 8 AfterTrigger and bid-depth sizing.
@@ -51,6 +52,20 @@ type PreSettlementConfig struct {
 type FundingAvoidanceConfig struct {
 	Enabled            bool `yaml:"enabled"`
 	CloseBeforeMinutes int  `yaml:"close_before_minutes"` // close all positions at T-Xm (default 30)
+}
+
+// OrderBookFilterConfig controls the pre-scan thin-book guard.
+// Flow: spread pre-filter (free, bookTicker WS) → ask liquidity check (REST depth, only for spread-passing symbols).
+// A candidate is excluded if:
+//   - spread_bps > MaxSpreadBps, OR
+//   - sum of ask USDT between entry and entry×(1+SlPct/100) < DepthRatioN × position_notional
+//
+// position_notional = min(balance × sizePct/100, 500) × leverage
+type OrderBookFilterConfig struct {
+	Enabled      bool    `yaml:"enabled"`
+	MaxSpreadBps float64 `yaml:"max_spread_bps"` // e.g. 10 = 0.10%
+	DepthRatioN  float64 `yaml:"depth_ratio_n"`  // e.g. 30 = ask wall must be 30× position notional
+	DepthLevels  int     `yaml:"depth_levels"`   // order book levels to fetch (default 50)
 }
 
 type TelegramConfig struct {
@@ -406,6 +421,20 @@ func setDefaults(cfg *Config) {
 
 	if !cfg.FundingAvoidance.Enabled {
 		cfg.FundingAvoidance.Enabled = true
+	}
+
+	// OrderBookFilter defaults
+	if !cfg.OrderBookFilter.Enabled {
+		cfg.OrderBookFilter.Enabled = true
+	}
+	if cfg.OrderBookFilter.MaxSpreadBps == 0 {
+		cfg.OrderBookFilter.MaxSpreadBps = 10.0
+	}
+	if cfg.OrderBookFilter.DepthRatioN == 0 {
+		cfg.OrderBookFilter.DepthRatioN = 30.0
+	}
+	if cfg.OrderBookFilter.DepthLevels == 0 {
+		cfg.OrderBookFilter.DepthLevels = 50
 	}
 
 	// Phase 6: Telegram defaults

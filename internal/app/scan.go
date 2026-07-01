@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"futures/internal/domain"
+	"futures/internal/exchange"
 	"futures/internal/intent"
 	"futures/internal/scanner"
 	"futures/internal/scheduler"
@@ -42,9 +43,6 @@ func (a *App) filterCooldownSymbols(ctx context.Context, candidates []domain.Can
 	return out
 }
 
-// filterOccupiedSymbols removes candidates whose symbol either has an active
-// position or already has a pending intent in the queue, so the LLM never sees
-// a symbol we are already committed to.
 func (a *App) filterOccupiedSymbols(ctx context.Context, candidates []domain.Candidate) []domain.Candidate {
 	activeSymbols, err := a.riskEngine.ActiveSymbols(ctx)
 	if err != nil {
@@ -65,6 +63,110 @@ func (a *App) filterOccupiedSymbols(ctx context.Context, candidates []domain.Can
 		out = append(out, c)
 	}
 	return out
+}
+
+// filterThinOrderBook excludes candidates whose order book cannot absorb a
+// SL-hunting sweep cheaply. Two-stage to minimise API calls:
+//
+//  1. Spread pre-filter (bookTickerCache, zero cost) — wide spread = thin book, skip immediately.
+//  2. Ask liquidity check (REST /fapi/v1/depth, only for spread-passing symbols) — sum USDT value
+//     of all ask levels between entry and SL price; exclude if below DepthRatioN × notional.
+//
+// position_notional = min(balance × sizePct/100, 500) × leverage
+// SL price = entry × (1 + SlPct/100). Entry price is taken from candidate.MarkPrice.
+// Balance is read from the Redis cache (2-min TTL); if unavailable the filter is skipped.
+func (a *App) filterThinOrderBook(ctx context.Context, candidates []domain.Candidate) []domain.Candidate {
+	cfg := a.cfg.OrderBookFilter
+	if !cfg.Enabled {
+		return candidates
+	}
+	if a.bookTickerCache == nil {
+		return candidates
+	}
+
+	balance, err := a.cache.GetCachedBalance(ctx)
+	if err != nil {
+		slog.Warn("order book filter: balance cache error, skipping filter", "error", err)
+		return candidates
+	}
+	if balance == nil {
+		balance, err = a.executor.GetAccountBalance(ctx)
+		if err != nil {
+			slog.Warn("order book filter: could not fetch balance, skipping filter", "error", err)
+			return candidates
+		}
+		if setErr := a.cache.SetCachedBalance(ctx, balance); setErr != nil {
+			slog.Warn("order book filter: failed to cache balance", "error", setErr)
+		}
+	}
+
+	sizePct := a.cfg.Trading.PositionSizePct
+	margin := math.Min(balance.TotalBalance*sizePct/100, 500)
+	notional := margin * float64(a.cfg.Trading.Leverage)
+	minAskLiquidity := cfg.DepthRatioN * notional
+	slPct := a.cfg.Execution.SlPct
+
+	out := candidates[:0]
+	for _, c := range candidates {
+		// Stage 1: spread pre-filter from WS cache — free.
+		spreadBps, spreadOk := a.bookTickerCache.SpreadBps(c.Symbol)
+		if !spreadOk {
+			slog.Info("candidate excluded: no book ticker data", "symbol", c.Symbol)
+			continue
+		}
+		if spreadBps > cfg.MaxSpreadBps {
+			slog.Info("candidate excluded: spread too wide",
+				"symbol", c.Symbol,
+				"spread_bps", spreadBps,
+				"max_spread_bps", cfg.MaxSpreadBps,
+			)
+			continue
+		}
+
+		// Stage 2: ask liquidity between entry and SL price via REST depth.
+		slPrice := c.MarkPrice * (1 + slPct/100)
+		liq, err := askLiquidityToSL(ctx, a.binanceClient, c.Symbol, slPrice, cfg.DepthLevels)
+		if err != nil {
+			slog.Warn("candidate excluded: depth fetch failed",
+				"symbol", c.Symbol, "error", err)
+			continue
+		}
+		if liq < minAskLiquidity {
+			slog.Info("candidate excluded: ask liquidity too thin",
+				"symbol", c.Symbol,
+				"ask_liquidity_usdt", liq,
+				"min_ask_liquidity_usdt", minAskLiquidity,
+				"notional_usdt", notional,
+				"depth_ratio_n", cfg.DepthRatioN,
+			)
+			continue
+		}
+
+		slog.Info("candidate passed order book filter",
+			"symbol", c.Symbol,
+			"spread_bps", spreadBps,
+			"ask_liquidity_usdt", liq,
+			"min_ask_liquidity_usdt", minAskLiquidity,
+		)
+		out = append(out, c)
+	}
+	return out
+}
+
+// askLiquidityToSL sums the USDT value of all ask levels up to slPrice.
+func askLiquidityToSL(ctx context.Context, client *exchange.BinanceClient, symbol string, slPrice float64, levels int) (float64, error) {
+	depth, err := client.GetDepth(ctx, symbol, levels)
+	if err != nil {
+		return 0, err
+	}
+	var total float64
+	for _, level := range depth.Asks {
+		if level.Price > slPrice {
+			break
+		}
+		total += level.Price * level.Qty
+	}
+	return total, nil
 }
 
 func (a *App) scanFn(ctx context.Context, window scheduler.WindowType) error {
@@ -127,6 +229,12 @@ func (a *App) scanFn(ctx context.Context, window scheduler.WindowType) error {
 	candidates = scanner.FilterByVolume(candidates, a.filteringMinVolume())
 	if len(candidates) == 0 {
 		slog.Info("no candidates after volume filter", "window", window)
+		return nil
+	}
+
+	candidates = a.filterThinOrderBook(ctx, candidates)
+	if len(candidates) == 0 {
+		slog.Info("no candidates after order book filter", "window", window)
 		return nil
 	}
 

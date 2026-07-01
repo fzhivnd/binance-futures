@@ -509,6 +509,44 @@ func (c *BinanceClient) GetAccount(ctx context.Context) (*AccountResponse, error
 	return &resp, nil
 }
 
+// GetDepth fetches the order book for symbol up to `limit` levels (5/10/20/50/100/500/1000).
+// Returns parsed bid and ask levels.
+func (c *BinanceClient) GetDepth(ctx context.Context, symbol string, limit int) (*DepthResponse, error) {
+	params := url.Values{}
+	params.Set("symbol", symbol)
+	params.Set("limit", strconv.Itoa(limit))
+	body, err := c.get(ctx, "/fapi/v1/depth", params, false)
+	if err != nil {
+		return nil, err
+	}
+	var raw struct {
+		Bids [][]string `json:"bids"`
+		Asks [][]string `json:"asks"`
+	}
+	if err := json.Unmarshal(body, &raw); err != nil {
+		return nil, fmt.Errorf("parse depth: %w", err)
+	}
+	parse := func(rows [][]string) []PriceLevel {
+		out := make([]PriceLevel, 0, len(rows))
+		for _, row := range rows {
+			if len(row) < 2 {
+				continue
+			}
+			price, err1 := strconv.ParseFloat(row[0], 64)
+			qty, err2 := strconv.ParseFloat(row[1], 64)
+			if err1 != nil || err2 != nil {
+				continue
+			}
+			out = append(out, PriceLevel{Price: price, Qty: qty})
+		}
+		return out
+	}
+	return &DepthResponse{
+		Bids: parse(raw.Bids),
+		Asks: parse(raw.Asks),
+	}, nil
+}
+
 // GetServerTime returns the Binance server time (UTC).
 func (c *BinanceClient) GetServerTime(ctx context.Context) (time.Time, error) {
 	body, err := c.get(ctx, "/fapi/v1/time", nil, false)

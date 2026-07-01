@@ -23,6 +23,8 @@ const (
 	keyPendingEntryPrefix = "pending_entry:"
 	keyPendingProtPrefix  = "pending_prot:"
 	keyDailyLossPrefix    = "risk:daily_losses:"
+	keyAccountBalance     = "account:balance"
+	balanceCacheTTL       = 2 * time.Minute
 )
 
 type RedisStateCache struct {
@@ -292,4 +294,27 @@ func (r *RedisStateCache) IncrDailyLossCount(ctx context.Context) error {
 	pipe.Expire(ctx, key, 26*time.Hour)
 	_, err := pipe.Exec(ctx)
 	return err
+}
+
+func (r *RedisStateCache) GetCachedBalance(ctx context.Context) (*domain.Balance, error) {
+	val, err := r.client.Get(ctx, keyAccountBalance).Result()
+	if errors.Is(err, redis.Nil) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var b domain.Balance
+	if err := json.Unmarshal([]byte(val), &b); err != nil {
+		return nil, err
+	}
+	return &b, nil
+}
+
+func (r *RedisStateCache) SetCachedBalance(ctx context.Context, b *domain.Balance) error {
+	data, err := json.Marshal(b)
+	if err != nil {
+		return err
+	}
+	return r.client.Set(ctx, keyAccountBalance, data, balanceCacheTTL).Err()
 }

@@ -189,6 +189,18 @@ type BookTickerEvent struct {
 	UpdateTime int64  `json:"T"`
 }
 
+// PriceLevel is one row from the order book depth response.
+type PriceLevel struct {
+	Price float64
+	Qty   float64
+}
+
+// DepthResponse from GET /fapi/v1/depth.
+type DepthResponse struct {
+	Bids []PriceLevel
+	Asks []PriceLevel
+}
+
 // UserDataEvent wraps ORDER_TRADE_UPDATE from the user data stream.
 type UserDataEvent struct {
 	EventType string           `json:"e"`

@@ -141,9 +141,15 @@ func (e *ExecutionEngine) execute(
 	}
 
 	// Commented for testing purposes
-	balance, err := e.executor.GetAccountBalance(ctx)
-	if err != nil {
-		return fmt.Errorf("get balance: %w", err)
+	balance, err := e.cache.GetCachedBalance(ctx)
+	if err != nil || balance == nil {
+		balance, err = e.executor.GetAccountBalance(ctx)
+		if err != nil {
+			return fmt.Errorf("get balance: %w", err)
+		}
+		if setErr := e.cache.SetCachedBalance(ctx, balance); setErr != nil {
+			slog.Warn("failed to cache account balance", "error", setErr)
+		}
 	}
 
 	sizePct := sc.PositionSizePct
