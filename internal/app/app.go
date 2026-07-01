@@ -53,6 +53,7 @@ type App struct {
 	sched           *scheduler.Scheduler
 	wsMarkPx        *exchange.WSConnection
 	wsMarketData    *exchange.WSConnection
+	wsPublicData    *exchange.WSConnection
 	wsUserData      *exchange.WSConnection
 	indEngine       *indicator.Engine
 	scorer          *scoring.Scorer
@@ -245,6 +246,18 @@ func (a *App) Run(
 		nil, // market data stream is non-critical — don't trigger kill switch on failure
 	)
 
+	publicUrl := a.cfg.Binance.WsURL + "/public/stream"
+	a.wsPublicData = exchange.NewWSConnection(
+		publicUrl,
+		router.Handle,
+		10*time.Minute,
+		wsCfg.GetPingInterval(),
+		wsCfg.GetReconnectBaseBackoff(),
+		wsCfg.GetReconnectMaxBackoff(),
+		wsCfg.MaxReconnectFailures,
+		nil,
+	)
+
 	var listenKey string
 	if a.cfg.App.Mode == "live" {
 		listenKey, err = binanceClient.CreateListenKey(ctx)
@@ -343,7 +356,7 @@ func (a *App) Run(
 		a.intentQueue,
 		afterStrategy,
 		a.bookTickerCache,
-		a.wsMarketData, // subscribe @bookTicker on the combined stream
+		a.wsPublicData, // subscribe @bookTicker on the public stream
 		a.binanceClient,
 		a.engine,
 		a.executor,
@@ -372,6 +385,7 @@ func (a *App) Run(
 
 	go a.wsMarkPx.Run(ctx)
 	go a.wsMarketData.Run(ctx)
+	go a.wsPublicData.Run(ctx)
 	go a.posMgr.Run(ctx)
 	go a.sched.Run(ctx)
 	go a.oiPoller(ctx, binanceClient)

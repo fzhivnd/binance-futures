@@ -154,6 +154,8 @@ func (a *App) filterThinOrderBook(ctx context.Context, candidates []domain.Candi
 }
 
 // askLiquidityToSL sums the USDT value of all ask levels up to slPrice.
+// It logs a warning when the returned levels are exhausted before reaching slPrice,
+// meaning depth_levels may be too low to capture all liquidity in the SL range.
 func askLiquidityToSL(ctx context.Context, client *exchange.BinanceClient, symbol string, slPrice float64, levels int) (float64, error) {
 	depth, err := client.GetDepth(ctx, symbol, levels)
 	if err != nil {
@@ -165,6 +167,15 @@ func askLiquidityToSL(ctx context.Context, client *exchange.BinanceClient, symbo
 			break
 		}
 		total += level.Price * level.Qty
+	}
+	asks := depth.Asks
+	if len(asks) == levels && len(asks) > 0 && asks[len(asks)-1].Price < slPrice {
+		slog.Warn("depth coverage incomplete: all levels below SL price, consider raising depth_levels",
+			"symbol", symbol,
+			"depth_levels", levels,
+			"last_ask_price", asks[len(asks)-1].Price,
+			"sl_price", slPrice,
+		)
 	}
 	return total, nil
 }
