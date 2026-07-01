@@ -113,4 +113,4 @@ order_book_filter:
   enabled: true
   max_spread_bps: 10.0  # exclude if spread > 0.10%
   depth_ratio_n: 30.0   # ask wall between entry and SL must be >= 30× position notional
-  depth_levels: 200      # order book levels to fetch per symbol
+  depth_levels: 50      # order book levels to fetch per symbol
