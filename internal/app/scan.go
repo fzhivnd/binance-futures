@@ -266,18 +266,6 @@ func (a *App) scanFn(ctx context.Context, window scheduler.WindowType) error {
 	//	return nil
 	//}
 
-	candidates = scanner.FilterByVolume(candidates, a.filteringMinVolume())
-	if len(candidates) == 0 {
-		slog.Info("no candidates after volume filter", "window", window)
-		return nil
-	}
-
-	candidates = a.filterThinOrderBook(ctx, candidates)
-	if len(candidates) == 0 {
-		slog.Info("no candidates after order book filter", "window", window)
-		return nil
-	}
-
 	candidates = a.filterOccupiedSymbols(ctx, candidates)
 	if len(candidates) == 0 {
 		slog.Info("no candidates after occupied-symbol filter", "window", window)
@@ -287,6 +275,18 @@ func (a *App) scanFn(ctx context.Context, window scheduler.WindowType) error {
 	candidates = a.filterCooldownSymbols(ctx, candidates)
 	if len(candidates) == 0 {
 		slog.Info("no candidates after LLM cooldown filter", "window", window)
+		return nil
+	}
+
+	candidates = scanner.FilterByVolume(candidates, a.filteringMinVolume())
+	if len(candidates) == 0 {
+		slog.Info("no candidates after volume filter", "window", window)
+		return nil
+	}
+
+	candidates = a.filterThinOrderBook(ctx, candidates)
+	if len(candidates) == 0 {
+		slog.Info("no candidates after order book filter", "window", window)
 		return nil
 	}
 
