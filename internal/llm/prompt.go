@@ -201,6 +201,9 @@ Advantages:
 - Avoids funding payment.
 - Avoids pre-settlement squeeze.
 
+TIMING CONSTRAINT: AFTER mode is only valid when minutes to settlement ≤ 6.
+If minutes to settlement > 6, do NOT select AFTER — the setup will be stale by T+0 and price action is likely to have changed materially. Use FRONTRUN, LAST_MINUTE, or SKIP instead.
+
 Note: Avoid entry in AFTER mode when OI already unloading hard
 
 ## EVALUATION FRAMEWORK
@@ -362,7 +365,11 @@ func (p *PromptBuilder) UserMessage(req *LLMRequest) string {
 	sb.WriteString("Available entry modes for this evaluation:\n")
 	sb.WriteString("  FRONTRUN   — enter now, before settlement. Requires clear reversal signals already visible.\n")
 	sb.WriteString("  LAST_MINUTE — enter close to settlement. Use when setup is building but not yet confirmed.\n")
-	sb.WriteString("  AFTER      — queue for post-settlement entry. Use when signals are unclear, squeeze risk is elevated, or ATR is very high.\n")
+	if req.MinutesToSettlement <= 6 {
+		sb.WriteString("  AFTER      — queue for post-settlement entry. Use when signals are unclear, squeeze risk is elevated, or ATR is very high.\n")
+	} else {
+		sb.WriteString(fmt.Sprintf("  AFTER      — NOT AVAILABLE (minutes to settlement = %d > 6; setup would be stale by T+0). Do not select AFTER.\n", req.MinutesToSettlement))
+	}
 	sb.WriteString("  SKIP       — no trade this cycle.\n")
 	sb.WriteString("Pick the mode that best fits the setup quality. Do not anchor to the current time window.\n\n")
 

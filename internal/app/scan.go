@@ -151,6 +151,7 @@ func (a *App) filterThinOrderBook(ctx context.Context, candidates []domain.Candi
 			continue
 		}
 
+		// TODO: REMOVE AFTER VERIFIED
 		slog.Info("candidate passed order book filter",
 			"symbol", c.Symbol,
 			"spread_bps", spreadBps,
@@ -220,6 +221,17 @@ func (a *App) scanFn(ctx context.Context, window scheduler.WindowType) error {
 	currentDeadline := scheduler.NextFundingTime(time.Now().UTC())
 	if window == scheduler.WindowFrontrun && a.lastLLMCall != nil && !a.lastLLMCall.cycleDeadline.Equal(currentDeadline) {
 		a.lastLLMCall = nil
+	}
+
+	// Early cooldown gate: if the last LLM call is still within cooldown, skip
+	// the entire scan to avoid unnecessary scanning, scoring, and memory retrieval.
+	cooldown := time.Duration(a.cfg.LLM.CallCooldownSecs) * time.Second
+	if lc := a.lastLLMCall; lc != nil && time.Since(lc.calledAt) < cooldown {
+		slog.Info("skipping scan: LLM call in cooldown",
+			"age", time.Since(lc.calledAt).Round(time.Second),
+			"cooldown", cooldown,
+		)
+		return nil
 	}
 
 	// In the AFTER window, skip a fresh scan if the intent queue already has an
@@ -399,18 +411,14 @@ func (a *App) scanFn(ctx context.Context, window scheduler.WindowType) error {
 	if btc != nil {
 		btcTrend = btc.Trend
 	}
-	cooldown := time.Duration(a.cfg.LLM.CallCooldownSecs) * time.Second
 	if lc := a.lastLLMCall; lc != nil {
-		withinCooldown := time.Since(lc.calledAt) < cooldown
 		inputsUnchanged := lc.window == window &&
 			math.Abs(lc.score-top[0].CompositeScore) < 0.5 &&
 			lc.btcTrend == btcTrend
-		if withinCooldown || inputsUnchanged {
-			slog.Info("skipping LLM call: inputs unchanged or in cooldown",
+		if inputsUnchanged {
+			slog.Info("skipping LLM call: inputs unchanged",
 				"symbol", top[0].Candidate.Symbol,
 				"age", time.Since(lc.calledAt).Round(time.Second),
-				"within_cooldown", withinCooldown,
-				"inputs_unchanged", inputsUnchanged,
 			)
 			return nil
 		}
