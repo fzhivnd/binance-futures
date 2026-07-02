@@ -547,6 +547,42 @@ func (c *BinanceClient) GetDepth(ctx context.Context, symbol string, limit int) 
 	}, nil
 }
 
+// BookTickerPrices holds the parsed best bid/ask prices and quantities.
+type BookTickerPrices struct {
+	BidPrice float64
+	BidQty   float64
+	AskPrice float64
+	AskQty   float64
+}
+
+// GetBookTicker fetches the current best bid/ask for a symbol via REST.
+// Use as a fallback when the @bookTicker WS stream has no cached data.
+func (c *BinanceClient) GetBookTicker(ctx context.Context, symbol string) (*BookTickerPrices, error) {
+	params := url.Values{}
+	params.Set("symbol", symbol)
+	body, err := c.get(ctx, "/fapi/v1/ticker/bookTicker", params, false)
+	if err != nil {
+		return nil, err
+	}
+	var raw struct {
+		BidPrice string `json:"bidPrice"`
+		BidQty   string `json:"bidQty"`
+		AskPrice string `json:"askPrice"`
+		AskQty   string `json:"askQty"`
+	}
+	if err := json.Unmarshal(body, &raw); err != nil {
+		return nil, fmt.Errorf("parse bookTicker: %w", err)
+	}
+	bid, err1 := strconv.ParseFloat(raw.BidPrice, 64)
+	bidQty, err2 := strconv.ParseFloat(raw.BidQty, 64)
+	ask, err3 := strconv.ParseFloat(raw.AskPrice, 64)
+	askQty, err4 := strconv.ParseFloat(raw.AskQty, 64)
+	if err1 != nil || err2 != nil || err3 != nil || err4 != nil {
+		return nil, fmt.Errorf("parse bookTicker prices: bid=%v ask=%v", err1, err3)
+	}
+	return &BookTickerPrices{BidPrice: bid, BidQty: bidQty, AskPrice: ask, AskQty: askQty}, nil
+}
+
 // GetServerTime returns the Binance server time (UTC).
 func (c *BinanceClient) GetServerTime(ctx context.Context) (time.Time, error) {
 	body, err := c.get(ctx, "/fapi/v1/time", nil, false)

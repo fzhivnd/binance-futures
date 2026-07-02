@@ -58,11 +58,14 @@ func (w *WSConnection) Run(ctx context.Context) {
 			slog.Warn("ws connect failed", "error", err)
 			w.failures++
 			if w.failures >= w.maxFailures {
-				slog.Error("ws max failures reached, activating kill switch", "url", w.url)
 				if w.onKillSwitch != nil {
+					slog.Error("ws max failures reached, activating kill switch", "url", w.url)
 					w.onKillSwitch()
+					return
 				}
-				return
+				// Non-critical stream: reset and keep retrying rather than silently dying.
+				slog.Error("ws max failures reached, resetting and retrying", "url", w.url, "failures", w.failures)
+				w.failures = 0
 			}
 			backoff := w.calcBackoff()
 			slog.Warn("ws reconnecting", "attempt", w.failures, "backoff", backoff)
@@ -93,6 +96,9 @@ func (w *WSConnection) connect(ctx context.Context) error {
 
 	if len(subs) > 0 {
 		if err := w.sendSubscribe(ctx, subs); err != nil {
+			w.mu.Lock()
+			w.conn = nil
+			w.mu.Unlock()
 			conn.Close(websocket.StatusNormalClosure, "")
 			return fmt.Errorf("resubscribe: %w", err)
 		}
