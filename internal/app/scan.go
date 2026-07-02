@@ -11,6 +11,7 @@ import (
 	"futures/internal/domain"
 	"futures/internal/exchange"
 	"futures/internal/intent"
+	"futures/internal/market"
 	"futures/internal/scanner"
 	"futures/internal/scheduler"
 )
@@ -111,6 +112,14 @@ func (a *App) filterThinOrderBook(ctx context.Context, candidates []domain.Candi
 		// Stage 1: spread pre-filter from WS cache — free.
 		spreadBps, spreadOk := a.bookTickerCache.SpreadBps(c.Symbol)
 		if !spreadOk {
+			// WS cache miss: try a single REST call to seed the cache.
+			// This guards against wsPublicData being down or the symbol being newly added.
+			if bt := a.fetchBookTickerREST(ctx, c.Symbol); bt != nil {
+				a.bookTickerCache.Update(c.Symbol, bt)
+				spreadBps, spreadOk = a.bookTickerCache.SpreadBps(c.Symbol)
+			}
+		}
+		if !spreadOk {
 			slog.Info("candidate excluded: no book ticker data", "symbol", c.Symbol)
 			continue
 		}
@@ -178,6 +187,26 @@ func askLiquidityToSL(ctx context.Context, client *exchange.BinanceClient, symbo
 		)
 	}
 	return total, nil
+}
+
+func (a *App) fetchBookTickerREST(ctx context.Context, symbol string) *market.BookTicker {
+	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	prices, err := a.binanceClient.GetBookTicker(ctx, symbol)
+	if err != nil {
+		slog.Warn("book ticker REST fallback failed", "symbol", symbol, "error", err)
+		return nil
+	}
+	if prices.BidPrice == 0 || prices.AskPrice == 0 {
+		return nil
+	}
+	return &market.BookTicker{
+		BidPrice:  prices.BidPrice,
+		BidQty:    prices.BidQty,
+		AskPrice:  prices.AskPrice,
+		AskQty:    prices.AskQty,
+		UpdatedAt: time.Now(),
+	}
 }
 
 func (a *App) scanFn(ctx context.Context, window scheduler.WindowType) error {
