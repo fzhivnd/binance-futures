@@ -36,6 +36,10 @@ type llmCallState struct {
 	window        scheduler.WindowType
 	calledAt      time.Time
 	cycleDeadline time.Time
+	// Prior decision context carried into the next call within the same cycle.
+	priorAction   string
+	priorReasons  []string
+	priorWarnings []string
 }
 
 const (

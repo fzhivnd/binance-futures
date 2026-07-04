@@ -14,6 +14,7 @@ func MapToLLMRequest(
 	tpPct float64,
 	similarTrades map[string][]domain.SimilarTrade,
 	modeWinRates map[string]map[string]domain.ModeWinRate,
+	priorCtx *LLMPriorContext,
 ) *LLMRequest {
 	next := scheduler.NextFundingTime(time.Now().UTC())
 	minutesTo := int(math.Round(time.Until(next).Minutes()))
@@ -25,6 +26,7 @@ func MapToLLMRequest(
 		Timestamp:           time.Now().UTC().Unix(),
 		MinutesToSettlement: minutesTo,
 		Candidates:          make([]LLMCandidate, 0, len(candidates)),
+		PriorContext:        priorCtx,
 	}
 
 	if btc != nil {

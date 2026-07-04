@@ -32,8 +32,9 @@ func (e *DecisionEngine) Evaluate(
 	tpPct float64,
 	similarTrades map[string][]domain.SimilarTrade,
 	modeWinRates map[string]map[string]domain.ModeWinRate,
+	priorCtx *LLMPriorContext,
 ) (*domain.LLMDecision, error) {
-	req := MapToLLMRequest(candidates, btc, tpPct, similarTrades, modeWinRates)
+	req := MapToLLMRequest(candidates, btc, tpPct, similarTrades, modeWinRates, priorCtx)
 
 	systemPrompt := e.prompt.SystemPrompt()
 	userMessage := e.prompt.UserMessage(req)
