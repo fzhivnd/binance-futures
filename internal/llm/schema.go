@@ -39,10 +39,21 @@ type ForceSLResponse struct {
 }
 
 type LLMRequest struct {
-	Timestamp           int64          `json:"timestamp"`
-	MinutesToSettlement int            `json:"minutes_to_settlement"`
-	BTCContext          LLMBTCContext  `json:"btc_context"`
-	Candidates          []LLMCandidate `json:"candidates"`
+	Timestamp           int64            `json:"timestamp"`
+	MinutesToSettlement int              `json:"minutes_to_settlement"`
+	BTCContext          LLMBTCContext    `json:"btc_context"`
+	Candidates          []LLMCandidate   `json:"candidates"`
+	PriorContext        *LLMPriorContext `json:"prior_context,omitempty"`
+}
+
+// LLMPriorContext carries the reasoning from the previous LLM call in the same
+// funding cycle so the next call can assess whether conditions have changed.
+type LLMPriorContext struct {
+	Window   string   `json:"window"`
+	Action   string   `json:"action"`
+	Reasons  []string `json:"reasons"`
+	Warnings []string `json:"warnings"`
+	AgeMins  int      `json:"age_mins"`
 }
 
 type LLMSimilarTrade struct {

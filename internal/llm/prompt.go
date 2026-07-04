@@ -428,6 +428,25 @@ func (p *PromptBuilder) UserMessage(req *LLMRequest) string {
 		sb.WriteString("\n")
 	}
 
+	if req.PriorContext != nil {
+		pc := req.PriorContext
+		sb.WriteString("=== PRIOR EVALUATION THIS CYCLE ===\n")
+		sb.WriteString(fmt.Sprintf("Window: %s | Action: %s | Age: %d min ago\n", pc.Window, pc.Action, pc.AgeMins))
+		if len(pc.Reasons) > 0 {
+			sb.WriteString("Reasons given:\n")
+			for _, r := range pc.Reasons {
+				sb.WriteString(fmt.Sprintf("  - %s\n", r))
+			}
+		}
+		if len(pc.Warnings) > 0 {
+			sb.WriteString("Warnings noted:\n")
+			for _, w := range pc.Warnings {
+				sb.WriteString(fmt.Sprintf("  - %s\n", w))
+			}
+		}
+		sb.WriteString("Consider whether conditions have changed since this prior assessment.\n\n")
+	}
+
 	sb.WriteString("Evaluate these candidates and provide your trade decision.")
 	return sb.String()
 }

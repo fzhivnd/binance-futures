@@ -7,12 +7,10 @@ import (
 
 func confidenceToSize(confidence int, maxSizePct float64) float64 {
 	switch {
-	case confidence >= 90:
+	case confidence >= 75:
 		return maxSizePct
-	case confidence >= 80:
-		return 0.8 * maxSizePct
 	case confidence >= 70:
-		return maxSizePct
+		return 0.75 * maxSizePct
 	case confidence >= 65:
 		return 0.5 * maxSizePct
 	default:

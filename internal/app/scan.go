@@ -11,6 +11,7 @@ import (
 	"futures/internal/domain"
 	"futures/internal/exchange"
 	"futures/internal/intent"
+	"futures/internal/llm"
 	"futures/internal/market"
 	"futures/internal/scanner"
 	"futures/internal/scheduler"
@@ -24,6 +25,59 @@ func (a *App) setSymbolCooldown(ctx context.Context, symbol string, decision str
 	if err := a.cache.SetSymbolCooldown(ctx, symbol, cooldown); err != nil {
 		slog.Warn("failed to set symbol cooldown", "symbol", symbol, "error", err)
 	}
+}
+
+// skipCooldownUntilNextWindow returns a TTL that expires when the next scan
+// window opens so that skipped symbols are re-eligible from that window onwards.
+//
+//   - FRONTRUN skip  → expires when LAST_MINUTE starts (T-6m before settlement)
+//   - LAST_MINUTE skip → expires at settlement (AFTER window start)
+func skipCooldownUntilNextWindow(window scheduler.WindowType, now time.Time) time.Duration {
+	next := scheduler.NextFundingTime(now.UTC())
+	switch window {
+	case scheduler.WindowFrontrun:
+		d := time.Until(next.Add(-6 * time.Minute))
+		if d < time.Minute {
+			d = time.Minute
+		}
+		return d
+	case scheduler.WindowLastMinute:
+		d := time.Until(next)
+		if d < 30*time.Second {
+			d = 30 * time.Second
+		}
+		return d
+	default:
+		return symbolCooldownDurationLLM
+	}
+}
+
+// setAllSkipCooldowns puts all evaluated top candidates on cooldown until the
+// next scan window opens, preventing re-evaluation of the same bad setups.
+func (a *App) setAllSkipCooldowns(ctx context.Context, top []*domain.ScoredCandidate, window scheduler.WindowType) {
+	cooldown := skipCooldownUntilNextWindow(window, time.Now())
+	for _, sc := range top {
+		if err := a.cache.SetSymbolCooldown(ctx, sc.Candidate.Symbol, cooldown); err != nil {
+			slog.Warn("failed to set skip cooldown", "symbol", sc.Candidate.Symbol, "error", err)
+		}
+	}
+	slog.Info("skip cooldown applied to all evaluated candidates",
+		"count", len(top),
+		"window", window,
+		"cooldown", cooldown.Round(time.Second),
+	)
+}
+
+// buildPriorReasons extracts the rationale from a decision for prior-context
+// threading into the next LLM call within the same funding cycle.
+func buildPriorReasons(d *domain.LLMDecision) []string {
+	if d.Action == "SKIP" {
+		if d.SkipReason != "" {
+			return []string{d.SkipReason}
+		}
+		return nil
+	}
+	return d.EntryReasons
 }
 
 func (a *App) filterCooldownSymbols(ctx context.Context, candidates []domain.Candidate) []domain.Candidate {
@@ -210,11 +264,35 @@ func (a *App) fetchBookTickerREST(ctx context.Context, symbol string) *market.Bo
 	}
 }
 
+// isRestrictedDay returns true on days that historically underperform:
+// Mondays, and the first or last 3 calendar days of a month (UTC).
+func isRestrictedDay(t time.Time) bool {
+	t = t.UTC()
+	if t.Weekday() == time.Monday {
+		return true
+	}
+	day := t.Day()
+	if day <= 3 {
+		return true
+	}
+	lastDay := time.Date(t.Year(), t.Month()+1, 0, 0, 0, 0, 0, time.UTC).Day()
+	return day >= lastDay-2
+}
+
 func (a *App) scanFn(ctx context.Context, window scheduler.WindowType) error {
 	scanStart := time.Now()
 	defer func() {
 		slog.Info("scan completed", "window", window, "latency_ms", float64(time.Since(scanStart).Microseconds())/1000.0)
 	}()
+
+	if isRestrictedDay(time.Now()) {
+		now := time.Now().UTC()
+		slog.Info("skipping scan: restricted trading day",
+			"weekday", now.Weekday(),
+			"day_of_month", now.Day(),
+		)
+		return nil
+	}
 
 	// Reset LLM call state at the start of each new funding cycle so the
 	// deduplication check does not suppress calls across settlement boundaries.
@@ -457,8 +535,20 @@ func (a *App) scanFn(ctx context.Context, window scheduler.WindowType) error {
 		wg.Wait()
 	}
 
+	// Build prior context from the previous LLM call in this cycle.
+	var priorCtx *llm.LLMPriorContext
+	if lc := a.lastLLMCall; lc != nil && lc.cycleDeadline.Equal(currentDeadline) && lc.priorAction != "" {
+		priorCtx = &llm.LLMPriorContext{
+			Window:   string(lc.window),
+			Action:   lc.priorAction,
+			Reasons:  lc.priorReasons,
+			Warnings: lc.priorWarnings,
+			AgeMins:  int(time.Since(lc.calledAt).Minutes()),
+		}
+	}
+
 	llmStart := time.Now()
-	decision, err := a.llmEngine.Evaluate(ctx, top, btc, a.cfg.Execution.TpPct, similarTrades, modeWinRates)
+	decision, err := a.llmEngine.Evaluate(ctx, top, btc, a.cfg.Execution.TpPct, similarTrades, modeWinRates, priorCtx)
 	if err != nil {
 		slog.Error("LLM engine error", "error", err, "latency_ms", time.Since(llmStart).Milliseconds())
 		return nil
@@ -469,7 +559,6 @@ func (a *App) scanFn(ctx context.Context, window scheduler.WindowType) error {
 		"symbol", decision.Symbol,
 		"confidence", decision.Confidence,
 	)
-	a.setSymbolCooldown(ctx, decision.Symbol, decision.Action)
 	selectedScore := float64(0)
 	for _, t := range top {
 		if decision.Symbol == t.Candidate.Symbol {
@@ -483,6 +572,9 @@ func (a *App) scanFn(ctx context.Context, window scheduler.WindowType) error {
 		window:        window,
 		calledAt:      time.Now(),
 		cycleDeadline: currentDeadline,
+		priorAction:   decision.Action,
+		priorReasons:  buildPriorReasons(decision),
+		priorWarnings: decision.Warnings,
 	}
 
 	if decision.Action == "SKIP" {
@@ -490,6 +582,9 @@ func (a *App) scanFn(ctx context.Context, window scheduler.WindowType) error {
 			"reason", decision.SkipReason,
 			"queue_depth", a.intentQueue.PendingCount(),
 		)
+		// Cooldown every evaluated candidate until the next window opens so the
+		// same bad setups are not re-scored in the same cycle.
+		a.setAllSkipCooldowns(ctx, top, window)
 		// A late-cycle skip is a fresh reassessment — cancel any stale queued intent
 		// for the same symbol so it cannot fire in a later window (e.g. AFTER).
 		// FRONTRUN skips are excluded: there are still multiple windows remaining in
@@ -498,15 +593,20 @@ func (a *App) scanFn(ctx context.Context, window scheduler.WindowType) error {
 			a.intentQueue.CancelBySymbol(top[0].Candidate.Symbol)
 		}
 		if a.cfg.Memory.EmbedSkips {
-			go func() {
-				bgCtx := context.Background()
-				if err := a.memoryEngine.RecordSkip(bgCtx, top[0], btc, decision.SkipReason, string(window)); err != nil {
-					slog.Error("failed to record skip memory", "error", err)
-				}
-			}()
+			for _, sc := range top {
+				sc := sc
+				go func() {
+					bgCtx := context.Background()
+					if err := a.memoryEngine.RecordSkip(bgCtx, sc, btc, decision.SkipReason, string(window)); err != nil {
+						slog.Error("failed to record skip memory", "symbol", sc.Candidate.Symbol, "error", err)
+					}
+				}()
+			}
 		}
 		return nil
 	}
+
+	a.setSymbolCooldown(ctx, decision.Symbol, decision.Action)
 
 	var selected *domain.ScoredCandidate
 	for _, sc := range top {
