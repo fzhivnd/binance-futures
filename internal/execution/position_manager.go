@@ -1232,6 +1232,16 @@ func (m *PositionManager) checkPreSettlement(ctx context.Context, pos domain.Pos
 
 // widenTP cancels the existing TP1 and replaces it at 2% + |funding_rate|.
 func (m *PositionManager) widenTP(ctx context.Context, pos *domain.Position, _ *domain.FundingRate) {
+	if pos.TP2OrderID != "" {
+		m.adjustTP2PreSettlement(ctx, pos)
+	}
+
+	if err := m.executor.CancelOrder(ctx, pos.Symbol, pos.TPOrderID); err != nil {
+		slog.Warn("widenTP1: cancel old TP failed", "symbol", pos.Symbol, "error", err)
+		return
+	}
+	pos.TPOrderID = ""
+
 	newTPPct := m.cfg.Execution.TpPct + math.Abs(pos.FundingRateAtEntry*100)
 	newTP := pos.EntryPrice * (1 - newTPPct/100)
 
@@ -1242,12 +1252,6 @@ func (m *PositionManager) widenTP(ctx context.Context, pos *domain.Position, _ *
 		"new_tp_pct", newTPPct,
 		"new_tp_price", newTP,
 	)
-
-	if err := m.executor.CancelOrder(ctx, pos.Symbol, pos.TPOrderID); err != nil {
-		slog.Warn("widenTP1: cancel old TP failed", "symbol", pos.Symbol, "error", err)
-		return
-	}
-	pos.TPOrderID = ""
 
 	tp1SizeFrac := m.cfg.Execution.TP1SizePct / 100
 	if pos.FundingRateAtEntry < -0.01 { // if funding less than 1% entry before settlement -> full exit at 2% final profit
@@ -1271,9 +1275,6 @@ func (m *PositionManager) widenTP(ctx context.Context, pos *domain.Position, _ *
 	}
 	pos.TakeProfit = newTP
 	pos.TPWidened = true
-	if pos.TP2OrderID != "" {
-		m.adjustTP2PreSettlement(ctx, pos)
-	}
 
 	if err := m.cache.SetActivePosition(ctx, *pos); err != nil {
 		slog.Error("widenTP1: update position", "symbol", pos.Symbol, "error", err)
@@ -1330,16 +1331,10 @@ func (m *PositionManager) onSettlementPassed(ctx context.Context, pos domain.Pos
 // adjustTP2PreSettlement widens the fixed TP2 by the funding rate magnitude
 // to capture the post-settlement panic dump. e.g. funding=-1.5% → new TP2 = 4% + 1.5% = 5.5%.
 func (m *PositionManager) adjustTP2PreSettlement(ctx context.Context, pos *domain.Position) {
-	newTP2Pct := m.cfg.Execution.TP2Pct + math.Abs(pos.FundingRateAtEntry*100)
-	newTP2Price := pos.EntryPrice * (1 - newTP2Pct/100)
-
-	tp2Qty := pos.OriginalQty * (1 - m.cfg.Execution.TP1SizePct/100)
-
 	if err := m.executor.CancelOrder(ctx, pos.Symbol, pos.TP2OrderID); err != nil {
 		slog.Warn("adjustTP2PreSettlement: cancel old TP2 failed", "symbol", pos.Symbol, "error", err)
 		return
 	}
-
 	pos.TP2OrderID = ""
 
 	if pos.FundingRateAtEntry < -0.01 {
@@ -1347,6 +1342,10 @@ func (m *PositionManager) adjustTP2PreSettlement(ctx context.Context, pos *domai
 		return
 	}
 
+	newTP2Pct := m.cfg.Execution.TP2Pct + math.Abs(pos.FundingRateAtEntry*100)
+	newTP2Price := pos.EntryPrice * (1 - newTP2Pct/100)
+
+	tp2Qty := pos.OriginalQty * (1 - m.cfg.Execution.TP1SizePct/100)
 	newTP2Order, err := m.executor.PlaceLimitOrder(ctx, domain.OrderRequest{
 		Symbol:     pos.Symbol,
 		Side:       domain.SideBuy,
