@@ -12,16 +12,18 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"futures/internal/domain"
 )
 
 type BinanceClient struct {
-	apiKey    string
-	apiSecret string
-	baseURL   string
-	http      *http.Client
+	apiKey        string
+	apiSecret     string
+	baseURL       string
+	http          *http.Client
+	clockOffsetMs atomic.Int64 // Binance server time minus local time, in milliseconds
 }
 
 func NewBinanceClient(apiKey, apiSecret, baseURL string) *BinanceClient {
@@ -31,6 +33,16 @@ func NewBinanceClient(apiKey, apiSecret, baseURL string) *BinanceClient {
 		baseURL:   baseURL,
 		http:      &http.Client{Timeout: 30 * time.Second},
 	}
+}
+
+// SetClockOffset stores the measured offset (serverTime - localTime) so that
+// all signed requests use a timestamp Binance will accept.
+func (c *BinanceClient) SetClockOffset(offset time.Duration) {
+	c.clockOffsetMs.Store(offset.Milliseconds())
+}
+
+func (c *BinanceClient) nowMs() int64 {
+	return time.Now().UnixMilli() + c.clockOffsetMs.Load()
 }
 
 func (c *BinanceClient) GetExchangeInfo(ctx context.Context) (*ExchangeInfoCache, error) {
@@ -119,7 +131,7 @@ func (c *BinanceClient) NewOrder(ctx context.Context, req NewOrderRequest) (*New
 	if req.NewClientOrderId != "" {
 		params.Set("newClientOrderId", req.NewClientOrderId)
 	}
-	params.Set("timestamp", strconv.FormatInt(time.Now().UnixMilli(), 10))
+	params.Set("timestamp", strconv.FormatInt(c.nowMs(), 10))
 
 	slog.Info("binance_client new order", "params", params.Encode())
 
@@ -166,7 +178,7 @@ func (c *BinanceClient) NewAlgoOrder(ctx context.Context, req NewOrderRequest) (
 	if req.NewClientOrderId != "" {
 		params.Set("clientAlgoId", req.NewClientOrderId)
 	}
-	params.Set("timestamp", strconv.FormatInt(time.Now().UnixMilli(), 10))
+	params.Set("timestamp", strconv.FormatInt(c.nowMs(), 10))
 
 	slog.Info("binance_client new order", "params", params.Encode())
 
@@ -193,7 +205,7 @@ func (c *BinanceClient) CancelOrder(ctx context.Context, symbol, orderID string,
 		params.Set("orderId", orderID)
 	}
 	params.Set("symbol", symbol)
-	params.Set("timestamp", strconv.FormatInt(time.Now().UnixMilli(), 10))
+	params.Set("timestamp", strconv.FormatInt(c.nowMs(), 10))
 
 	query := params.Encode()
 	sig := c.sign(query)
@@ -211,7 +223,7 @@ func (c *BinanceClient) CancelAlgoOrder(ctx context.Context, orderID string, cli
 	} else {
 		params.Set("algoId", strings.TrimSpace(orderID))
 	}
-	params.Set("timestamp", strconv.FormatInt(time.Now().UnixMilli(), 10))
+	params.Set("timestamp", strconv.FormatInt(c.nowMs(), 10))
 
 	query := params.Encode()
 	sig := c.sign(query)
@@ -226,7 +238,7 @@ func (c *BinanceClient) SetLeverage(ctx context.Context, symbol string, leverage
 	params := url.Values{}
 	params.Set("symbol", symbol)
 	params.Set("leverage", strconv.Itoa(leverage))
-	params.Set("timestamp", strconv.FormatInt(time.Now().UnixMilli(), 10))
+	params.Set("timestamp", strconv.FormatInt(c.nowMs(), 10))
 
 	sig := c.sign(params.Encode())
 	params.Set("signature", sig)
@@ -238,7 +250,7 @@ func (c *BinanceClient) SetLeverage(ctx context.Context, symbol string, leverage
 func (c *BinanceClient) GetPositionRisk(ctx context.Context, symbol string) (*PositionRiskResponse, error) {
 	params := url.Values{}
 	params.Set("symbol", symbol)
-	params.Set("timestamp", strconv.FormatInt(time.Now().UnixMilli(), 10))
+	params.Set("timestamp", strconv.FormatInt(c.nowMs(), 10))
 
 	body, err := c.getSigned(ctx, "/fapi/v2/positionRisk", params)
 
@@ -258,7 +270,7 @@ func (c *BinanceClient) GetPositionRisk(ctx context.Context, symbol string) (*Po
 // GetOpenOrders returns all open orders across all symbols.
 func (c *BinanceClient) GetOpenOrders(ctx context.Context) ([]OpenOrderResponse, error) {
 	params := url.Values{}
-	params.Set("timestamp", strconv.FormatInt(time.Now().UnixMilli(), 10))
+	params.Set("timestamp", strconv.FormatInt(c.nowMs(), 10))
 
 	body, err := c.getSigned(ctx, "/fapi/v1/openOrders", params)
 	if err != nil {
@@ -274,7 +286,7 @@ func (c *BinanceClient) GetOpenOrders(ctx context.Context) ([]OpenOrderResponse,
 // GetAllPositionRisk returns all positions with non-zero positionAmt.
 func (c *BinanceClient) GetAllPositionRisk(ctx context.Context) ([]PositionRiskResponse, error) {
 	params := url.Values{}
-	params.Set("timestamp", strconv.FormatInt(time.Now().UnixMilli(), 10))
+	params.Set("timestamp", strconv.FormatInt(c.nowMs(), 10))
 
 	body, err := c.getSigned(ctx, "/fapi/v2/positionRisk", params)
 	if err != nil {
@@ -496,7 +508,7 @@ func (c *BinanceClient) KeepAliveListenKey(ctx context.Context, listenKey string
 
 func (c *BinanceClient) GetAccount(ctx context.Context) (*AccountResponse, error) {
 	params := url.Values{}
-	params.Set("timestamp", strconv.FormatInt(time.Now().UnixMilli(), 10))
+	params.Set("timestamp", strconv.FormatInt(c.nowMs(), 10))
 
 	body, err := c.getSigned(ctx, "/fapi/v2/account", params)
 	if err != nil {
