@@ -26,6 +26,12 @@ type ServerTimeProvider interface {
 	GetServerTime(ctx context.Context) (time.Time, error)
 }
 
+// clockOffsetSetter is an optional extension that the concrete Binance client
+// satisfies so the measured clock offset is applied to all signed requests.
+type clockOffsetSetter interface {
+	SetClockOffset(offset time.Duration)
+}
+
 // AfterTrigger fires AFTER intents at T+0 with sub-10ms precision.
 // It watches the intent queue, subscribes @bookTicker at T-5s for the target symbol,
 // syncs the local clock against Binance server time, and fires at T+0.
@@ -230,6 +236,10 @@ func (t *AfterTrigger) syncClock(ctx context.Context) {
 	t.clockOffset = offset
 	t.lastClockSync = time.Now()
 	t.mu.Unlock()
+
+	if setter, ok := t.binance.(clockOffsetSetter); ok {
+		setter.SetClockOffset(offset)
+	}
 
 	slog.Info("after_clock_offset_ms",
 		"offset_ms", float64(offset.Milliseconds()),
