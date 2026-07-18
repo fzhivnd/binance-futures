@@ -766,17 +766,18 @@ func (m *PositionManager) finalizeSLTP(
 
 	if m.notifier != nil {
 		m.notifier.NotifyTradeOpened(ctx, notify.TradeOpenedEvent{
-			Symbol:     pending.Symbol,
-			Side:       "SHORT",
-			EntryPrice: avgFillPrice,
-			Quantity:   filledQty,
-			Leverage:   m.cfg.Trading.Leverage,
-			StopLoss:   stopLoss,
-			TakeProfit: tp1Price,
-			EntryMode:  pending.Window,
-			Confidence: pending.Confidence,
-			IsPaper:    isPaper,
-			OpenedAt:   openedAt,
+			Symbol:      pending.Symbol,
+			Side:        "SHORT",
+			EntryPrice:  avgFillPrice,
+			Quantity:    filledQty,
+			Leverage:    m.cfg.Trading.Leverage,
+			StopLoss:    stopLoss,
+			TakeProfit:  tp1Price,
+			EntryMode:   pending.Window,
+			Confidence:  pending.Confidence,
+			IsPaper:     isPaper,
+			OpenedAt:    openedAt,
+			FundingRate: pending.FundingRate,
 		})
 	}
 
