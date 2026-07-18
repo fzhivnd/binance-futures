@@ -9,17 +9,18 @@ import (
 )
 
 type TradeOpenedEvent struct {
-	Symbol     string
-	Side       string
-	EntryPrice float64
-	Quantity   float64
-	Leverage   int
-	StopLoss   float64
-	TakeProfit float64
-	EntryMode  string
-	Confidence int
-	IsPaper    bool
-	OpenedAt   time.Time
+	Symbol      string
+	Side        string
+	EntryPrice  float64
+	Quantity    float64
+	Leverage    int
+	StopLoss    float64
+	TakeProfit  float64
+	EntryMode   string
+	Confidence  int
+	IsPaper     bool
+	OpenedAt    time.Time
+	FundingRate float64
 }
 
 type TradeClosedEvent struct {

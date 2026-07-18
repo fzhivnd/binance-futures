@@ -40,6 +40,7 @@ func FormatTradeOpened(e TradeOpenedEvent) string {
 			"SL: `$%s` \\| TP: `$%s`\n"+
 			"Mode: `%s` \\| Confidence: `%d`\n"+
 			"Entry Mode: `%s`\n"+
+			"Funding Rate: `%.4f%%`\n"+
 			"Opened: `%s`",
 		escapeMarkdownV2(e.Symbol),
 		escapeMarkdownV2(e.Symbol),
@@ -51,6 +52,7 @@ func FormatTradeOpened(e TradeOpenedEvent) string {
 		mode,
 		e.Confidence,
 		escapeMarkdownV2(e.EntryMode),
+		e.FundingRate*100,
 		escapeMarkdownV2(openedAt),
 	)
 }
