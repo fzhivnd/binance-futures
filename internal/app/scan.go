@@ -265,18 +265,23 @@ func (a *App) fetchBookTickerREST(ctx context.Context, symbol string) *market.Bo
 }
 
 // isRestrictedDay returns true on days that historically underperform:
-// Mondays, and the first or last 3 calendar days of a month (UTC).
+// Mondays, the first 3 weekdays of a month, and the last 10 weekdays of a month.
 func isRestrictedDay(t time.Time) bool {
 	t = t.UTC()
-	if t.Weekday() == time.Monday {
+	weekday := t.Weekday()
+	if weekday == time.Monday {
 		return true
+	}
+	isWeekend := weekday == time.Saturday || weekday == time.Sunday
+	if isWeekend {
+		return false
 	}
 	day := t.Day()
 	if day <= 3 {
 		return true
 	}
 	lastDay := time.Date(t.Year(), t.Month()+1, 0, 0, 0, 0, 0, time.UTC).Day()
-	return day >= lastDay-2
+	return day >= lastDay-9
 }
 
 func (a *App) scanFn(ctx context.Context, window scheduler.WindowType) error {
