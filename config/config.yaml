@@ -56,7 +56,7 @@ database:
 
 scoring:
   min_score: 40.0
-  min_score_override: 20.0
+  min_score_override: 30.0
   # weights, thresholds, filtering, trading, funding, execution params → managed via scoring config in DB
 
 

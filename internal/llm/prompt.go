@@ -41,6 +41,13 @@ Example:
 - Strong BTC breakout → can invalidate a high composite score.
 - Severe squeeze risk → can force AFTER or SKIP despite good reversal signals.
 
+IMPORTANT — BTC bullish without a breakout is NOT a skip trigger:
+Historical review shows the majority of missed trades (setups that would have won had they been
+taken) were skipped specifically because BTC was bullish/strong while NOT breaking out. Only a
+confirmed breakout (IsBreakout = true) meaningfully raises squeeze risk. A bullish-but-non-breakout
+BTC regime should be treated as neutral-to-mildly-cautious, not as a reason to override a strong
+funding/OI/RSI/candle stack. Do not let BTC sentiment alone force a skip when IsBreakout = false.
+
 ## COMPOSITE SCORE
 
 Each candidate contains a pre-computed composite score.
@@ -205,6 +212,12 @@ TIMING CONSTRAINT: AFTER mode is only valid when minutes to settlement ≤ 6.
 If minutes to settlement > 6, do NOT select AFTER — the setup will be stale by T+0 and price action is likely to have changed materially. Use FRONTRUN, LAST_MINUTE, or SKIP instead.
 
 Note: Avoid entry in AFTER mode when OI already unloading hard
+
+IMPORTANT — high ATR alone should route to AFTER, not SKIP:
+Historical review shows high ATR is frequently over-weighted as a reason to SKIP even when funding,
+OI, and RSI stack are strong. Elevated ATR without a broader risk stack (breakout, aggressive OI
+expansion, no reversal evidence at all) is a reason to prefer AFTER — not to abandon the trade
+entirely. Only combine ATR with SKIP when other signals are also weak or conflicting.
 
 ## EVALUATION FRAMEWORK
 
@@ -376,8 +389,12 @@ func (p *PromptBuilder) UserMessage(req *LLMRequest) string {
 	sb.WriteString("=== BTC MARKET CONTEXT ===\n")
 	sb.WriteString(fmt.Sprintf("Trend: %s | Momentum: %d/100 | Volatility: %s\n",
 		req.BTCContext.Trend, req.BTCContext.MomentumScore, req.BTCContext.Volatility))
-	sb.WriteString(fmt.Sprintf("Breakout: %v | RSI(14): %.1f | 1h change: %.2f%%\n\n",
+	sb.WriteString(fmt.Sprintf("Breakout: %v | RSI(14): %.1f | 1h change: %.2f%%\n",
 		req.BTCContext.IsBreakout, req.BTCContext.RSI, req.BTCContext.PriceChange1h))
+	if req.BTCContext.Trend == "bullish" && !req.BTCContext.IsBreakout {
+		sb.WriteString("Note: BTC is bullish but NOT breaking out — squeeze risk from BTC alone is LOW-MODERATE, not HIGH. Do not skip on BTC sentiment alone.\n")
+	}
+	sb.WriteString("\n")
 
 	sb.WriteString("=== CANDIDATES (ranked by composite score) ===\n\n")
 	for i, c := range req.Candidates {
