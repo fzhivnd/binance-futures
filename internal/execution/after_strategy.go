@@ -11,12 +11,15 @@ import (
 	"futures/internal/intent"
 	"futures/internal/market"
 	"futures/internal/notify"
+	"futures/internal/risk"
 )
 
 // AfterExecutionStrategy places a bid-depth-aware market order for AFTER-mode intents.
 type AfterExecutionStrategy struct {
 	bookTicker *market.BookTickerCache
 	execEng    *ExecutionEngine
+	riskEngine *risk.Engine
+	indEngine  BTCContextProvider
 	notifier   *notify.Notifier
 	cfg        *config.Config
 }
@@ -24,12 +27,16 @@ type AfterExecutionStrategy struct {
 func NewAfterExecutionStrategy(
 	bookTicker *market.BookTickerCache,
 	execEng *ExecutionEngine,
+	riskEngine *risk.Engine,
+	indEngine BTCContextProvider,
 	notifier *notify.Notifier,
 	cfg *config.Config,
 ) *AfterExecutionStrategy {
 	return &AfterExecutionStrategy{
 		bookTicker: bookTicker,
 		execEng:    execEng,
+		riskEngine: riskEngine,
+		indEngine:  indEngine,
 		notifier:   notifier,
 		cfg:        cfg,
 	}
@@ -47,6 +54,20 @@ func (s *AfterExecutionStrategy) Execute(ctx context.Context, ti *intent.TradeIn
 		currentPrice = candidate.MarkPrice
 	}
 	if err := s.validateEntry(ti, currentPrice); err != nil {
+		slog.Info("after_entry_skipped",
+			"symbol", candidate.Symbol,
+			"reason", err.Error(),
+			"latency_ms", time.Since(start).Milliseconds(),
+		)
+		return nil
+	}
+
+	// Risk gate: same composite-score/ATR/BTC-breakout/drawdown checks applied to
+	// FRONTRUN and LAST_MINUTE fires. AFTER-mode intents previously bypassed this
+	// entirely, letting extreme-ATR candidates (e.g. RIFUSDT, ATR ratio 13+) reach
+	// execution unchecked.
+	btcAtFire, _ := s.indEngine.ComputeBTCContext(ctx)
+	if err := s.riskEngine.EvaluateCandidate(ctx, ti.Candidate, btcAtFire); err != nil {
 		slog.Info("after_entry_skipped",
 			"symbol", candidate.Symbol,
 			"reason", err.Error(),

@@ -17,12 +17,8 @@ import (
 	"futures/internal/scheduler"
 )
 
-// confluenceScoreThreshold is the composite score bar used by the confluence gate
-// (distinct from scoring.min_score, which gates trade execution in the risk engine).
-// Backtested against post-2026-07-06 trades: 40 balances win rate (78%) and trade
-// volume better than 30 (75% win rate, one bad candle-only trade slips through) or
-// 50 (78.8% win rate but ~20% fewer trades for similar total PnL).
 const confluenceScoreThreshold = 40.0
+const confluenceRSIThreshold = 50.0
 
 func (a *App) setSymbolCooldown(ctx context.Context, symbol string, decision string) {
 	cooldown := symbolCooldownDurationLLM
@@ -457,14 +453,19 @@ func (a *App) scanFn(ctx context.Context, window scheduler.WindowType) error {
 	}
 
 	// Confluence gate: hard-block candidates without at least two independent
-	// pieces of reversal evidence. RSI7_5m>=70 alone or a candle pattern alone
-	// each historically ran net-negative (single-signal setups lack momentum-loss
-	// confirmation); requiring a candle pattern plus RSI overbought or a strong
-	// composite score keeps only the combinations that were actually profitable.
+	// pieces of reversal evidence. RSI7_5m>=confluenceRSIThreshold alone or a candle
+	// pattern alone each historically ran net-negative (single-signal setups lack
+	// momentum-loss confirmation). Composite score must clear confluenceScoreThreshold
+	// unconditionally — scoring.min_score/min_score_override already reject anything
+	// below that floor at execution time, so admitting a low-score candidate here
+	// (even with RSI/candle confirmation) only wastes an LLM call on a trade that
+	// will be vetoed downstream anyway.
 	confluenceFiltered := scored[:0]
 	for _, sc := range scored {
-		hasReversalEvidence := sc.Breakdown.RSIDivergenceScore > 0 ||
-			(sc.Breakdown.CandleScore > 0 && (sc.Indicators.RSI7_5m >= 70 || sc.CompositeScore >= confluenceScoreThreshold))
+		hasReversalEvidence := sc.CompositeScore >= confluenceScoreThreshold &&
+			(sc.Breakdown.RSIDivergenceScore > 0 ||
+				sc.Breakdown.CandleScore > 0 ||
+				sc.Indicators.RSI7_5m >= confluenceRSIThreshold)
 		if !hasReversalEvidence {
 			slog.Info("candidate excluded: insufficient reversal confluence",
 				"symbol", sc.Candidate.Symbol,
