@@ -135,9 +135,9 @@ func (e *Engine) EvaluateCandidate(ctx context.Context, sc *domain.ScoredCandida
 		return fmt.Errorf("BTC bullish breakout detected, skipping alt short")
 	}
 
-	if dd := e.drawdown.CurrentDrawdownPct(); dd > e.cfg.MaxDrawdownPct {
-		return fmt.Errorf("max drawdown %.2f%% breached (limit %.2f%%)", dd, e.cfg.MaxDrawdownPct)
-	}
+	//if dd := e.drawdown.CurrentDrawdownPct(); dd > e.cfg.MaxDrawdownPct {
+	//	return fmt.Errorf("max drawdown %.2f%% breached (limit %.2f%%)", dd, e.cfg.MaxDrawdownPct)
+	//}
 
 	return nil
 }
