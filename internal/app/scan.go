@@ -17,6 +17,13 @@ import (
 	"futures/internal/scheduler"
 )
 
+// confluenceScoreThreshold is the composite score bar used by the confluence gate
+// (distinct from scoring.min_score, which gates trade execution in the risk engine).
+// Backtested against post-2026-07-06 trades: 40 balances win rate (78%) and trade
+// volume better than 30 (75% win rate, one bad candle-only trade slips through) or
+// 50 (78.8% win rate but ~20% fewer trades for similar total PnL).
+const confluenceScoreThreshold = 40.0
+
 func (a *App) setSymbolCooldown(ctx context.Context, symbol string, decision string) {
 	cooldown := symbolCooldownDurationLLM
 	if decision != "SKIP" {
@@ -205,13 +212,6 @@ func (a *App) filterThinOrderBook(ctx context.Context, candidates []domain.Candi
 			continue
 		}
 
-		// TODO: REMOVE AFTER VERIFIED
-		slog.Info("candidate passed order book filter",
-			"symbol", c.Symbol,
-			"spread_bps", spreadBps,
-			"ask_liquidity_usdt", liq,
-			"min_ask_liquidity_usdt", minAskLiquidity,
-		)
 		out = append(out, c)
 	}
 	return out
@@ -281,7 +281,7 @@ func isRestrictedDay(t time.Time) bool {
 		return true
 	}
 	lastDay := time.Date(t.Year(), t.Month()+1, 0, 0, 0, 0, 0, time.UTC).Day()
-	return day >= lastDay-9
+	return day >= lastDay-4
 }
 
 func (a *App) scanFn(ctx context.Context, window scheduler.WindowType) error {
@@ -456,18 +456,17 @@ func (a *App) scanFn(ctx context.Context, window scheduler.WindowType) error {
 		)
 	}
 
-	// Confluence gate: hard-block candidates with zero reversal evidence.
-	// The scoring system already penalises these heavily (score ~15-20), so
-	// most are blocked by min_score. This gate catches any that slip through
-	// via RSI overbought (RSI7_5m >= 70 counts as reversal evidence even without
-	// a detected candle pattern).
+	// Confluence gate: hard-block candidates without at least two independent
+	// pieces of reversal evidence. RSI7_5m>=70 alone or a candle pattern alone
+	// each historically ran net-negative (single-signal setups lack momentum-loss
+	// confirmation); requiring a candle pattern plus RSI overbought or a strong
+	// composite score keeps only the combinations that were actually profitable.
 	confluenceFiltered := scored[:0]
 	for _, sc := range scored {
-		hasReversalEvidence := sc.Breakdown.CandleScore > 0 ||
-			sc.Breakdown.RSIDivergenceScore > 0 ||
-			sc.Indicators.RSI7_5m >= 70 || sc.CompositeScore >= 50
+		hasReversalEvidence := sc.Breakdown.RSIDivergenceScore > 0 ||
+			(sc.Breakdown.CandleScore > 0 && (sc.Indicators.RSI7_5m >= 70 || sc.CompositeScore >= confluenceScoreThreshold))
 		if !hasReversalEvidence {
-			slog.Info("candidate excluded: no reversal evidence",
+			slog.Info("candidate excluded: insufficient reversal confluence",
 				"symbol", sc.Candidate.Symbol,
 				"candle_score", sc.Breakdown.CandleScore,
 				"rsi_div_score", sc.Breakdown.RSIDivergenceScore,
