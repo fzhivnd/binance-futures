@@ -277,7 +277,7 @@ func isRestrictedDay(t time.Time) bool {
 		return true
 	}
 	lastDay := time.Date(t.Year(), t.Month()+1, 0, 0, 0, 0, 0, time.UTC).Day()
-	return day >= lastDay-4
+	return day >= lastDay-2
 }
 
 func (a *App) scanFn(ctx context.Context, window scheduler.WindowType) error {
