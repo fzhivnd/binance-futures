@@ -261,23 +261,42 @@ func (a *App) fetchBookTickerREST(ctx context.Context, symbol string) *market.Bo
 }
 
 // isRestrictedDay returns true on days that historically underperform:
-// Mondays, the first 3 weekdays of a month, and the last 10 weekdays of a month.
+//   - Within 1 hour of Monday 00:00 UTC (Sun 23:00–Mon 01:00 UTC)
+//   - First 3 days of the month, except Saturday
+//   - Last 5 days of the month, except weekends
 func isRestrictedDay(t time.Time) bool {
 	t = t.UTC()
 	weekday := t.Weekday()
-	if weekday == time.Monday {
-		return true
+
+	// Monday window: Sun 23:00–Mon 01:00 UTC (H-1 to H+1 around Monday midnight).
+	if weekday == time.Monday || weekday == time.Sunday {
+		var mondayMidnight time.Time
+		if weekday == time.Monday {
+			mondayMidnight = time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, time.UTC)
+		} else {
+			mondayMidnight = time.Date(t.Year(), t.Month(), t.Day()+1, 0, 0, 0, 0, time.UTC)
+		}
+		if t.After(mondayMidnight.Add(-time.Hour)) && t.Before(mondayMidnight.Add(time.Hour)) {
+			return true
+		}
 	}
+
 	isWeekend := weekday == time.Saturday || weekday == time.Sunday
-	if isWeekend {
-		return false
-	}
 	day := t.Day()
-	if day <= 3 {
+
+	// First 3 days: skip except Saturday.
+	if day <= 3 && weekday != time.Saturday {
 		return true
 	}
-	lastDay := time.Date(t.Year(), t.Month()+1, 0, 0, 0, 0, 0, time.UTC).Day()
-	return day >= lastDay-2
+	// Last 5 days: skip except weekends.
+	if !isWeekend {
+		lastDay := time.Date(t.Year(), t.Month()+1, 0, 0, 0, 0, 0, time.UTC).Day()
+		if day >= lastDay-4 {
+			return true
+		}
+	}
+
+	return false
 }
 
 func (a *App) scanFn(ctx context.Context, window scheduler.WindowType) error {
