@@ -25,9 +25,14 @@ type WSConnection struct {
 	// idleWhenUnsubscribed marks connections that legitimately sit with zero
 	// subscriptions between funding windows (the top-20 kline/bookTicker
 	// streams) — staleness is only enforced for these while subscriptions
-	// are actually active. Always-on streams (mark price, user data) leave
-	// this false so staleness is enforced unconditionally.
+	// are actually active.
 	idleWhenUnsubscribed bool
+	// disableStaleCheck marks connections whose message arrival is inherently
+	// sparse and unrelated to connection health (e.g. user-data streams only
+	// push on account activity — fills, balance changes). For these, the
+	// periodic WS ping is the only liveness signal; a long gap with no
+	// business messages is normal, not stale.
+	disableStaleCheck bool
 
 	mu            sync.Mutex
 	conn          *websocket.Conn
@@ -59,6 +64,12 @@ func NewWSConnection(
 // zero subscriptions between funding windows (see idleWhenUnsubscribed).
 func (w *WSConnection) SetIdleWhenUnsubscribed(idle bool) {
 	w.idleWhenUnsubscribed = idle
+}
+
+// DisableStaleCheck marks this connection as one whose message flow is
+// inherently sparse and not a health signal (see disableStaleCheck).
+func (w *WSConnection) DisableStaleCheck(disabled bool) {
+	w.disableStaleCheck = disabled
 }
 
 func (w *WSConnection) Run(ctx context.Context) {
@@ -163,6 +174,9 @@ func (w *WSConnection) readLoop(ctx context.Context, conn *websocket.Conn) error
 			}
 
 		case <-staleTicker.C:
+			if w.disableStaleCheck {
+				continue
+			}
 			w.mu.Lock()
 			last := w.lastMessage
 			hasSubs := len(w.subscriptions) > 0
