@@ -282,6 +282,10 @@ func (a *App) Run(
 			wsCfg.MaxReconnectFailures,
 			killSwitchFn,
 		)
+		// User-data messages only arrive on account activity (fills, balance
+		// changes) — silence is normal, not a sign of a dead connection. The
+		// WS ping/pong is the real liveness check for this stream.
+		a.wsUserData.DisableStaleCheck(true)
 	}
 
 	var llmClient *llm.Client
