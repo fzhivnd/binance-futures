@@ -242,25 +242,27 @@ func (a *App) Run(
 	a.wsMarketData = exchange.NewWSConnection(
 		marketUrl,
 		router.Handle,
-		10*time.Minute, // market data stream starts empty — long stale timeout until symbols are subscribed
+		wsCfg.GetStaleTimeout(), // enforced only while symbols are subscribed (window-scoped lifecycle)
 		wsCfg.GetPingInterval(),
 		wsCfg.GetReconnectBaseBackoff(),
 		wsCfg.GetReconnectMaxBackoff(),
 		wsCfg.MaxReconnectFailures,
 		nil, // market data stream is non-critical — don't trigger kill switch on failure
 	)
+	a.wsMarketData.SetIdleWhenUnsubscribed(true)
 
 	publicUrl := a.cfg.Binance.WsURL + "/public/stream"
 	a.wsPublicData = exchange.NewWSConnection(
 		publicUrl,
 		router.Handle,
-		10*time.Minute,
+		wsCfg.GetStaleTimeout(),
 		wsCfg.GetPingInterval(),
 		wsCfg.GetReconnectBaseBackoff(),
 		wsCfg.GetReconnectMaxBackoff(),
 		wsCfg.MaxReconnectFailures,
 		nil,
 	)
+	a.wsPublicData.SetIdleWhenUnsubscribed(true)
 
 	var listenKey string
 	if a.cfg.App.Mode == "live" {
@@ -393,8 +395,7 @@ func (a *App) Run(
 	go a.posMgr.Run(ctx)
 	go a.sched.Run(ctx)
 	go a.oiPoller(ctx, binanceClient)
-	go a.klineSubscriber(ctx)
-	go a.bookTickerSubscriber(ctx)
+	go a.windowMarketDataManager(ctx)
 	go a.fundingIntervalRefresher(ctx, binanceClient)
 	if a.cfg.Memory.Enabled {
 		go a.startSkipValidator(ctx)

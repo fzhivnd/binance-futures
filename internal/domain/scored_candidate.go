@@ -13,6 +13,7 @@ type ScoredCandidate struct {
 type ScoreBreakdown struct {
 	FundingScore         float64
 	OIScore              float64
+	OI15mScore           float64
 	BTCScore             float64
 	CandleScore          float64
 	VolumeScore          float64

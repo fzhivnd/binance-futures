@@ -14,6 +14,7 @@ type ScoringConfig struct {
 type ScoringWeights struct {
 	Funding       float64
 	OI            float64
+	OI15m         float64
 	BTC           float64
 	Candle        float64
 	Volume        float64

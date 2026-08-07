@@ -113,6 +113,7 @@ type LLMRSIDivergence struct {
 type LLMBreakdown struct {
 	Funding    float64 `json:"funding"`
 	OI         float64 `json:"oi"`
+	OI15m      float64 `json:"oi_15m"`
 	BTC        float64 `json:"btc"`
 	Candle     float64 `json:"candle"`
 	Volume     float64 `json:"volume"`

@@ -12,7 +12,7 @@ func DefaultScoringConfig() *domain.ScoringConfig {
 		Name:    "default",
 		Version: 1,
 		Weights: domain.ScoringWeights{
-			Funding: 25, OI: 15, BTC: 10, Candle: 20, Volume: 10, ROI: 15, Volatility: 5, RSIDivergence: 10,
+			Funding: 25, OI: 10, OI15m: 5, BTC: 10, Candle: 20, Volume: 10, ROI: 15, Volatility: 5, RSIDivergence: 10,
 		},
 		Thresholds: []domain.ScoringThreshold{
 			{Category: "oi", TierOrder: 1, MinValue: minVal(15), Multiplier: 1.00},
@@ -20,6 +20,13 @@ func DefaultScoringConfig() *domain.ScoringConfig {
 			{Category: "oi", TierOrder: 3, MinValue: minVal(5), MaxValue: maxVal(10), Multiplier: 0.50},
 			{Category: "oi", TierOrder: 4, MinValue: minVal(0), MaxValue: maxVal(5), Multiplier: 0.30},
 			{Category: "oi", TierOrder: 5, MaxValue: maxVal(0), Multiplier: 0.13},
+			// oi_15m: recent 15-min OI trend. Rolling over (<-1%) strongly favors the fade
+			// thesis (historically 0% loss rate); still actively building right into entry
+			// (>1%) means the squeeze isn't exhausted yet (historically ~2x the loss rate).
+			{Category: "oi_15m", TierOrder: 1, MaxValue: maxVal(-1), Multiplier: 1.00},
+			{Category: "oi_15m", TierOrder: 2, MinValue: minVal(-1), MaxValue: maxVal(0), Multiplier: 0.65},
+			{Category: "oi_15m", TierOrder: 3, MinValue: minVal(0), MaxValue: maxVal(1), Multiplier: 0.55},
+			{Category: "oi_15m", TierOrder: 4, MinValue: minVal(1), Multiplier: 0.25},
 			{Category: "roi", TierOrder: 1, MinValue: minVal(15), MaxValue: maxVal(50), Multiplier: 1.00},
 			{Category: "roi", TierOrder: 2, MinValue: minVal(50), MaxValue: maxVal(80), Multiplier: 0.47},
 			{Category: "roi", TierOrder: 3, Multiplier: 0.00},
