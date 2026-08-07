@@ -41,49 +41,57 @@ func (a *App) runOICycle(ctx context.Context, client *exchange.BinanceClient) {
 	//slog.Info("oi poller cycle done", "updated", updated, "total", len(symbols))
 }
 
-func (a *App) klineSubscriber(ctx context.Context) {
-	ticker := time.NewTicker(60 * time.Second)
-	defer ticker.Stop()
-
-	var currentSymbols []string
-
+// windowMarketDataManager owns the market-data subscription lifecycle for one
+// funding window at a time: at T-windowStartMinutes it locks in the top-20
+// negative-funding watchlist (+ BTCUSDT), REST-backfills every timeframe with
+// retry, and subscribes kline + bookTicker streams; the list is held fixed
+// for the whole window so every symbol's candles stay fresh off the live WS
+// feed without ever depending on stale prior-window data. At T+5 everything
+// is unsubscribed and purged, so no symbol can carry candle/OI data across
+// funding cycles — the next window always starts from a clean REST snapshot.
+func (a *App) windowMarketDataManager(ctx context.Context) {
 	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			newSymbols := a.engine.GetTopNegativeFundingSymbols(20)
-			if len(newSymbols) == 0 {
-				continue
+		open, windowClose, _ := scheduler.NextWindowBounds(time.Now(), a.cfg.Scheduler.WindowStartMinutes)
+
+		if d := time.Until(open); d > 0 {
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(d):
 			}
-			// VERIFIED, COMMENT LOG
-			//slog.Info("kline subscriber cycle started", "symbols", len(newSymbols))
-			a.updateKlineSubscriptions(ctx, currentSymbols, newSymbols)
-			currentSymbols = newSymbols
-			//slog.Info("kline subscriber cycle done", "symbols", len(currentSymbols))
 		}
+
+		symbols := a.engine.GetTopNegativeFundingSymbols(20)
+		if !contains(symbols, btcSymbol) {
+			symbols = append(symbols, btcSymbol)
+		}
+
+		if len(symbols) > 0 {
+			slog.Info("funding window opened, subscribing market data", "symbols", len(symbols))
+			a.openWindowSubscriptions(ctx, symbols)
+		}
+
+		if d := time.Until(windowClose); d > 0 {
+			select {
+			case <-ctx.Done():
+				a.closeWindowSubscriptions(ctx, symbols)
+				return
+			case <-time.After(d):
+			}
+		}
+
+		slog.Info("funding window closed, purging market data", "symbols", len(symbols))
+		a.closeWindowSubscriptions(ctx, symbols)
 	}
 }
 
-func (a *App) bookTickerSubscriber(ctx context.Context) {
-	ticker := time.NewTicker(60 * time.Second)
-	defer ticker.Stop()
-
-	var currentSymbols []string
-
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			newSymbols := a.engine.GetTopNegativeFundingSymbols(20)
-			if len(newSymbols) == 0 {
-				continue
-			}
-			a.updateBookTickerSubscriptions(ctx, currentSymbols, newSymbols)
-			currentSymbols = newSymbols
+func contains(list []string, s string) bool {
+	for _, v := range list {
+		if v == s {
+			return true
 		}
 	}
+	return false
 }
 
 // fundingIntervalRefresher re-fetches /fapi/v1/fundingInfo shortly after each

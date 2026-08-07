@@ -55,6 +55,7 @@ func MapToLLMRequest(
 			ScoreBreakdown: LLMBreakdown{
 				Funding:    sc.Breakdown.FundingScore,
 				OI:         sc.Breakdown.OIScore,
+				OI15m:      sc.Breakdown.OI15mScore,
 				BTC:        sc.Breakdown.BTCScore,
 				Candle:     sc.Breakdown.CandleScore,
 				Volume:     sc.Breakdown.VolumeScore,

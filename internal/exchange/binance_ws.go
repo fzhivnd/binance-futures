@@ -22,6 +22,12 @@ type WSConnection struct {
 	maxBackoff   time.Duration
 	maxFailures  int
 	onKillSwitch func()
+	// idleWhenUnsubscribed marks connections that legitimately sit with zero
+	// subscriptions between funding windows (the top-20 kline/bookTicker
+	// streams) — staleness is only enforced for these while subscriptions
+	// are actually active. Always-on streams (mark price, user data) leave
+	// this false so staleness is enforced unconditionally.
+	idleWhenUnsubscribed bool
 
 	mu            sync.Mutex
 	conn          *websocket.Conn
@@ -47,6 +53,12 @@ func NewWSConnection(
 		maxFailures:  maxFailures,
 		onKillSwitch: onKillSwitch,
 	}
+}
+
+// SetIdleWhenUnsubscribed marks this connection as one that legitimately has
+// zero subscriptions between funding windows (see idleWhenUnsubscribed).
+func (w *WSConnection) SetIdleWhenUnsubscribed(idle bool) {
+	w.idleWhenUnsubscribed = idle
 }
 
 func (w *WSConnection) Run(ctx context.Context) {
@@ -110,8 +122,8 @@ func (w *WSConnection) connect(ctx context.Context) error {
 }
 
 func (w *WSConnection) readLoop(ctx context.Context, conn *websocket.Conn) error {
-	//staleTicker := time.NewTicker(w.staleTimeout / 2)
-	//defer staleTicker.Stop()
+	staleTicker := time.NewTicker(w.staleTimeout / 2)
+	defer staleTicker.Stop()
 
 	pingTicker := time.NewTicker(w.pingInterval)
 	defer pingTicker.Stop()
@@ -150,14 +162,19 @@ func (w *WSConnection) readLoop(ctx context.Context, conn *websocket.Conn) error
 				return fmt.Errorf("ping: %w", err)
 			}
 
-			//case <-staleTicker.C:
-			//	w.mu.Lock()
-			//	last := w.lastMessage
-			//	w.mu.Unlock()
-			//	if time.Since(last) > w.staleTimeout {
-			//		conn.Close(websocket.StatusNormalClosure, "stale")
-			//		return fmt.Errorf("stale connection: no message for %s", w.staleTimeout)
-			//	}
+		case <-staleTicker.C:
+			w.mu.Lock()
+			last := w.lastMessage
+			hasSubs := len(w.subscriptions) > 0
+			idleOk := w.idleWhenUnsubscribed && !hasSubs
+			w.mu.Unlock()
+			if idleOk {
+				continue
+			}
+			if time.Since(last) > w.staleTimeout {
+				conn.Close(websocket.StatusNormalClosure, "stale")
+				return fmt.Errorf("stale connection: no message for %s", w.staleTimeout)
+			}
 		}
 	}
 }

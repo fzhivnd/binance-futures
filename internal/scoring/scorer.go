@@ -67,8 +67,12 @@ func (s *Scorer) Score(c domain.Candidate, ind *domain.IndicatorSnapshot, btc *d
 	// 1. Funding
 	bd.FundingScore = evalInterpolated(cfg, "funding", c.FundingRate) * cfg.Weights.Funding
 
-	// 2. OI
+	// 2. OI (1h — setup confirmation: sustained buildup over the hour favors the fade thesis)
 	bd.OIScore = evalThreshold(cfg, "oi", ind.OIDelta1h) * cfg.Weights.OI
+
+	// 2b. OI (15m — recent leverage trend: still accelerating right into entry means the
+	// squeeze is live, not exhausted; rolling over in the last 15m favors entry).
+	bd.OI15mScore = evalThreshold(cfg, "oi_15m", ind.OIDelta15m) * cfg.Weights.OI15m
 
 	// 3. BTC
 	bd.BTCScore = evalBTC(cfg, btc) * cfg.Weights.BTC
@@ -96,9 +100,9 @@ func (s *Scorer) Score(c domain.Candidate, ind *domain.IndicatorSnapshot, btc *d
 	//   BullishMomentum (squeeze risk): −20% of current composite signals.
 	//   BearishMomentumWeak (stale setup): −10%.
 	//   Both together: −28% (multiplicative).
-	bd.MomentumPenalty = scoreMomentumPenalty(ind, bd.FundingScore+bd.OIScore+bd.BTCScore+bd.CandleScore+bd.VolumeScore+bd.ROIScore+bd.VolatilityScore+bd.RSIDivergenceScore+bd.BullishCandlePenalty)
+	bd.MomentumPenalty = scoreMomentumPenalty(ind, bd.FundingScore+bd.OIScore+bd.OI15mScore+bd.BTCScore+bd.CandleScore+bd.VolumeScore+bd.ROIScore+bd.VolatilityScore+bd.RSIDivergenceScore+bd.BullishCandlePenalty)
 
-	composite := bd.FundingScore + bd.OIScore + bd.BTCScore +
+	composite := bd.FundingScore + bd.OIScore + bd.OI15mScore + bd.BTCScore +
 		bd.CandleScore + bd.VolumeScore + bd.ROIScore + bd.VolatilityScore + bd.RSIDivergenceScore +
 		bd.BullishCandlePenalty + bd.MomentumPenalty
 

@@ -58,3 +58,24 @@ func CurrentWindow(now time.Time, windowStartMinutes int) WindowType {
 		return WindowNone
 	}
 }
+
+// NextWindowBounds returns the open (T-windowStartMinutes) and close (T+5m)
+// times of the funding window that is either currently active or next
+// upcoming, along with the settlement time it's anchored to. Market-data
+// subscriptions are opened at `open` and torn down at `close`, so every
+// symbol enters a window with freshly backfilled candles and never carries
+// data across funding cycles.
+//
+// Guarantees close > now (or ==) for whatever `now` is passed in: if the
+// most recently settled window has already closed, this steps forward to
+// the next one instead of returning a bound in the past.
+func NextWindowBounds(now time.Time, windowStartMinutes int) (open, close, settlement time.Time) {
+	settlement = NextFundingTime(now)
+	close = settlement.Add(5 * time.Minute)
+	for now.After(close) {
+		settlement = NextFundingTime(settlement.Add(time.Hour))
+		close = settlement.Add(5 * time.Minute)
+	}
+	open = settlement.Add(-time.Duration(windowStartMinutes) * time.Minute)
+	return open, close, settlement
+}

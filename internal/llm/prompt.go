@@ -104,16 +104,17 @@ similarity ≥ 0.75
 
 Example: FRONTRUN: 18/27 wins (66.7%, 9 losses)
 
-Use as the primary statistical signal.
+Use as the primary statistical signal — but weight it by the confidence tag attached to each stat:
+- No tag (n ≥ 30): treat the win rate at face value.
+- MODERATE CONFIDENCE (15 ≤ n < 30): treat as a real but noisier signal; don't let it alone override a conflicting composite score or price-action read.
+- LOW CONFIDENCE (n < 15): a streak this short (e.g. "9/9 wins") is not statistically distinguishable from chance. Do not cite it as a primary justification for taking a trade — use it only as a weak tiebreaker when every other signal already agrees.
 
-Interpretation
+Interpretation (once confidence is accounted for)
 Win rate ≥ 75% : Positive edge.
 
 Win rate 60–75%: Neutral.
 
 Win rate < 60%: Negative edge.
-
-Sample size < 5: Ignore unless current setup strongly resembles past trades.
 
 2. SIMILAR PAST TRADES
 
@@ -401,8 +402,8 @@ func (p *PromptBuilder) UserMessage(req *LLMRequest) string {
 		sb.WriteString(fmt.Sprintf("[%d] %s\n", i+1, c.Symbol))
 		sb.WriteString(fmt.Sprintf("  Funding: %.2f%% | Daily ROI: %.1f%% | Projected TP1: %.2f%% | Score: %.0f/100\n",
 			c.FundingRate, c.DailyROI, c.ProjectedTP1Pct, c.CompositeScore))
-		sb.WriteString(fmt.Sprintf("  Score breakdown: funding=%.1f oi=%.1f btc=%.1f candle=%.1f vol=%.1f roi=%.1f volatility=%.1f\n",
-			c.ScoreBreakdown.Funding, c.ScoreBreakdown.OI, c.ScoreBreakdown.BTC,
+		sb.WriteString(fmt.Sprintf("  Score breakdown: funding=%.1f oi=%.1f oi_15m=%.1f btc=%.1f candle=%.1f vol=%.1f roi=%.1f volatility=%.1f\n",
+			c.ScoreBreakdown.Funding, c.ScoreBreakdown.OI, c.ScoreBreakdown.OI15m, c.ScoreBreakdown.BTC,
 			c.ScoreBreakdown.Candle, c.ScoreBreakdown.Volume, c.ScoreBreakdown.ROI, c.ScoreBreakdown.Volatility))
 		sb.WriteString(fmt.Sprintf("  RSI(14,15m): %.1f | RSI(7,5m): %.1f | OI delta 1h: +%.1f%% | OI delta 15m: +%.1f%%\n",
 			c.RSI14_15m, c.RSI7_5m, c.OIDelta1h, c.OIDelta15m))
@@ -417,6 +418,14 @@ func (p *PromptBuilder) UserMessage(req *LLMRequest) string {
 				sb.WriteString(" BEARISH_MOMENTUM_WEAK(stale setup — short-term RSI already reversed below 50)")
 			}
 			sb.WriteString("\n")
+		}
+		if req.MinutesToSettlement <= 6 {
+			if c.VolChange5m < 3 {
+				sb.WriteString(fmt.Sprintf("  Data flag: WEAK_VOLUME_CONFIRMATION — vol change 5m is %.1f%% (<3%%); LAST_MINUTE entries with weak 5m volume confirmation have historically underperformed.\n", c.VolChange5m))
+			}
+			if c.OIDelta15m > 1 {
+				sb.WriteString(fmt.Sprintf("  Data flag: OI_STILL_BUILDING — OI delta 15m is +%.1f%% (>1%%); this close to settlement it indicates leverage is still accumulating, not rolling over, which has historically correlated with a higher LAST_MINUTE loss rate.\n", c.OIDelta15m))
+			}
 		}
 		if len(c.CandlePatterns) > 0 {
 			sb.WriteString("  Bearish candle patterns: ")
@@ -485,8 +494,23 @@ func renderModeWinRates(sb *strings.Builder, rates map[string]LLMModeWinRate) {
 			continue
 		}
 		winPct := float64(wr.Wins) / float64(wr.Total) * 100
-		sb.WriteString(fmt.Sprintf("    %s: %d/%d trades won (%.0f%% win rate, %d losses)\n",
-			mode, wr.Wins, wr.Total, winPct, wr.Losses))
+		sb.WriteString(fmt.Sprintf("    %s: %d/%d trades won (%.0f%% win rate, %d losses)%s\n",
+			mode, wr.Wins, wr.Total, winPct, wr.Losses, winRateConfidenceTag(wr.Total)))
+	}
+}
+
+// winRateConfidenceTag returns a sample-size confidence caveat so the LLM
+// can't cite a thin streak (e.g. "9/9 wins") as strong evidence — see the
+// MODE WIN RATES guidance in the system prompt for how each tier should be
+// weighted.
+func winRateConfidenceTag(n int) string {
+	switch {
+	case n < 15:
+		return fmt.Sprintf(" — LOW CONFIDENCE (n=%d, small sample; weak tiebreaker only)", n)
+	case n < 30:
+		return fmt.Sprintf(" — MODERATE CONFIDENCE (n=%d)", n)
+	default:
+		return ""
 	}
 }
 
