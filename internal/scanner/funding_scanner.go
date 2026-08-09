@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 	"sort"
+	"strings"
 	"time"
 
 	"futures/internal/config"
@@ -38,9 +39,14 @@ func (s *FundingScanner) Scan(ctx context.Context) ([]domain.Candidate, error) {
 		droppedNoPrice    int
 		droppedInterval1h int
 		droppedWindow     int
+		droppedUSDC       int
 		candidates        []domain.Candidate
 	)
 	for symbol, rate := range rates {
+		if strings.HasSuffix(symbol, "USDC") {
+			droppedUSDC++
+			continue
+		}
 		if rate > s.cfg.MaxRate || rate < s.cfg.MinRate {
 			droppedRate++
 			continue
@@ -74,6 +80,7 @@ func (s *FundingScanner) Scan(ctx context.Context) ([]domain.Candidate, error) {
 
 	slog.Info("scan completed",
 		"total", len(rates),
+		"dropped_usdc", droppedUSDC,
 		"dropped_rate_filter", droppedRate,
 		"dropped_no_price", droppedNoPrice,
 		"dropped_1h_interval", droppedInterval1h,
