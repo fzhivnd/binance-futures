@@ -11,7 +11,8 @@ import (
 	"futures/internal/market"
 )
 
-// UserDataRouter dispatches ORDER_TRADE_UPDATE events to a handler.
+// UserDataRouter parses events from the /private/ws stream, which is opened
+// with events=ORDER_TRADE_UPDATE so no client-side msgType filtering is needed.
 type UserDataRouter struct {
 	handler func(UserDataEvent)
 }
@@ -21,9 +22,6 @@ func NewUserDataRouter(handler func(UserDataEvent)) *UserDataRouter {
 }
 
 func (r *UserDataRouter) Handle(msgType string, data []byte) {
-	if msgType != "ORDER_TRADE_UPDATE" {
-		return
-	}
 	var event UserDataEvent
 	if err := json.Unmarshal(data, &event); err != nil {
 		slog.Debug("parse ORDER_TRADE_UPDATE failed", "error", err)

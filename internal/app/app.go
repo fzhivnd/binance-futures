@@ -270,7 +270,7 @@ func (a *App) Run(
 		if err != nil {
 			return fmt.Errorf("create listenKey: %w", err)
 		}
-		userDataURL := a.cfg.Binance.WsURL + "/private/ws/" + listenKey
+		userDataURL := a.cfg.Binance.WsURL + "/private/ws?listenKey=" + listenKey + "&events=ORDER_TRADE_UPDATE"
 		userDataRouter := exchange.NewUserDataRouter(a.posMgr.HandleUserDataEvent)
 		a.wsUserData = exchange.NewWSConnection(
 			userDataURL,
