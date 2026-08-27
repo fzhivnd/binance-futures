@@ -55,8 +55,8 @@ database:
     db: 0
 
 scoring:
-  min_score: 40.0
-  min_score_override: 40.0
+  min_score: 47.0
+  min_score_override: 47.0
   # weights, thresholds, filtering, trading, funding, execution params → managed via scoring config in DB
 
 
@@ -74,7 +74,7 @@ llm:
   max_retries: 1
   max_rpm: 20
   top_candidates: 5
-  min_confidence: 60
+  min_confidence: 73
   frontrun_exec_interval_secs: 180  # execute best FRONTRUN intent every 5m
   call_cooldown_secs: 180           # skip LLM call if inputs unchanged within this window
 

@@ -17,8 +17,9 @@ import (
 	"futures/internal/scheduler"
 )
 
-const confluenceScoreThreshold = 40.0
+const confluenceScoreThreshold = 47.0
 const confluenceRSIThreshold = 50.0
+const staleReversalRSIThreshold = 35.0
 
 func (a *App) setSymbolCooldown(ctx context.Context, symbol string, decision string) {
 	cooldown := symbolCooldownDurationLLM
@@ -470,6 +471,25 @@ func (a *App) scanFn(ctx context.Context, window scheduler.WindowType) error {
 			"bearish_momentum_weak", sc.Indicators.BearishMomentumWeak,
 		)
 	}
+
+	staleFiltered := scored[:0]
+	for _, sc := range scored {
+		isStale := sc.Indicators.RSI7_5m < staleReversalRSIThreshold || sc.Candidate.DailyROI < 0
+		if isStale {
+			slog.Info("candidate excluded: stale reversal setup",
+				"symbol", sc.Candidate.Symbol,
+				"rsi7_5m", sc.Indicators.RSI7_5m,
+				"daily_roi", sc.Candidate.DailyROI,
+			)
+			continue
+		}
+		staleFiltered = append(staleFiltered, sc)
+	}
+	if len(staleFiltered) == 0 {
+		slog.Info("no candidates after stale-reversal gate", "window", window)
+		return nil
+	}
+	scored = staleFiltered
 
 	// Confluence gate: hard-block candidates without at least two independent
 	// pieces of reversal evidence. RSI7_5m>=confluenceRSIThreshold alone or a candle

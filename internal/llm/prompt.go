@@ -312,11 +312,9 @@ High squeeze risk should generally force: AFTER or SKIP.
 
 80-89: Strong edge.
 
-70-79: Good edge.
+73-79: Good edge.
 
-65-69: Marginal edge.
-
-<65" SKIP.
+<73: SKIP.
 
 Confidence should represent:
 Estimated probability that the chosen action has positive expected value.
@@ -343,7 +341,7 @@ json
 
 Rules:
 - Select exactly one candidate or SKIP.
-- Confidence < 65 → SKIP.
+- Confidence < 73 → SKIP.
 - Provide 1-3 reasons.
 - Provide warnings.
 - Think probabilistically.
