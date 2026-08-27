@@ -298,7 +298,7 @@ func (a *App) Run(
 			RetryDelay: 500 * time.Millisecond,
 			MaxRPM:     a.cfg.LLM.MaxRPM,
 		})
-		a.llmEngine = llm.NewDecisionEngine(llmClient)
+		a.llmEngine = llm.NewDecisionEngine(llmClient, a.cfg.LLM.MinConfidence)
 		slog.Info("LLM engine enabled", "model", a.cfg.LLM.Model)
 
 		if a.cfg.Execution.ForceSLEnabled {

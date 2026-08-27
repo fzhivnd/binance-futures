@@ -10,14 +10,16 @@ import (
 )
 
 type DecisionEngine struct {
-	client *Client
-	prompt *PromptBuilder
+	client        *Client
+	prompt        *PromptBuilder
+	minConfidence int
 }
 
-func NewDecisionEngine(client *Client) *DecisionEngine {
+func NewDecisionEngine(client *Client, minConfidence int) *DecisionEngine {
 	return &DecisionEngine{
-		client: client,
-		prompt: NewPromptBuilder(),
+		client:        client,
+		prompt:        NewPromptBuilder(),
+		minConfidence: minConfidence,
 	}
 }
 
@@ -96,7 +98,7 @@ func (e *DecisionEngine) Evaluate(
 	decision := mapResponseToDecision(resp, candidates)
 
 	// Enforce minimum confidence threshold
-	if decision.Action == "OPEN_SHORT" && decision.Confidence < 60 {
+	if decision.Action == "OPEN_SHORT" && decision.Confidence < e.minConfidence {
 		decision.Action = "SKIP"
 		decision.SkipReason = "LLM confidence below threshold"
 	}
