@@ -474,7 +474,7 @@ func (a *App) scanFn(ctx context.Context, window scheduler.WindowType) error {
 
 	staleFiltered := scored[:0]
 	for _, sc := range scored {
-		isStale := sc.Indicators.RSI7_5m < staleReversalRSIThreshold || sc.Candidate.DailyROI < 0
+		isStale := sc.Indicators.RSI7_5m < staleReversalRSIThreshold
 		if isStale {
 			slog.Info("candidate excluded: stale reversal setup",
 				"symbol", sc.Candidate.Symbol,
