@@ -27,6 +27,7 @@ type Config struct {
 	PreSettlement    PreSettlementConfig    `yaml:"pre_settlement"`
 	FundingAvoidance FundingAvoidanceConfig `yaml:"funding_avoidance"`
 	OrderBookFilter  OrderBookFilterConfig  `yaml:"order_book_filter"`
+	ProtectionSweep  ProtectionSweepConfig  `yaml:"protection_sweep"`
 }
 
 // AfterExecConfig controls the Phase 8 AfterTrigger and bid-depth sizing.
@@ -52,6 +53,16 @@ type PreSettlementConfig struct {
 type FundingAvoidanceConfig struct {
 	Enabled            bool `yaml:"enabled"`
 	CloseBeforeMinutes int  `yaml:"close_before_minutes"` // close all positions at T-Xm (default 30)
+}
+
+// ProtectionSweepConfig controls the periodic in-process self-heal sweep for
+// positions that were entered (market order placed, stub cached) but never
+// received SL/TP protection because the WS fill confirmation was missed or
+// the PendingEntry write failed/expired before it arrived.
+type ProtectionSweepConfig struct {
+	Enabled         bool `yaml:"enabled"`
+	IntervalSeconds int  `yaml:"interval_seconds"` // must stay well under the 70s PendingEntry TTL
+	GraceSeconds    int  `yaml:"grace_seconds"`    // skip stubs younger than this — let a normal WS fill land
 }
 
 // OrderBookFilterConfig controls the pre-scan thin-book guard.
@@ -421,6 +432,17 @@ func setDefaults(cfg *Config) {
 
 	if !cfg.FundingAvoidance.Enabled {
 		cfg.FundingAvoidance.Enabled = true
+	}
+
+	// ProtectionSweep defaults
+	if cfg.ProtectionSweep.IntervalSeconds == 0 {
+		cfg.ProtectionSweep.IntervalSeconds = 7
+	}
+	if cfg.ProtectionSweep.GraceSeconds == 0 {
+		cfg.ProtectionSweep.GraceSeconds = 5
+	}
+	if !cfg.ProtectionSweep.Enabled {
+		cfg.ProtectionSweep.Enabled = true
 	}
 
 	// OrderBookFilter defaults

@@ -1471,3 +1471,233 @@ func (m *PositionManager) checkFundingAvoidance(ctx context.Context) {
 		m.forceClose(ctx, pos, "funding_avoidance")
 	}
 }
+
+// ——————————————————————————————————————————————————————————
+// Protection sweep: self-heal positions whose entry fill confirmation
+// (WS ORDER_TRADE_UPDATE + PendingEntry lookup) never arrived, leaving a
+// stub position with no SL/TP, no DB trade record, and no notification.
+// ——————————————————————————————————————————————————————————
+
+// isUnprotectedStub reports whether pos was entered (an entry order was
+// placed and a stub cached) but never finalized with SL/TP — and has been
+// open at least graceDuration, so we don't race a normal in-flight WS fill.
+func isUnprotectedStub(pos domain.Position, grace time.Duration, now time.Time) bool {
+	if pos.SLOrderID != "" || pos.TPOrderID != "" {
+		return false
+	}
+	if pos.TradeID == uuid.Nil {
+		return false
+	}
+	return now.Sub(pos.OpenedAt) >= grace
+}
+
+// RunProtectionSweep starts the periodic sweep that detects and repairs
+// unprotected entry stubs, so a missed WS fill event doesn't require a
+// process restart to recover.
+func (m *PositionManager) RunProtectionSweep(ctx context.Context) {
+	if !m.cfg.ProtectionSweep.Enabled {
+		slog.Info("protection sweep disabled by config")
+		return
+	}
+	go m.protectionSweepLoop(ctx)
+}
+
+func (m *PositionManager) protectionSweepLoop(ctx context.Context) {
+	interval := time.Duration(m.cfg.ProtectionSweep.IntervalSeconds) * time.Second
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			m.sweepUnprotectedPositions(ctx)
+		}
+	}
+}
+
+func (m *PositionManager) sweepUnprotectedPositions(ctx context.Context) {
+	positions, err := m.cache.GetActivePositions(ctx)
+	if err != nil {
+		slog.Error("protection_sweep: get active positions failed", "error", err)
+		return
+	}
+	grace := time.Duration(m.cfg.ProtectionSweep.GraceSeconds) * time.Second
+	now := time.Now()
+	for _, pos := range positions {
+		if isUnprotectedStub(pos, grace, now) {
+			m.repairUnprotectedPosition(ctx, pos.Symbol)
+		}
+	}
+}
+
+// repairUnprotectedPosition re-verifies the stub under the per-symbol lock
+// (the same lock HandleUserDataEvent/check use) before acting, to avoid
+// racing a concurrent WS fill that finalizes the position independently.
+func (m *PositionManager) repairUnprotectedPosition(ctx context.Context, symbol string) {
+	mu := m.lockPosition(symbol)
+	defer mu.Unlock()
+
+	pos, err := m.cache.GetActivePosition(ctx, symbol)
+	if err != nil || pos == nil {
+		return
+	}
+	grace := time.Duration(m.cfg.ProtectionSweep.GraceSeconds) * time.Second
+	if !isUnprotectedStub(*pos, grace, time.Now()) {
+		return // resolved concurrently (e.g. a WS fill landed) — nothing to do
+	}
+
+	pending, err := m.cache.GetPendingEntry(ctx, pos.TradeID.String())
+	if err != nil {
+		slog.Error("protection_sweep: get pending entry failed", "symbol", symbol, "error", err)
+	}
+	if pending != nil {
+		slog.Warn("protection_sweep: recovering unprotected position via PendingEntry (tier 1)",
+			"symbol", symbol, "trade_id", pos.TradeID.String(),
+			"opened_secs_ago", time.Since(pos.OpenedAt).Seconds())
+		m.finalizeSLTP(ctx, pending, pos.EntryPrice, pos.OriginalQty, pos.OpenedAt)
+		return
+	}
+
+	slog.Error("protection_sweep: PendingEntry gone, falling back to emergency protect (tier 2)",
+		"symbol", symbol, "trade_id", pos.TradeID.String(),
+		"opened_secs_ago", time.Since(pos.OpenedAt).Seconds())
+	m.emergencyProtect(ctx, *pos)
+}
+
+// emergencyProtect places SL/TP for a position whose PendingEntry has
+// expired (or was never written), using conservative default percentages
+// instead of the original LLM-decided TpPct. It reuses pos.TradeID (does
+// NOT mint a new UUID) so the DB trade record shares identity with the
+// already-cached position. This is the degraded "recovered without
+// original decision context" path — callers must already hold the
+// per-symbol lock.
+func (m *PositionManager) emergencyProtect(ctx context.Context, pos domain.Position) {
+	entryPrice := pos.EntryPrice
+	qty := pos.OriginalQty
+	if qty == 0 {
+		qty = pos.Quantity
+	}
+
+	// Re-confirm against live exchange data — the stub's EntryPrice was only
+	// a pre-fill market estimate taken at order-placement time.
+	livePos, err := m.executor.GetPosition(ctx, pos.Symbol)
+	if err != nil {
+		slog.Warn("emergency_protect: could not re-confirm live position, using cached estimate",
+			"symbol", pos.Symbol, "error", err)
+	} else if livePos == nil {
+		// No live position at all — the entry order never actually filled,
+		// or the position was already closed by other means. Nothing to
+		// protect; clean up the stale stub instead of fabricating SL/TP at
+		// a bogus price.
+		slog.Error("emergency_protect: no live exchange position found, removing stale stub",
+			"symbol", pos.Symbol)
+		_ = m.cache.RemovePosition(ctx, pos.Symbol)
+		if m.notifier != nil {
+			m.notifier.NotifyRiskEvent(ctx, notify.RiskEvent{
+				Type: "emergency_protect_orphan",
+				Message: fmt.Sprintf(
+					"%s: cached unprotected stub had no matching live exchange position; removed from cache. Verify no residual exposure manually.",
+					pos.Symbol),
+			})
+		}
+		return
+	} else {
+		if livePos.EntryPrice > 0 {
+			entryPrice = livePos.EntryPrice
+		}
+		if livePos.Quantity > 0 {
+			qty = livePos.Quantity
+		}
+	}
+
+	slDistance := entryPrice * (m.cfg.Execution.SlPct / 100)
+	stopLoss := entryPrice + slDistance // SHORT: SL above entry
+	tpDistance := entryPrice * (m.cfg.Execution.TpPct / 100)
+	takeProfit := entryPrice - tpDistance // SHORT: TP below entry
+
+	slOrder, slErr := m.executor.PlaceStopMarketOrder(ctx, domain.OrderRequest{
+		Symbol:        pos.Symbol,
+		Side:          domain.SideBuy,
+		Type:          domain.OrderTypeStopMarket,
+		TriggerPrice:  stopLoss,
+		ClosePosition: true,
+	})
+	tpOrder, tpErr := m.executor.PlaceLimitOrder(ctx, domain.OrderRequest{
+		Symbol:     pos.Symbol,
+		Side:       domain.SideBuy,
+		Quantity:   qty,
+		Price:      takeProfit,
+		ReduceOnly: true,
+	})
+
+	if slErr != nil || tpErr != nil {
+		// Reuse the existing PendingProtection retry machinery (already
+		// polled every 1s by check()) instead of a third bespoke retry loop.
+		pp := domain.PendingProtection{
+			Symbol:     pos.Symbol,
+			NeedsSL:    slErr != nil,
+			NeedsTP:    tpErr != nil,
+			EntryPrice: entryPrice,
+			Quantity:   qty,
+			TP1Qty:     qty,
+			StopLoss:   stopLoss,
+			TakeProfit: takeProfit,
+		}
+		if err := m.cache.SetPendingProtection(ctx, pp); err != nil {
+			slog.Error("emergency_protect: set pending protection", "symbol", pos.Symbol, "error", err)
+		}
+		slog.Error("emergency_protect: SL and/or TP placement failed, handed off to retryProtection",
+			"symbol", pos.Symbol, "sl_err", slErr, "tp_err", tpErr)
+	}
+
+	pos.EntryPrice = entryPrice
+	pos.Quantity = qty
+	pos.OriginalQty = qty
+	pos.StopLoss = stopLoss
+	pos.TakeProfit = takeProfit
+	pos.HighSinceEntry = entryPrice
+	pos.LowSinceEntry = entryPrice
+	if slErr == nil && slOrder != nil {
+		pos.SLOrderID = slOrder.ClientOrderId
+	}
+	if tpErr == nil && tpOrder != nil {
+		pos.TPOrderID = tpOrder.ClientOrderId
+	}
+	if err := m.cache.SetActivePosition(ctx, pos); err != nil {
+		slog.Error("emergency_protect: update position", "symbol", pos.Symbol, "error", err)
+	}
+
+	trade := &domain.Trade{
+		ID:         pos.TradeID,
+		Symbol:     pos.Symbol,
+		Side:       pos.Side,
+		EntryMode:  pos.EntryMode,
+		Leverage:   pos.Leverage,
+		EntryPrice: entryPrice,
+		Quantity:   qty,
+		IsPaper:    pos.IsPaper,
+		CreatedAt:  pos.OpenedAt,
+	}
+	if err := m.tradeRepo.Insert(ctx, trade); err != nil {
+		slog.Error("emergency_protect: insert trade record", "symbol", pos.Symbol, "error", err)
+	}
+
+	slog.Warn("emergency_protect: position recovered without original decision context",
+		"symbol", pos.Symbol,
+		"entry", entryPrice,
+		"sl", stopLoss,
+		"tp", takeProfit,
+		"qty", qty,
+	)
+
+	if m.notifier != nil {
+		m.notifier.NotifyRiskEvent(ctx, notify.RiskEvent{
+			Type: "emergency_protect",
+			Message: fmt.Sprintf(
+				"%s: protection sweep recovered an unprotected position WITHOUT original decision context (PendingEntry expired). "+
+					"Applied default SL %.8g / TP %.8g at entry %.8g, qty %.8g. Verify manually.",
+				pos.Symbol, stopLoss, takeProfit, entryPrice, qty),
+		})
+	}
+}

@@ -114,3 +114,8 @@ order_book_filter:
   max_spread_bps: 15.0  # exclude if spread > 0.15%
   depth_ratio_n: 30.0   # ask wall between entry and SL must be >= 30× position notional
   depth_levels: 500      # order book levels to fetch per symbol
+
+protection_sweep:
+  enabled: true
+  interval_seconds: 60   # must stay well under the 70s PendingEntry TTL
+  grace_seconds: 30      # skip stubs younger than this — let a normal WS fill land first

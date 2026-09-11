@@ -412,6 +412,7 @@ func (a *App) Run(
 	go a.afterTrigger.Run(ctx)
 	a.posMgr.RunPreSettlementChecker(ctx)
 	a.posMgr.RunFundingAvoidance(ctx)
+	a.posMgr.RunProtectionSweep(ctx)
 
 	slog.Info("bot started", "mode", a.cfg.App.Mode)
 
